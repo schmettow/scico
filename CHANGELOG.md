@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Session journaling: content edits are written within 300 ms, while explicit
+  actions (open, save, close, tab switch, layout) still flush immediately.
 - The `Copy @key` action, the vector-store component, and the chunker component
   rendered blank icons. Copy now uses the `Copy` glyph; the store and chunker
   use `Layers` and `Columns3`, whose SVGs the rasteriser supports.

@@ -86,7 +86,9 @@ model.
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
   The session journal keeps the exact buffer text, so even a crash or a forced
-  shutdown reopens every tab, the active tab, caret, and pane layout.
+  shutdown reopens every tab, the active tab, caret, and pane layout. Content
+  edits are journaled within 300 ms; explicit actions such as open, save,
+  close, and layout changes flush immediately.
 
 ### Mark passages and co-edit
 

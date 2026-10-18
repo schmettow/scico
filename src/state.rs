@@ -79,6 +79,8 @@ pub struct AppState {
     pub settings_gutter: f32,
     /// Monotonic token that cancels an older caret-follow animation.
     scroll_generation: u64,
+    /// Monotonic token that keeps only the newest debounced session write.
+    session_generation: u64,
     /// Render raw Markdown instead of the live preview.
     pub raw_mode: bool,
     /// The status bar text.
@@ -196,6 +198,7 @@ impl AppState {
             agent_width,
             settings_gutter,
             scroll_generation: 0,
+            session_generation: 0,
             raw_mode,
             status,
             style,
@@ -410,9 +413,12 @@ impl AppState {
 
     /// Journal the window state atomically.
     ///
-    /// Called after every edit and every layout change. A snapshot is skipped
-    /// when nothing it records has changed, so moving the caret within one
-    /// character still costs a comparison rather than a disk write.
+    /// Explicit actions (open, save, close, tab switch, layout) call this
+    /// directly so they are durable immediately. Content edits go through
+    /// [`Self::schedule_session_save`], which debounces them by 300 ms. A
+    /// snapshot is skipped when nothing it records has changed, so moving the
+    /// caret within one character still costs a comparison rather than a disk
+    /// write.
     pub fn persist_session(&mut self, cx: &App) {
         let snapshot = self.session_snapshot(cx);
         if self.last_session.as_ref() == Some(&snapshot) {
@@ -422,6 +428,28 @@ impl AppState {
             Ok(()) => self.last_session = Some(snapshot),
             Err(error) => self.status = format!("Session not saved: {error}").into(),
         }
+    }
+
+    /// Debounce a session write after content edits.
+    ///
+    /// Each edit bumps the generation and starts a new 300 ms timer; only the
+    /// newest timer writes, so a burst of keystrokes costs one journal update.
+    /// Explicit actions call [`Self::persist_session`] directly instead.
+    fn schedule_session_save(&mut self, cx: &mut Context<Self>) {
+        self.session_generation = self.session_generation.wrapping_add(1);
+        let generation = self.session_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            let still_current = this
+                .update(cx, |this, _| this.session_generation == generation)
+                .unwrap_or(false);
+            if still_current {
+                let _ = this.update(cx, |this, cx| this.persist_session(cx));
+            }
+        })
+        .detach();
     }
 
     /// Open a file, or switch to it when already open.
@@ -951,7 +979,7 @@ impl AppState {
             // next edit, save, or close journal them. Writing (and fsyncing) the
             // whole session on every arrow key is what made key repeat stutter.
             if content_changed {
-                this.persist_session(cx);
+                this.schedule_session_save(cx);
             }
             // Hover repaints and table affordances notify the editor too; they
             // do not change anything the rest of the window shows.

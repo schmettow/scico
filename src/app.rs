@@ -1483,6 +1483,11 @@ mod tests {
             });
         });
         type_into_active(cx, &app, "recovered draft");
+        // The journal debounces edits; a real window would close (flush) before
+        // the next launch. Flush here to model that boundary.
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| state.persist_session(cx));
+        });
 
         // A second window on the same persistence paths is the next launch.
         let (restored, cx) = mount_at(cx, settings, session);
@@ -1536,6 +1541,11 @@ mod tests {
             });
         });
         type_into_active(cx, &app, " edited");
+        // The journal debounces edits; flush at the simulated close boundary.
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| state.persist_session(cx));
+        });
 
         let (restored, cx) = mount_at(cx, settings, session);
         cx.update(|_, cx| {
