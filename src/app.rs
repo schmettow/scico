@@ -1249,7 +1249,7 @@ impl SciscraperApp {
                     .size_full()
                     .px_4()
                     .py_4()
-                    .text_size(px(16.))
+                    .text_size(px(font_size))
                     .text_color(theme.foreground)
                     .child(body),
             )
