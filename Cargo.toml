@@ -1,0 +1,26 @@
+[package]
+name = "sciscraper-gpui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "A scientific Markdown editor with integrated RAG co-writing and reference management"
+readme = "README.md"
+repository = "https://github.com/schmettow/sciscraper-gpui"
+keywords = ["markdown", "editor", "rag", "llm", "gpui"]
+categories = ["text-editors", "gui"]
+
+[dependencies]
+blake3 = "1.5"
+comrak = "0.22"
+dirs = "5"
+gpui-kit = "0.7.3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+open = "5"
+ragrig-gpui = { path = "../ragrig-gpui", version = "0.2.0", features = ["grobid"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zorite-editor = "0.11.2"
+
+[dev-dependencies]
+gpui-kit = { version = "0.7.3", features = ["test-support"] }
