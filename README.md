@@ -10,6 +10,20 @@ The defining feature is the **roundtrip**: the agent reads the document, the
 bibliography, and a marked passage; its answer can replace the marked passage
 in place, guarded by a digest of the version you marked.
 
+## Editor backends
+
+- **`zorite` (default)** — live-preview Markdown editor, including inline
+  images, tables, math, and clickable PDF/EPUB/HTML chips.
+- **`gpuikit`** — GPUI Kit's source editor with a rendered Markdown preview
+  beside it. Build with `cargo run --no-default-features --features gpuikit`.
+  The source editor owns scrolling and has virtualized layout; the preview
+  renders inline images and tables. The two features are mutually exclusive.
+
+`gpui-kit 0.7.3`'s optional `tree-sitter-markdown` feature currently requires
+`tree-sitter ^0.26.13`, which is not published on crates.io (latest is 0.26.9),
+so the gpuikit backend deliberately builds without Tree-sitter highlighting
+until that upstream packaging issue is fixed.
+
 Status: **working prototype**. The editor, RAG chat, library, reference
 management, settings, and co-edit roundtrip are implemented. The public API is
 not stabilised.
@@ -217,7 +231,8 @@ sciscraper-gpui
   app_settings.rs Overview, Library, and Editor settings pages
   settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
-  theme.rs        zorite SyntaxStyle from the GPUI Kit theme
+  theme.rs        zorite SyntaxStyle, or the gpuikit theme placeholder
+  document.rs     backend-selected editor entity + EditorSurface implementation
         │
 ragrig-gpui (path dependency)
   editor/         EditorSurface + RoundtripHost + Roundtrip; containers, digest guard
@@ -280,6 +295,9 @@ selection capture, and guarded write-back plus undo in a headless GPUI window.
 - PDFs open in the configured external viewer; there is no embedded PDF reader.
 - `$$…$$` math and mermaid blocks are edited as source (no typesetting or
   diagram rendering); `zorite-editor` accepts host providers for both.
+- The `gpuikit` backend shows inline images and tables in the rendered preview,
+  not as atomic objects inside the source editor. Markdown syntax highlighting
+  waits on the upstream `tree-sitter` 0.26.13 packaging blocker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the
   path environment variables.
 - Closing a dirty tab is still refused with a status message; the window-close

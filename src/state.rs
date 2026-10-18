@@ -4,18 +4,19 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use gpui_kit::{
-    App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window, point, px,
-};
+use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
+#[cfg(feature = "zorite")]
+use gpui_kit::{point, px};
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
     SelectionSnapshot, replace_at, verified_bytes,
 };
 use ragrig_gpui::{ChatProvider, RagChanges, RagController, RagSettings};
-use zorite_editor::{EditorEvent, SyntaxStyle};
+#[cfg(feature = "zorite")]
+use zorite_editor::EditorEvent;
 
-use crate::document::{Document, line_column, read_document, title_for};
+use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_for};
 use crate::session::{SessionDocument, SessionState};
 use crate::settings::PersistedSettings;
 use crate::theme::syntax_style;
@@ -63,6 +64,7 @@ pub struct AppState {
     /// Empty gutter on the right of the settings surface.
     pub settings_gutter: f32,
     /// Monotonic token that cancels an older caret-follow animation.
+    #[cfg(feature = "zorite")]
     scroll_generation: u64,
     /// Monotonic token that keeps only the newest debounced session write.
     session_generation: u64,
@@ -182,6 +184,7 @@ impl AppState {
             library_width,
             agent_width,
             settings_gutter,
+            #[cfg(feature = "zorite")]
             scroll_generation: 0,
             session_generation: 0,
             raw_mode,
@@ -344,9 +347,7 @@ impl AppState {
                 },
             );
             self.subscribe_editor(&document.editor, id, cx);
-            document
-                .editor
-                .update(cx, |editor, cx| editor.set_cursor(snapshot.cursor, cx));
+            document.set_cursor(snapshot.cursor, cx);
             let mut document = document;
             document.saved_text = saved_text;
             document.dirty = dirty;
@@ -585,12 +586,12 @@ impl AppState {
         let Some((id, editor)) = self
             .documents
             .get(index)
-            .map(|document| (document.id, document.editor.clone()))
+            .map(|document| (document.id, document.focus_handle(cx)))
         else {
             return;
         };
         self.active = index;
-        window.focus(&editor.read(cx).focus_handle(cx), cx);
+        window.focus(&editor, cx);
         self.persist_session(cx);
         self.follow_caret(id, cx);
         cx.notify();
@@ -616,15 +617,18 @@ impl AppState {
             return;
         }
         self.raw_mode = raw;
-        let style = self.style.clone();
-        for document in &self.documents {
-            document.editor.update(cx, |editor, cx| {
-                if raw {
-                    editor.clear_markdown_style(cx);
-                } else {
-                    editor.set_markdown_style(style.clone(), cx);
-                }
-            });
+        #[cfg(feature = "zorite")]
+        {
+            let style = self.style.clone();
+            for document in &self.documents {
+                document.editor.update(cx, |editor, cx| {
+                    if raw {
+                        editor.clear_markdown_style(cx);
+                    } else {
+                        editor.set_markdown_style(style.clone(), cx);
+                    }
+                });
+            }
         }
         self.settings.raw_mode = raw;
         self.persist(cx);
@@ -734,6 +738,7 @@ impl AppState {
         &mut self,
         target: ReplacementTarget,
         text: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> ReplacementOutcome {
         if text.is_empty() {
@@ -758,7 +763,7 @@ impl AppState {
             };
         };
         if let Some(document) = self.document(target.document_id) {
-            document.replace(bytes, text, cx);
+            document.replace(bytes, text, window, cx);
         }
         if let Some(document) = self.document_mut(target.document_id) {
             document.dirty = true;
@@ -818,11 +823,14 @@ impl AppState {
 
     /// Keep the caret inside the editor viewport with one direct scroll.
     ///
-    /// The editor auto-grows; this is the host scroll view. One frame is
-    /// allowed for the keystroke's layout, then the caret bounds are read. If
-    /// the scroll offset moved while waiting, the user is scrolling: abort
-    /// instead of fighting the gesture. Each call bumps a generation, so key
-    /// repeat retargets the follow rather than stacking scroll tasks.
+    /// The zorite editor auto-grows and leaves scrolling to the host. The
+    /// gpuikit editor owns its viewport, so it needs no host follow at all.
+    /// One frame is allowed for the keystroke's layout, then the caret bounds
+    /// are read. If the scroll offset moved while waiting, the user is
+    /// scrolling: abort instead of fighting the gesture. Each call bumps a
+    /// generation, so key repeat retargets the follow rather than stacking
+    /// scroll tasks.
+    #[cfg(feature = "zorite")]
     fn follow_caret(&mut self, id: u64, cx: &mut Context<Self>) {
         if self.active_document().map(|document| document.id) != Some(id) {
             return;
@@ -900,12 +908,11 @@ impl AppState {
         .detach();
     }
 
-    fn subscribe_editor(
-        &mut self,
-        editor: &Entity<zorite_editor::EditorState>,
-        id: u64,
-        cx: &mut Context<Self>,
-    ) {
+    #[cfg(feature = "gpuikit")]
+    fn follow_caret(&mut self, _id: u64, _cx: &mut Context<Self>) {}
+
+    fn subscribe_editor(&mut self, editor: &Entity<EditorState>, id: u64, cx: &mut Context<Self>) {
+        #[cfg(feature = "zorite")]
         cx.subscribe(
             editor,
             move |this, _, event: &EditorEvent, cx| match event {
@@ -936,21 +943,21 @@ impl AppState {
 
         // The editor changes its content without a `Changed` event on undo and
         // redo. Observe every notification and compare with the saved text, so
-        // the dirty marker and the status bar cannot go stale.
-        cx.observe(editor, move |this, editor, cx| {
+        // the dirty marker and the status bar cannot go stale. This is also the
+        // only hook the gpuikit editor needs: it owns its viewport.
+        cx.observe(editor, move |this, _editor, cx| {
+            let Some((text, cursor)) = this
+                .document(id)
+                .map(|document| (document.text(cx), document.cursor_position(cx)))
+            else {
+                return;
+            };
             let Some(document) = this.document_mut(id) else {
                 return;
             };
-            let (dirty, chars, cursor, digest) = {
-                let editor = editor.read(cx);
-                let text = editor.text();
-                (
-                    text != document.saved_text,
-                    text.chars().count(),
-                    line_column(text, editor.cursor()),
-                    *blake3::hash(text.as_bytes()).as_bytes(),
-                )
-            };
+            let dirty = text != document.saved_text;
+            let chars = text.chars().count();
+            let digest = *blake3::hash(text.as_bytes()).as_bytes();
             let content_changed = digest != document.content_digest;
             let dirty_changed = dirty != document.dirty;
             let cursor_moved = cursor != document.cursor;
@@ -1006,10 +1013,12 @@ impl RoundtripHost for AppStateHost {
         &self,
         target: ReplacementTarget,
         text: &str,
+        window: &mut Window,
         cx: &mut App,
     ) -> ReplacementOutcome {
-        self.state
-            .update(cx, |state, cx| state.apply_replacement(target, text, cx))
+        self.state.update(cx, |state, cx| {
+            state.apply_replacement(target, text, window, cx)
+        })
     }
 }
 

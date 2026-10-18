@@ -51,10 +51,20 @@ struct PendingTurn {
     target: Option<PendingSelection>,
 }
 
+/// A direct-edit answer waiting for the next render's window.
+struct PendingWrite {
+    target: ReplacementTarget,
+    text: String,
+    message: MessageId,
+    empty_prose: bool,
+}
+
 /// The Sciscraper SciCo pane.
 pub struct AgentPane {
     state: Entity<AppState>,
     roundtrip: Roundtrip,
+    /// A direct-edit answer waiting for the next render's window.
+    pending_write: Option<PendingWrite>,
     chat: Entity<ChatView>,
     composer: Entity<Composer>,
     pending: Option<PendingTurn>,
@@ -99,6 +109,7 @@ impl AgentPane {
         let this = Self {
             state,
             roundtrip,
+            pending_write: None,
             chat,
             composer,
             pending: None,
@@ -658,45 +669,18 @@ impl AgentPane {
                 range: target.context.range().unwrap_or(0..0),
                 digest: target.context.digest().to_owned(),
             };
-            let outcome = self.roundtrip.apply(target, &block.body, cx);
-            match outcome {
-                ReplacementOutcome::Applied { message } => {
-                    if empty_prose {
-                        self.chat.update(cx, |chat, cx| {
-                            chat.set_message_text(pending.message, "Replacement applied.", cx);
-                        });
-                    }
-                    self.chat
-                        .update(cx, |chat, cx| chat.push_system(message.clone(), cx));
-                    self.set_status(message, cx);
-                }
-                ReplacementOutcome::Offered { text, reason } => {
-                    if empty_prose {
-                        self.chat.update(cx, |chat, cx| {
-                            chat.set_message_text(pending.message, "Replacement ready.", cx);
-                        });
-                    }
-                    self.chat.update(cx, |chat, cx| {
-                        chat.push_system(
-                            format!(
-                                "Replacement not applied: {reason}. Use Insert above the composer."
-                            ),
-                            cx,
-                        );
-                    });
-                    self.offer = Some(ReplacementOffer { text, reason });
-                    self.set_status("Replacement ready — Insert above the composer", cx);
-                }
-                ReplacementOutcome::Empty => {
-                    self.chat.update(cx, |chat, cx| {
-                        chat.push_system(
-                            "The answer carried an empty replacement; nothing was written.",
-                            cx,
-                        );
-                    });
-                    self.set_status("Answer complete", cx);
-                }
+            self.pending_write = Some(PendingWrite {
+                target,
+                text: block.body.clone(),
+                message: pending.message,
+                empty_prose,
+            });
+            if empty_prose {
+                self.chat.update(cx, |chat, cx| {
+                    chat.set_message_text(pending.message, "Replacement ready.", cx);
+                });
             }
+            self.set_status("Applying replacement…", cx);
         } else {
             self.offer = Some(ReplacementOffer {
                 text: block.body.clone(),
@@ -711,6 +695,54 @@ impl AgentPane {
                     cx,
                 );
             });
+        }
+    }
+
+    /// Apply a direct-edit answer now that a window is available.
+    fn apply_pending_write(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(pending) = self.pending_write.take() else {
+            return;
+        };
+        let outcome = self
+            .roundtrip
+            .apply(pending.target, &pending.text, window, cx);
+        match outcome {
+            ReplacementOutcome::Applied { message } => {
+                if pending.empty_prose {
+                    self.chat.update(cx, |chat, cx| {
+                        chat.set_message_text(pending.message, "Replacement applied.", cx);
+                    });
+                }
+                self.chat
+                    .update(cx, |chat, cx| chat.push_system(message.clone(), cx));
+                self.set_status(message, cx);
+            }
+            ReplacementOutcome::Offered { text, reason } => {
+                if pending.empty_prose {
+                    self.chat.update(cx, |chat, cx| {
+                        chat.set_message_text(pending.message, "Replacement ready.", cx);
+                    });
+                }
+                self.chat.update(cx, |chat, cx| {
+                    chat.push_system(
+                        format!(
+                            "Replacement not applied: {reason}. Use Insert above the composer."
+                        ),
+                        cx,
+                    );
+                });
+                self.offer = Some(ReplacementOffer { text, reason });
+                self.set_status("Replacement ready — Insert above the composer", cx);
+            }
+            ReplacementOutcome::Empty => {
+                self.chat.update(cx, |chat, cx| {
+                    chat.push_system(
+                        "The answer carried an empty replacement; nothing was written.",
+                        cx,
+                    );
+                });
+                self.set_status("Answer complete", cx);
+            }
         }
     }
 
@@ -862,7 +894,8 @@ impl AgentPane {
 }
 
 impl Render for AgentPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.apply_pending_write(window, cx);
         let controller = self.controller(cx);
         let (sessions, current, busy, components, status) = {
             let controller = controller.read(cx);

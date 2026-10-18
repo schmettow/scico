@@ -8,6 +8,7 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
             ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
             zorite_editor::bind_keys(cx);
             app::bind_keys(cx);
 

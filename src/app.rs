@@ -3,18 +3,20 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
+#[cfg(feature = "zorite")]
+use gpui_kit::ScrollHandle;
+#[cfg(feature = "zorite")]
+use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::{
-    App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
+    AnyElement, App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, PathPromptOptions,
-    Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
-    Window, actions,
+    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    actions,
     assets::IconName,
     component::{
         ActiveTheme as _, ResizableState, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
-        h_flex, h_resizable, resizable_panel,
-        scroll::Scrollbar,
-        v_flex,
+        h_flex, h_resizable, resizable_panel, v_flex,
     },
     div,
     prelude::FluentBuilder as _,
@@ -78,9 +80,13 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("cmd-,", ToggleSettings, None),
         KeyBinding::new("escape", CancelClose, None),
-        // zorite-editor binds Alt+Arrows; authors on Linux also expect the
-        // conventional Ctrl+Arrow word jumps. Scope them to the editor so the
-        // composer's own word navigation is untouched.
+    ]);
+
+    // The gpui-kit editor owns its keymap, including word jumps and page
+    // movement. The zorite backend needs the conventional Linux bindings and
+    // the host-side page actions because it does not install them itself.
+    #[cfg(feature = "zorite")]
+    cx.bind_keys([
         KeyBinding::new("ctrl-left", zorite_editor::WordLeft, Some("Editor")),
         KeyBinding::new("ctrl-right", zorite_editor::WordRight, Some("Editor")),
         KeyBinding::new(
@@ -190,8 +196,7 @@ impl SciscraperApp {
         });
 
         if let Some(document) = state.read(cx).active_document() {
-            let editor = document.editor.clone();
-            let handle = editor.read(cx).focus_handle(cx);
+            let handle = document.focus_handle(cx);
             window.focus(&handle, cx);
         }
 
@@ -365,7 +370,8 @@ impl SciscraperApp {
     }
 
     /// Move or extend the caret by one viewport using the editor's own
-    /// goal-column movement.
+    /// goal-column movement. The gpuikit editor binds page movement itself.
+    #[cfg(feature = "zorite")]
     fn editor_page(&mut self, up: bool, select: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some((editor, scroll)) = self
             .state
@@ -398,6 +404,16 @@ impl SciscraperApp {
                 (false, true) => window.dispatch_action(Box::new(zorite_editor::SelectDown), cx),
             }
         }
+    }
+
+    #[cfg(feature = "gpuikit")]
+    fn editor_page(
+        &mut self,
+        _up: bool,
+        _select: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
     }
 
     fn toggle_agent(&mut self, _: &ToggleAgent, _: &mut Window, cx: &mut Context<Self>) {
@@ -933,7 +949,53 @@ impl SciscraperApp {
         bar
     }
 
-    fn editor(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn editor(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        #[cfg(feature = "zorite")]
+        {
+            self.editor_zorite(window, cx)
+        }
+        #[cfg(feature = "gpuikit")]
+        {
+            let _ = window;
+            self.editor_gpuikit(cx)
+        }
+    }
+
+    fn empty_editor(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme.background)
+            .child(
+                v_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_lg()
+                            .text_color(theme.muted_foreground)
+                            .child("No document open"),
+                    )
+                    .child(
+                        Button::new("empty-new")
+                            .label("New document")
+                            .icon(IconName::Plus)
+                            .primary()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.state
+                                    .update(cx, |state, cx| state.new_document(window, cx));
+                            })),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    #[cfg(feature = "zorite")]
+    fn editor_zorite(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let editor = {
             let state = self.state.read(cx);
@@ -946,35 +1008,7 @@ impl SciscraperApp {
             })
         };
         let Some((editor, scroll_id, scroll_cell)) = editor else {
-            return div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme.background)
-                .child(
-                    v_flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_lg()
-                                .text_color(theme.muted_foreground)
-                                .child("No document open"),
-                        )
-                        .child(
-                            Button::new("empty-new")
-                                .label("New document")
-                                .icon(IconName::Plus)
-                                .primary()
-                                .small()
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.state
-                                        .update(cx, |state, cx| state.new_document(window, cx));
-                                })),
-                        ),
-                )
-                .into_any_element();
+            return self.empty_editor(cx);
         };
         let scroll = window
             .use_keyed_state(scroll_id.clone(), cx, |_, _| ScrollHandle::new())
@@ -1015,6 +1049,66 @@ impl SciscraperApp {
                     .left(px(0.))
                     .size_full()
                     .child(Scrollbar::vertical(&scroll).viewport_from_layout()),
+            )
+            .into_any_element()
+    }
+
+    #[cfg(feature = "gpuikit")]
+    fn editor_gpuikit(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let active = {
+            let state = self.state.read(cx);
+            state
+                .active_document()
+                .map(|document| (document.editor.clone(), document.text(cx), state.raw_mode))
+        };
+        let Some((editor, text, raw)) = active else {
+            return self.empty_editor(cx);
+        };
+        let source = div().flex_1().min_w(px(0.)).h_full().child(
+            gpui_kit::component::input::Editor::new(&editor)
+                .bordered(false)
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(cx.theme().mono_font_size)
+                .h_full(),
+        );
+        let body = if raw {
+            source.into_any_element()
+        } else {
+            h_flex()
+                .size_full()
+                .child(source)
+                .child(div().w(px(1.)).h_full().bg(theme.border))
+                .child(
+                    div()
+                        .id("editor-preview-scroll")
+                        .flex_1()
+                        .min_w(px(0.))
+                        .h_full()
+                        .overflow_y_scroll()
+                        .px_6()
+                        .py_4()
+                        .child(gpui_kit::component::text::TextView::markdown(
+                            "editor-preview",
+                            text,
+                        )),
+                )
+                .into_any_element()
+        };
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .relative()
+            .bg(theme.background)
+            .child(
+                div()
+                    .size_full()
+                    .px_4()
+                    .py_4()
+                    .text_size(px(16.))
+                    .text_color(theme.foreground)
+                    .child(body),
             )
             .into_any_element()
     }
@@ -1217,6 +1311,7 @@ mod tests {
     fn mount(cx: &mut TestAppContext) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -1233,6 +1328,7 @@ mod tests {
     ) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -1242,17 +1338,15 @@ mod tests {
     }
 
     fn type_into_active(cx: &mut VisualTestContext, app: &Entity<SciscraperApp>, text: &str) {
-        let editor = cx.update(|_, cx| {
+        let handle = cx.update(|_, cx| {
             app.read(cx)
                 .state
                 .read(cx)
                 .active_document()
                 .expect("a document")
-                .editor
-                .clone()
+                .focus_handle(cx)
         });
         cx.update(|window, cx| {
-            let handle = editor.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
         });
         cx.simulate_input(text);
@@ -1422,7 +1516,7 @@ mod tests {
                 .pending_selection_guard()
                 .expect("a captured selection")
         });
-        let outcome = cx.update(|_, cx| {
+        let outcome = cx.update(|window, cx| {
             let state = app.read(cx).state.clone();
             state.update(cx, |state, cx| {
                 state.apply_replacement(
@@ -1432,6 +1526,7 @@ mod tests {
                         digest: digest.clone(),
                     },
                     "new passage",
+                    window,
                     cx,
                 )
             })
@@ -1448,7 +1543,7 @@ mod tests {
         });
 
         // A stale digest is offered, never written.
-        let outcome = cx.update(|_, cx| {
+        let outcome = cx.update(|window, cx| {
             let state = app.read(cx).state.clone();
             state.update(cx, |state, cx| {
                 state.apply_replacement(
@@ -1458,6 +1553,7 @@ mod tests {
                         digest,
                     },
                     "stale text",
+                    window,
                     cx,
                 )
             })
@@ -1511,6 +1607,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "zorite")]
     #[gpui_kit::test]
     fn page_keys_move_by_a_viewport(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -1680,9 +1777,7 @@ mod tests {
             state.update(cx, |state, cx| {
                 if let Some(document) = state.active_document() {
                     let end = document.text(cx).len();
-                    document
-                        .editor
-                        .update(cx, |editor, cx| editor.set_cursor(end, cx));
+                    document.set_cursor(end, cx);
                 }
             });
         });

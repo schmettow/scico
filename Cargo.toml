@@ -10,6 +10,11 @@ repository = "https://github.com/schmettow/sciscraper-gpui"
 keywords = ["markdown", "editor", "rag", "llm", "gpui"]
 categories = ["text-editors", "gui"]
 
+[features]
+default = ["zorite"]
+zorite = ["dep:zorite-editor"]
+gpuikit = []
+
 [dependencies]
 blake3 = "1.5"
 comrak = "0.22"
@@ -20,7 +25,7 @@ open = "5"
 ragrig-gpui = { path = "../ragrig-gpui", version = "0.2.0", features = ["grobid"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zorite-editor = "0.11.2"
+zorite-editor = { version = "0.11.2", optional = true }
 
 [dev-dependencies]
 gpui-kit = { version = "0.7.3", features = ["test-support"] }

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`gpuikit` editor backend** behind a mutually exclusive feature. The source
+  editor owns scrolling and virtualization, and a rendered Markdown preview
+  beside it keeps inline images and tables visible. `zorite` remains the
+  default. Both backends implement the same `EditorSurface` / `RoundtripHost`
+  contract, so the agent and roundtrip logic are unchanged.
 - **Roundtrip contract moved to `ragrig-gpui::editor`.** `Document` implements
   `EditorSurface`, `AppStateHost` implements `RoundtripHost`, and `AgentPane`
   holds a `Roundtrip` façade. The containers, digest guard, and replacement
@@ -31,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Roundtrip write-back now carries `&mut Window`, so a replacement can be
+  applied from the render path with both backends.
 - The RAG page now contains only Chat, Retrieval, Parsing and chunking, and
   Memory. Profiles and Apply moved to Overview and are no longer a section in
   the page hierarchy.
