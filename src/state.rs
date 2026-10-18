@@ -805,12 +805,13 @@ impl AppState {
         }
     }
 
-    /// Keep the caret inside the editor viewport with an eased scroll.
+    /// Keep the caret inside the editor viewport with one direct scroll.
     ///
-    /// The editor auto-grows; this is the host scroll view. Running after a
-    /// short delay lets the caret bounds reflect the frame the keystroke just
-    /// produced. Each call bumps a generation, so key repeat retargets the
-    /// animation instead of stacking scroll tasks.
+    /// The editor auto-grows; this is the host scroll view. One frame is
+    /// allowed for the keystroke's layout, then the caret bounds are read. If
+    /// the scroll offset moved while waiting, the user is scrolling: abort
+    /// instead of fighting the gesture. Each call bumps a generation, so key
+    /// repeat retargets the follow rather than stacking scroll tasks.
     fn follow_caret(&mut self, id: u64, cx: &mut Context<Self>) {
         if self.active_document().map(|document| document.id) != Some(id) {
             return;
@@ -823,59 +824,67 @@ impl AppState {
         self.scroll_generation = self.scroll_generation.wrapping_add(1);
         let generation = self.scroll_generation;
         cx.spawn(async move |this, cx| {
-            let mut computed = None;
+            let start = f32::from(scroll.offset().y);
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            let still_current = this
+                .update(cx, |this, _| this.scroll_generation == generation)
+                .unwrap_or(false);
+            if !still_current || (f32::from(scroll.offset().y) - start).abs() > 0.5 {
+                return;
+            }
+
+            // A paint may still carry the previous caret row. Retry a few
+            // frames before giving up; the offset must stay put throughout.
+            let mut target = None;
             for attempt in 0..3u64 {
-                cx.background_executor()
-                    .timer(Duration::from_millis(8 + attempt * 16))
-                    .await;
-                let still_current = this
-                    .update(cx, |this, _| this.scroll_generation == generation)
-                    .unwrap_or(false);
-                if !still_current {
-                    return;
+                if attempt > 0 {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
+                    let still_current = this
+                        .update(cx, |this, _| this.scroll_generation == generation)
+                        .unwrap_or(false);
+                    if !still_current || (f32::from(scroll.offset().y) - start).abs() > 0.5 {
+                        return;
+                    }
                 }
-                computed = cx.update(|cx| {
+                target = cx.update(|cx| {
                     let caret = editor.read(cx).caret_screen_bounds()?;
                     let viewport = scroll.bounds();
                     if viewport.size.height <= px(0.) {
                         return None;
                     }
                     let margin = px(64.);
-                    let mut target = f32::from(scroll.offset().y);
+                    let mut offset = f32::from(scroll.offset().y);
                     if caret.top() < viewport.top() + margin {
-                        target += f32::from(viewport.top() + margin - caret.top());
+                        offset += f32::from(viewport.top() + margin - caret.top());
                     } else if caret.bottom() > viewport.bottom() - margin {
-                        target -= f32::from(caret.bottom() - (viewport.bottom() - margin));
+                        offset -= f32::from(caret.bottom() - (viewport.bottom() - margin));
                     }
                     let max = f32::from(scroll.max_offset().y);
-                    Some((f32::from(scroll.offset().y), target.clamp(-max, 0.0)))
+                    Some(offset.clamp(-max, 0.0))
                 });
-                if computed.is_some() {
+                if target.is_some() {
                     break;
                 }
             }
-            let Some((start, target)) = computed else {
+            let Some(target) = target else {
                 return;
             };
+            let start = f32::from(scroll.offset().y);
             if (target - start).abs() < 1.0 {
                 return;
             }
-            for step in 1..=10 {
-                cx.background_executor()
-                    .timer(Duration::from_millis(14))
-                    .await;
-                let still_current = this
-                    .update(cx, |this, _| this.scroll_generation == generation)
-                    .unwrap_or(false);
-                if !still_current {
-                    return;
-                }
-                let t = step as f32 / 10.0;
-                let eased = 1.0 - (1.0 - t).powi(3);
-                let y = start + (target - start) * eased;
-                scroll.set_offset(point(px(0.), px(y)));
-                let _ = this.update(cx, |_, cx| cx.notify());
+            let still_current = this
+                .update(cx, |this, _| this.scroll_generation == generation)
+                .unwrap_or(false);
+            if !still_current {
+                return;
             }
+            scroll.set_offset(point(px(0.), px(target)));
+            let _ = this.update(cx, |_, cx| cx.notify());
         })
         .detach();
     }
