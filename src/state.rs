@@ -886,25 +886,32 @@ impl AppState {
         id: u64,
         cx: &mut Context<Self>,
     ) {
-        cx.subscribe(editor, move |this, _, event: &EditorEvent, cx| {
-            if let EditorEvent::OpenLink(target) = event {
-                let target = target.as_ref();
-                let path = Path::new(target);
-                let resolved = if path.is_absolute() || target.contains("://") {
-                    path.to_path_buf()
-                } else {
-                    this.document(id)
-                        .and_then(|document| document.path.as_deref())
-                        .and_then(Path::parent)
-                        .map(|parent| parent.join(path))
-                        .unwrap_or_else(|| path.to_path_buf())
-                };
-                match this.open_external(&resolved) {
-                    Ok(()) => cx.notify(),
-                    Err(error) => this.set_status(error, cx),
-                };
-            }
-        })
+        cx.subscribe(
+            editor,
+            move |this, _, event: &EditorEvent, cx| match event {
+                EditorEvent::OpenLink(target) => {
+                    let target = target.as_ref();
+                    let path = Path::new(target);
+                    let resolved = if path.is_absolute() || target.contains("://") {
+                        path.to_path_buf()
+                    } else {
+                        this.document(id)
+                            .and_then(|document| document.path.as_deref())
+                            .and_then(Path::parent)
+                            .map(|parent| parent.join(path))
+                            .unwrap_or_else(|| path.to_path_buf())
+                    };
+                    match this.open_external(&resolved) {
+                        Ok(()) => cx.notify(),
+                        Err(error) => this.set_status(error, cx),
+                    };
+                }
+                EditorEvent::Changed | EditorEvent::SelectionChanged => {
+                    this.follow_caret(id, cx);
+                }
+                _ => {}
+            },
+        )
         .detach();
 
         // The editor changes its content without a `Changed` event on undo and
@@ -935,7 +942,6 @@ impl AppState {
             if content_changed {
                 this.persist_session(cx);
             }
-            this.follow_caret(id, cx);
             cx.notify();
         })
         .detach();
