@@ -6,17 +6,19 @@ stabilised.
 
 ## Now
 
-- Keep the roundtrip experience solid: selection capture, guarded write-back,
-  SciCo edit mode, and complete crash-safe session restore.
+- Keep the roundtrip experience solid across both editor backends: selection
+  capture, guarded write-back, SciCo edit mode, and complete crash-safe session
+  restore.
 - Polish the settings surface: profiles, pending-change marks, and a resizable
   controls column.
-- Keep the editor usable without the mouse: caret-follow scrolling, word-wise
+- Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
 
 ## Next
 
-- Extract the Markdown editor into a reusable component with host-supplied
-  block providers for file chips, math, images, and PDF embeds.
+- Bring the `gpuikit` backend to parity: inline images and tables in the source
+  surface where feasible, PDF chips, and Markdown syntax highlighting once
+  `gpui-kit` can depend on a published `tree-sitter` 0.26.13.
 - Deepen reference management: richer viewer routing, corpus maintenance, and
   citation insertion workflows.
 - Exercise the full pipeline against a live GROBID server and larger corpora.
