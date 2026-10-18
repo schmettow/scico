@@ -811,6 +811,9 @@ impl AppState {
             .document(id)
             .map(|document| document.preview.clone())
             .expect("the document is still open");
+        // Arm the guard before the preview notifies its observer, so the
+        // programmatic scroll cannot be mistaken for a user scroll.
+        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(120));
         let shown = preview.read(cx).list_state().logical_scroll_top().item_ix;
         if shown != block_ix && preview.read(cx).list_state().item_count() > block_ix {
             preview.update(cx, |preview, cx| {
@@ -821,7 +824,6 @@ impl AppState {
                 cx.notify();
             });
         }
-        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(120));
         if let Some(document) = self.document_mut(id) {
             document.preview_top = block_ix;
         }
