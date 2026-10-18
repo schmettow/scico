@@ -98,10 +98,18 @@ model.
 
 - Type in the source editor. Markdown (including Quarto `.qmd`), BibTeX, and
   LaTeX files are highlighted by the grammar that matches their extension.
+- **Settings → Editor** chooses the editor font family and size. The first
+  launch picks an installed writing-oriented monospace family (JetBrains Mono,
+  Fira Mono, Hack, and similar, in that order) at 150% of the theme's mono
+  size. `Ctrl`+wheel over the editor zooms: wheel down increases the size,
+  wheel up decreases it.
 - **Preview** (toolbar, `Ctrl+Shift+E`) shows or hides the rendered preview in
   the `gpuikit` backend. The preview header has its own collapse button and a
-  **scroll-sync** toggle; drag-free `Ctrl+Shift+E` also restores a collapsed
-  preview. When sync is on, scrolling either side moves the other.
+  **scroll-sync** toggle. When sync is on, the preview follows the Markdown
+  block at the top of the source viewport; a paragraph or heading leaves the
+  preview when it leaves the code window, rather than the two panes drifting
+  by pixel fraction. Scrolling the preview likewise moves the source to the
+  matching block.
 - The `zorite` backend keeps its **Preview / Raw** behaviour on the same
   shortcut: it switches every tab between live preview and raw Markdown.
 - Images referenced as `![](figure.png)` render inline relative to the
@@ -195,7 +203,8 @@ of the controls column and the chosen width is remembered.
   reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
-  preview (zorite); Scico visibility; and the default document attachment.
+  preview (zorite); editor font family and size; Scico visibility; and the
+  default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
   and memory. The token budgets are sliders over powers of two (512, 1024,
   2048, …).
@@ -241,7 +250,7 @@ author's mark decides where the edit lands.
 sciscraper-gpui
   app.rs          toolbar, tabs, layout, actions, file dialogs
   state.rs        documents, workspace, settings, replacement write-back
-  document.rs     EditorState per tab, save, selection, image/PDF providers
+  document.rs     EditorState and TextViewState per tab, save, selection, images
   highlight.rs    incremental Syntect highlighter and Markdown/BibTeX grammars
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
@@ -296,14 +305,16 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 44 tests covering the protocol, digest guard, multi-byte
-ranges, replacement extraction, settings persistence, external viewer routing,
-the atomic session journal, context budgeting, PDF ingestion naming, window
-mounting, typing, Ctrl+Arrow word movement, multiple-selection capture,
-direct-edit mode, undo/dirty tracking, preview and settings toggling, pane
-toggling, the unsaved-changes close guard, crash recovery into a second window,
-selection capture, guarded write-back plus undo in a headless GPUI window,
-incremental Markdown/BibTeX highlighting, and bidirectional scroll sync.
+Current suite: 45 unit tests plus the protocol integration test, covering the
+protocol, digest guard, multi-byte ranges, replacement extraction, settings
+persistence, external viewer routing, the atomic session journal, context
+budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow word
+movement, multiple-selection capture, direct-edit mode, undo/dirty tracking,
+preview and settings toggling, pane toggling, the unsaved-changes close guard,
+crash recovery into a second window, selection capture, guarded write-back plus
+undo in a headless GPUI window, incremental Markdown/BibTeX highlighting,
+editor font defaults and Ctrl-wheel zoom, and block-level scroll sync in both
+directions.
 
 ## Known limitations
 
@@ -318,8 +329,9 @@ incremental Markdown/BibTeX highlighting, and bidirectional scroll sync.
 - `$$…$$` math and mermaid blocks are edited as source (no typesetting or
   diagram rendering); the zorite backend accepts host providers for both.
 - The `gpuikit` backend shows inline images and tables in the rendered preview,
-  not as atomic objects inside the source editor. Its preview is a rendered
-  view, so scroll sync maps reading fractions, not identical lines.
+  not as atomic objects inside the source editor. Scroll sync maps top-level
+  Markdown blocks; the preview parser and comrak can disagree on exotic
+  constructs, in which case the two panes can be one block apart.
 - The Syntect grammars are packaged with the binary; themes still come from
   the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the

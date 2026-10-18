@@ -7,9 +7,10 @@ use std::time::Duration;
 use std::time::Instant;
 
 #[cfg(feature = "gpuikit")]
-use gpui_kit::ScrollHandle;
-#[cfg(feature = "gpuikit")]
 use gpui_kit::base::input::RopeExt as _;
+#[cfg(feature = "gpuikit")]
+use gpui_kit::base::text::TextViewState;
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 #[cfg(any(feature = "zorite", feature = "gpuikit"))]
 use gpui_kit::{point, px};
@@ -73,13 +74,14 @@ pub struct AppState {
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface.
     pub settings_gutter: f32,
-    /// The preview viewport, shared with the renderer.
-    #[cfg(feature = "gpuikit")]
-    preview_scroll: ScrollHandle,
+    /// Editor font family; empty follows the theme monospace.
+    pub editor_font: String,
+    /// Editor font size in pixels.
+    pub editor_font_size: f32,
     /// While set, editor notifications must not drive the preview; the editor
     /// is still applying a scroll that originated in the preview.
     #[cfg(feature = "gpuikit")]
-    preview_sync_suppressed_until: Option<Instant>,
+    pub(crate) preview_sync_suppressed_until: Option<Instant>,
     /// Cancels an older deferred preview refresh.
     #[cfg(feature = "gpuikit")]
     preview_sync_generation: u64,
@@ -189,6 +191,19 @@ impl AppState {
             persisted.agent_width,
         );
         let settings_gutter = gutter_width(persisted.settings_gutter);
+        let editor_font = if persisted.editor_font.trim().is_empty() {
+            preferred_editor_font(cx)
+        } else {
+            persisted.editor_font.clone()
+        };
+        let editor_font_size =
+            if persisted.editor_font_size.is_finite() && persisted.editor_font_size > 0.0 {
+                persisted
+                    .editor_font_size
+                    .clamp(MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE)
+            } else {
+                default_editor_font_size(cx)
+            };
         let mut state = Self {
             settings: persisted,
             settings_path,
@@ -212,8 +227,8 @@ impl AppState {
             library_width,
             agent_width,
             settings_gutter,
-            #[cfg(feature = "gpuikit")]
-            preview_scroll: ScrollHandle::new(),
+            editor_font,
+            editor_font_size,
             #[cfg(feature = "gpuikit")]
             preview_sync_suppressed_until: None,
             #[cfg(feature = "gpuikit")]
@@ -326,6 +341,9 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
+        #[cfg(feature = "gpuikit")]
+        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        #[cfg(feature = "zorite")]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -381,6 +399,9 @@ impl AppState {
                     raw: self.raw_mode,
                 },
             );
+            #[cfg(feature = "gpuikit")]
+            self.subscribe_editor(&document.editor, &document.preview, id, cx);
+            #[cfg(feature = "zorite")]
             self.subscribe_editor(&document.editor, id, cx);
             document.set_cursor(snapshot.cursor, cx);
             let mut document = document;
@@ -514,6 +535,9 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
+        #[cfg(feature = "gpuikit")]
+        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        #[cfg(feature = "zorite")]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -678,6 +702,44 @@ impl AppState {
         self.set_status(if raw { "Raw Markdown" } else { "Live preview" }, cx);
     }
 
+    /// The configured editor font, or the theme's monospace family.
+    pub fn editor_font_family(&self, cx: &App) -> SharedString {
+        if self.editor_font.trim().is_empty() {
+            cx.theme().mono_font_family.clone()
+        } else {
+            self.editor_font.clone().into()
+        }
+    }
+
+    /// Choose the editor font family.
+    pub fn set_editor_font(&mut self, font: String, cx: &mut Context<Self>) {
+        if self.editor_font == font {
+            return;
+        }
+        self.editor_font = font;
+        self.settings.editor_font = self.editor_font.clone();
+        self.persist(cx);
+        cx.notify();
+    }
+
+    /// Set the editor font size in pixels, clamped to the supported range.
+    pub fn set_editor_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let size = (size * 2.0).round() / 2.0;
+        let size = size.clamp(MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE);
+        if (self.editor_font_size - size).abs() < f32::EPSILON {
+            return;
+        }
+        self.editor_font_size = size;
+        self.settings.editor_font_size = size;
+        self.persist(cx);
+        self.set_status(format!("Editor font {size} px"), cx);
+    }
+
+    /// Zoom the editor font by `delta` pixels, as Ctrl+wheel does.
+    pub fn zoom_editor_font(&mut self, delta: f32, cx: &mut Context<Self>) {
+        self.set_editor_font_size(self.editor_font_size + delta, cx);
+    }
+
     /// Show or hide the rendered preview beside the source editor.
     pub fn set_show_preview(&mut self, show: bool, cx: &mut Context<Self>) {
         if self.show_preview == show {
@@ -722,75 +784,7 @@ impl AppState {
         );
     }
 
-    /// The preview viewport, for the renderer to track.
-    #[cfg(feature = "gpuikit")]
-    pub fn preview_scroll(&self) -> ScrollHandle {
-        self.preview_scroll.clone()
-    }
-
-    /// Schedule a source follow-up after the user scrolled the preview.
-    ///
-    /// The wheel event arrives before the preview's native scrolling, so the
-    /// offset is read on the next frame.
-    #[cfg(feature = "gpuikit")]
-    pub fn preview_scroll_changed(&mut self, cx: &mut Context<Self>) {
-        if !self.sync_scroll || !self.show_preview {
-            return;
-        }
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
-            let _ = this.update(cx, |this, cx| this.apply_preview_scroll(cx));
-        })
-        .detach();
-    }
-
-    #[cfg(feature = "gpuikit")]
-    fn apply_preview_scroll(&mut self, cx: &mut Context<Self>) {
-        if !self.sync_scroll || !self.show_preview {
-            return;
-        }
-        let max = f32::from(self.preview_scroll.max_offset().y).abs();
-        if max <= 0.0 {
-            return;
-        }
-        let offset = (-f32::from(self.preview_scroll.offset().y)).clamp(0.0, max);
-        let fraction = offset / max;
-        let Some((id, editor)) = self
-            .active_document()
-            .map(|document| (document.id, document.editor.clone()))
-        else {
-            return;
-        };
-        let Some(max_editor) = editor_max_scroll(editor.read(cx)) else {
-            return;
-        };
-
-        // The editor applies its new offset on the next layout. Suppress the
-        // editor-to-preview direction until then, or the preview would jump
-        // back to the editor's old fraction.
-        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(220));
-        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
-        let generation = self.preview_sync_generation;
-        editor.update(cx, |editor, cx| {
-            editor.set_scroll_offset(point(px(0.), px(-fraction * max_editor)), cx);
-        });
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(240))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.preview_sync_generation == generation {
-                    this.preview_sync_suppressed_until = None;
-                    this.sync_preview_to_editor(id, cx);
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// Move the preview to the editor's current fraction of its scroll range.
+    /// Move the preview to the source block at the top of the editor.
     #[cfg(feature = "gpuikit")]
     fn sync_preview_to_editor(&mut self, id: u64, cx: &mut Context<Self>) {
         if !self.sync_scroll || !self.show_preview {
@@ -807,22 +801,126 @@ impl AppState {
         }
         self.preview_sync_suppressed_until = None;
 
-        let Some(fraction) = self
+        let Some(block_ix) = self
             .document(id)
-            .and_then(|document| editor_scroll_fraction(document.editor.read(cx)))
+            .and_then(|document| source_top_block(document, cx))
         else {
             return;
         };
-        let max = f32::from(self.preview_scroll.max_offset().y).abs();
-        if max <= 0.0 {
+        let preview = self
+            .document(id)
+            .map(|document| document.preview.clone())
+            .expect("the document is still open");
+        let shown = preview.read(cx).list_state().logical_scroll_top().item_ix;
+        if shown != block_ix && preview.read(cx).list_state().item_count() > block_ix {
+            preview.update(cx, |preview, cx| {
+                preview.list_state().scroll_to(gpui_kit::ListOffset {
+                    item_ix: block_ix,
+                    offset_in_item: px(0.),
+                });
+                cx.notify();
+            });
+        }
+        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(120));
+        if let Some(document) = self.document_mut(id) {
+            document.preview_top = block_ix;
+        }
+    }
+
+    /// Schedule a source follow-up once the editor has laid out a new scroll
+    /// position; `range_to_bounds` reads the previous frame.
+    #[cfg(feature = "gpuikit")]
+    fn schedule_source_sync(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
+        let generation = self.preview_sync_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.preview_sync_generation == generation {
+                    this.sync_preview_to_editor(id, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Re-align once the preview has parsed the text an edit produced.
+    #[cfg(feature = "gpuikit")]
+    fn schedule_preview_sync(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
+        let generation = self.preview_sync_generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(220))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.preview_sync_generation == generation {
+                    this.preview_sync_suppressed_until = None;
+                    this.sync_preview_to_editor(id, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// The user scrolled the preview; put the matching block at the top of the
+    /// editor.
+    #[cfg(feature = "gpuikit")]
+    fn preview_top_changed(
+        &mut self,
+        id: u64,
+        preview: &Entity<TextViewState>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.sync_scroll || !self.show_preview {
             return;
         }
-        let target = -fraction * max;
-        if (f32::from(self.preview_scroll.offset().y) - target).abs() < 1.0 {
+        if self
+            .preview_sync_suppressed_until
+            .is_some_and(|until| Instant::now() < until)
+        {
             return;
         }
-        self.preview_scroll.set_offset(point(px(0.), px(target)));
-        cx.notify();
+
+        let (top, line, total, editor) = {
+            let Some(document) = self.document(id) else {
+                return;
+            };
+            if &document.preview != preview {
+                return;
+            }
+            let text = document.text(cx);
+            if preview.read(cx).rendered_text().source() != text.as_str() {
+                return;
+            }
+            let top = preview.read(cx).list_state().logical_scroll_top().item_ix;
+            let Some(block) = document.blocks.get(top) else {
+                return;
+            };
+            let total = document.editor.read(cx).text().lines_len().max(1);
+            let line = block.start_line;
+            if document.preview_top == top {
+                return;
+            }
+            (top, line, total, document.editor.clone())
+        };
+        let Some(max_editor) = editor_max_scroll(editor.read(cx)) else {
+            return;
+        };
+        let fraction = (line as f32 / total as f32).clamp(0.0, 1.0);
+
+        // The editor applies its new offset on the next layout. Suppress the
+        // preview direction until then, or the two would fight.
+        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(250));
+        editor.update(cx, |editor, cx| {
+            editor.set_scroll_offset(point(px(0.), px(-fraction * max_editor)), cx);
+        });
+        if let Some(document) = self.document_mut(id) {
+            document.preview_top = top;
+        }
+        self.schedule_preview_sync(id, cx);
     }
 
     #[cfg(feature = "gpuikit")]
@@ -929,6 +1027,8 @@ impl AppState {
         self.settings.agent_width = self.agent_width;
         self.settings.settings_gutter = self.settings_gutter;
         self.settings.raw_mode = self.raw_mode;
+        self.settings.editor_font = self.editor_font.clone();
+        self.settings.editor_font_size = self.editor_font_size;
         if let Err(error) = self.settings.save(&self.settings_path) {
             self.status = error.into();
         }
@@ -1112,7 +1212,13 @@ impl AppState {
     #[cfg(feature = "gpuikit")]
     fn follow_caret(&mut self, _id: u64, _cx: &mut Context<Self>) {}
 
-    fn subscribe_editor(&mut self, editor: &Entity<EditorState>, id: u64, cx: &mut Context<Self>) {
+    fn subscribe_editor(
+        &mut self,
+        editor: &Entity<EditorState>,
+        #[cfg(feature = "gpuikit")] preview: &Entity<TextViewState>,
+        id: u64,
+        cx: &mut Context<Self>,
+    ) {
         #[cfg(feature = "zorite")]
         cx.subscribe(
             editor,
@@ -1170,6 +1276,15 @@ impl AppState {
             // next edit, save, or close journal them. Writing (and fsyncing) the
             // whole session on every arrow key is what made key repeat stutter.
             if content_changed {
+                #[cfg(feature = "gpuikit")]
+                {
+                    this.preview_sync_suppressed_until =
+                        Some(Instant::now() + Duration::from_millis(220));
+                    if let Some(document) = this.document_mut(id) {
+                        document.refresh_preview(&text, cx);
+                    }
+                    this.schedule_preview_sync(id, cx);
+                }
                 this.schedule_session_save(cx);
             }
             // Hover repaints and table affordances notify the editor too; they
@@ -1178,7 +1293,27 @@ impl AppState {
                 cx.notify();
             }
             #[cfg(feature = "gpuikit")]
-            this.sync_preview_to_editor(id, cx);
+            {
+                let offset = this
+                    .document(id)
+                    .map(|document| f32::from(document.editor.read(cx).scroll_offset().y))
+                    .unwrap_or(0.0);
+                let changed = this
+                    .document(id)
+                    .is_some_and(|document| (document.preview_source_offset - offset).abs() > 0.5);
+                if changed {
+                    if let Some(document) = this.document_mut(id) {
+                        document.preview_source_offset = offset;
+                    }
+                    this.schedule_source_sync(id, cx);
+                }
+            }
+        })
+        .detach();
+
+        #[cfg(feature = "gpuikit")]
+        cx.observe(preview, move |this, preview, cx| {
+            this.preview_top_changed(id, &preview, cx);
         })
         .detach();
     }
@@ -1276,15 +1411,109 @@ fn panel_width(value: f32, fallback: f32) -> f32 {
     }
 }
 
-/// The editor's current position as a fraction of its scroll range.
-#[cfg(feature = "gpuikit")]
-fn editor_scroll_fraction(editor: &EditorState) -> Option<f32> {
-    let max = editor_max_scroll(editor)?;
-    if max <= 0.0 {
-        return Some(0.0);
+/// The supported editor font-size range, in pixels.
+pub const MIN_EDITOR_FONT_SIZE: f32 = 8.0;
+/// The supported editor font-size range, in pixels.
+pub const MAX_EDITOR_FONT_SIZE: f32 = 48.0;
+
+/// Monospace families that are pleasant for long-form writing, best first.
+const PREFERRED_EDITOR_FONTS: &[&str] = &[
+    "JetBrains Mono",
+    "Fira Mono",
+    "Hack",
+    "Cascadia Code",
+    "Source Code Pro",
+    "IBM Plex Mono",
+    "Inconsolata",
+    "Cousine",
+    "Go Mono",
+    "DejaVu Sans Mono",
+];
+
+/// A preferred installed monospace family, or the theme's monospace family.
+fn preferred_editor_font(cx: &App) -> String {
+    let available = cx.text_system().all_font_names();
+    for preferred in PREFERRED_EDITOR_FONTS {
+        if let Some(name) = available
+            .iter()
+            .find(|name| name.eq_ignore_ascii_case(preferred))
+        {
+            return name.clone();
+        }
     }
-    let offset = -f32::from(editor.scroll_offset().y);
-    Some((offset / max).clamp(0.0, 1.0))
+    cx.theme().mono_font_family.to_string()
+}
+
+/// 150% of the theme's monospace size, so the first launch is comfortable.
+fn default_editor_font_size(cx: &App) -> f32 {
+    (f32::from(cx.theme().mono_font_size) * 1.5).clamp(MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE)
+}
+
+/// Whether a family name looks like a monospace face.
+pub fn is_monospace_font(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    [
+        "mono",
+        "code",
+        "hack",
+        "courier",
+        "consolas",
+        "menlo",
+        "monaco",
+        "iosevka",
+        "inconsolata",
+        "cousine",
+        "victor",
+    ]
+    .iter()
+    .any(|marker| name.contains(marker))
+}
+
+/// The block at the top of the editor's viewport.
+///
+/// `range_to_bounds` maps offsets above the visible layout to the first visible
+/// line, so walking up from an estimate derived from the pixel scroll offset
+/// finds the first fully or partially visible logical line without needing the
+/// editor's private display map. This is what makes the preview jump with
+/// paragraphs instead of drifting proportionally.
+#[cfg(feature = "gpuikit")]
+fn source_top_block(document: &Document, cx: &App) -> Option<usize> {
+    if document.blocks.is_empty() {
+        return None;
+    }
+    let editor = document.editor.read(cx);
+    let line_height = f32::from(editor.line_height()?);
+    if line_height <= 0.0 {
+        return None;
+    }
+    let first_top = editor.range_to_bounds(&(0..1))?.top();
+    let text = editor.text();
+    let line_count = text.lines_len();
+    if line_count == 0 {
+        return None;
+    }
+
+    let estimate = (-f32::from(editor.scroll_offset().y) / line_height).max(0.0);
+    let mut line = if estimate.is_finite() {
+        (estimate.floor() as usize).min(line_count - 1)
+    } else {
+        0
+    };
+    loop {
+        let start = text.line_start_offset(line);
+        if let Some(bounds) = editor.range_to_bounds(&(start..start + 1))
+            && bounds.top() <= first_top + px(0.5)
+        {
+            break;
+        }
+        if line == 0 {
+            break;
+        }
+        line -= 1;
+    }
+
+    let byte = text.line_start_offset(line);
+    Some(document.block_for_byte(byte))
 }
 
 /// The largest vertical offset the editor can scroll to.

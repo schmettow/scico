@@ -168,6 +168,10 @@ pub struct PersistedSettings {
     pub settings_gutter: f32,
     /// Start in raw markdown rather than live preview.
     pub raw_mode: bool,
+    /// Editor font family; empty follows the theme's monospace family.
+    pub editor_font: String,
+    /// Editor font size in pixels; zero follows 150% of the theme mono size.
+    pub editor_font_size: f32,
     /// External programs for PDF, EPUB, and HTML files.
     pub viewers: ExternalViewers,
 }
@@ -215,6 +219,8 @@ impl Default for PersistedSettings {
             agent_width: 430.0,
             settings_gutter: 360.0,
             raw_mode: false,
+            editor_font: String::new(),
+            editor_font_size: 0.0,
             viewers: ExternalViewers::default(),
         }
     }

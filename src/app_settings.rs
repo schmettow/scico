@@ -13,7 +13,7 @@ use gpui_kit::{
         ActiveTheme as _, Disableable as _, Sizable as _,
         button::Button,
         h_flex,
-        setting::{SettingField, SettingGroup, SettingItem, SettingPage},
+        setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage},
         v_flex,
     },
     div,
@@ -24,7 +24,7 @@ use crate::settings::ViewerKind;
 use crate::state::AppState;
 use ragrig_gpui::{
     Changes, RagChanges, RagField, RagSection, SettingRow, dirty_color, dirty_header,
-    dropdown_control, path_control, path_setting, text_control,
+    dropdown_control, number_control, path_control, path_setting, text_control,
 };
 
 /// A live view of the unsaved RAG settings.
@@ -517,31 +517,81 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
         },
     );
 
+    let font_row = SettingRow::new(
+        "Editor font",
+        dropdown_control(
+            "editor-font",
+            {
+                let state = state.clone();
+                move |cx| editor_font_options(cx, state.read(cx).editor_font.as_str())
+            },
+            {
+                let state = state.clone();
+                move |cx| state.read(cx).editor_font_family(cx).to_string()
+            },
+            {
+                let state = state.clone();
+                move |value, cx| {
+                    state.update(cx, |state, cx| state.set_editor_font(value, cx));
+                }
+            },
+        ),
+    )
+    .description("Monospace family used by the source editor.")
+    .into_item();
+    let font_size_row = SettingRow::new(
+        "Font size",
+        number_control(
+            "editor-font-size",
+            NumberFieldOptions {
+                min: 8.0,
+                max: 48.0,
+                step: 0.5,
+            },
+            {
+                let state = state.clone();
+                move |cx| state.read(cx).editor_font_size as f64
+            },
+            {
+                let state = state.clone();
+                move |value, cx| {
+                    state.update(cx, |state, cx| {
+                        state.set_editor_font_size(value as f32, cx);
+                    });
+                }
+            },
+        ),
+    )
+    .description("Pixels. Ctrl+wheel over the editor zooms; wheel up zooms out.")
+    .into_item();
+
     let editor_group = {
         let group = SettingGroup::new().title("Editor");
         #[cfg(feature = "gpuikit")]
-        let group =
-            {
-                let show_preview = state_switch(
-                    state.clone(),
-                    |state| state.show_preview,
-                    |state, value, cx| state.set_show_preview(value, cx),
-                );
-                let sync_scroll = state_switch(
-                    state.clone(),
-                    |state| state.sync_scroll,
-                    |state, value, cx| state.set_sync_scroll(value, cx),
-                );
-                group
-                    .item(
-                        SettingItem::new("Rendered preview", show_preview).description(
-                            "Show the Markdown preview beside the source; Ctrl+Shift+E toggles it.",
-                        ),
-                    )
-                    .item(SettingItem::new("Sync scroll", sync_scroll).description(
-                        "Keep the source and the preview at the same reading position.",
-                    ))
-            };
+        let group = {
+            let show_preview = state_switch(
+                state.clone(),
+                |state| state.show_preview,
+                |state, value, cx| state.set_show_preview(value, cx),
+            );
+            let sync_scroll = state_switch(
+                state.clone(),
+                |state| state.sync_scroll,
+                |state, value, cx| state.set_sync_scroll(value, cx),
+            );
+            group
+                .item(font_row)
+                .item(font_size_row)
+                .item(
+                    SettingItem::new("Rendered preview", show_preview).description(
+                        "Show the Markdown preview beside the source; Ctrl+Shift+E toggles it.",
+                    ),
+                )
+                .item(
+                    SettingItem::new("Sync scroll", sync_scroll)
+                        .description("Keep the source and the preview on the same Markdown block."),
+                )
+        };
         #[cfg(feature = "zorite")]
         let group = {
             let live_preview = state_switch(
@@ -549,7 +599,7 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
                 |state| !state.raw_mode,
                 |state, value, cx| state.set_raw_mode(!value, cx),
             );
-            group.item(
+            group.item(font_row).item(font_size_row).item(
                 SettingItem::new("Live preview", live_preview)
                     .description("Off shows raw Markdown; Ctrl+Shift+E toggles it."),
             )
@@ -570,6 +620,29 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
                     .description("Ride the active buffer with every question."),
             ),
         )
+}
+
+/// Installed monospace families, plus the current family when it is not one.
+fn editor_font_options(cx: &App, current: &str) -> Vec<(SharedString, SharedString)> {
+    let theme_family = cx.theme().mono_font_family.to_string();
+    let mut names: Vec<String> = cx
+        .text_system()
+        .all_font_names()
+        .into_iter()
+        .filter(|name| crate::state::is_monospace_font(name))
+        .collect();
+    names.sort_by_key(|name| name.to_ascii_lowercase());
+    names.dedup();
+    if !names.iter().any(|name| name == &theme_family) {
+        names.insert(0, theme_family);
+    }
+    if !current.trim().is_empty() && !names.iter().any(|name| name == current) {
+        names.push(current.to_owned());
+    }
+    names
+        .into_iter()
+        .map(|name| (name.clone().into(), name.into()))
+        .collect()
 }
 
 fn viewer_field(

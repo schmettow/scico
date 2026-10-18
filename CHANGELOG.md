@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Editor font settings**: **Settings → Editor** now offers a monospace
+  family picker (installed families, filtered to monospace faces) and a font
+  size control. The first launch prefers JetBrains Mono, Fira Mono, Hack, or a
+  similar installed writing font and starts at 150% of the theme's mono size.
+- **Ctrl+wheel zoom**: over the editor, wheel down enlarges the font and wheel
+  up shrinks it; the size is persisted.
+- **Block-level preview sync**: the preview follows the top-level Markdown
+  block (heading, paragraph, list, table, fenced block) at the top of the
+  source viewport. Blocks are mapped with comrak source positions and the
+  preview is scrolled through `TextViewState`'s list, so paragraphs leave the
+  preview when they leave the code window instead of drifting by pixel
+  fraction. Scrolling the preview moves the source to the matching block.
 - Quarto `.qmd` files open like Markdown: the file dialog accepts them, and the
   editor highlights them with the Markdown grammar.
 - **Syntax highlighting** in the `gpuikit` backend. A language-independent
@@ -55,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`gpuikit` is now the default backend.** `cargo run` opens the source editor
   and rendered preview; the live-preview `zorite` backend is opt-in with
   `--no-default-features --features zorite`. The README documents both.
+- Scroll sync now jumps with rendered Markdown blocks instead of mapping a pixel
+  fraction; the preview is itself scrollable and exposes its top block.
 - The Editor settings page follows the backend: rendered preview visibility and
   scroll sync for `gpuikit`, live preview for `zorite`.
 - Roundtrip write-back now carries `&mut Window`, so a replacement can be

@@ -23,6 +23,8 @@ use image::Frame;
 use ragrig_gpui::editor::{EditorSurface, byte_to_char_index};
 
 #[cfg(feature = "gpuikit")]
+use gpui_kit::base::text::TextViewState;
+#[cfg(feature = "gpuikit")]
 pub use gpui_kit::component::input::EditorState;
 #[cfg(feature = "zorite")]
 pub use zorite_editor::{EditorState, SyntaxStyle};
@@ -55,6 +57,18 @@ pub struct Document {
     pub scroll_id: ElementId,
     /// Digest of the last journaled buffer, so cursor-only changes stay cheap.
     pub content_digest: [u8; 32],
+    /// The preview view rendered beside the source editor.
+    #[cfg(feature = "gpuikit")]
+    pub preview: Entity<TextViewState>,
+    /// Top-level Markdown blocks and their source positions.
+    #[cfg(feature = "gpuikit")]
+    pub blocks: Vec<SourceBlock>,
+    /// The preview's current top block, to avoid feedback loops.
+    #[cfg(feature = "gpuikit")]
+    pub preview_top: usize,
+    /// The editor scroll offset the preview was last synced from.
+    #[cfg(feature = "gpuikit")]
+    pub preview_source_offset: f32,
 }
 
 /// The data needed to create a document.
@@ -71,11 +85,57 @@ pub struct DocumentInit {
     pub raw: bool,
 }
 
+/// One top-level Markdown block and where it starts in the source.
+#[cfg(feature = "gpuikit")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceBlock {
+    /// Zero-based source line.
+    pub start_line: usize,
+    /// Byte offset of [`Self::start_line`].
+    pub start_byte: usize,
+}
+
+/// Split the source into the top-level blocks the preview renders.
+///
+/// The preview parser and comrak disagree only in rare edge cases; both treat
+/// a heading, paragraph, list, table, and fenced block as one top-level block.
+#[cfg(feature = "gpuikit")]
+pub fn source_blocks(text: &str) -> Vec<SourceBlock> {
+    let mut options = comrak::Options::default();
+    options.extension.table = true;
+    options.extension.strikethrough = true;
+    options.extension.tasklist = true;
+    options.extension.autolink = true;
+
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, text, &options);
+    let mut blocks = Vec::new();
+    let mut line_start = 0usize;
+    let mut line = 0usize;
+
+    for node in root.children() {
+        let start_line = node.data.borrow().sourcepos.start.line.saturating_sub(1);
+        while line < start_line {
+            line_start += text[line_start..]
+                .find('\n')
+                .map_or(text.len() - line_start, |end| end + 1);
+            line += 1;
+        }
+        blocks.push(SourceBlock {
+            start_line,
+            start_byte: line_start.min(text.len()),
+        });
+    }
+    blocks
+}
+
 impl Document {
     /// Create a document with the given editor style.
     pub fn new(window: &mut Window, cx: &mut App, style: &SyntaxStyle, init: DocumentInit) -> Self {
         let content_digest = *blake3::hash(init.text.as_bytes()).as_bytes();
         let scroll_id = ElementId::Name(format!("editor-scroll-{}", init.id).into());
+        #[cfg(feature = "gpuikit")]
+        let preview_text = init.text.clone();
 
         #[cfg(feature = "zorite")]
         let editor = {
@@ -155,6 +215,10 @@ impl Document {
             let chars = text.chars().count();
             (text, cursor, chars)
         };
+        #[cfg(feature = "gpuikit")]
+        let preview = cx.new(|cx| TextViewState::markdown(&preview_text, cx));
+        #[cfg(feature = "gpuikit")]
+        let blocks = source_blocks(&preview_text);
         Self {
             id: init.id,
             path: init.path,
@@ -167,6 +231,14 @@ impl Document {
             scroll: Rc::new(RefCell::new(ScrollHandle::new())),
             scroll_id,
             content_digest,
+            #[cfg(feature = "gpuikit")]
+            preview,
+            #[cfg(feature = "gpuikit")]
+            blocks,
+            #[cfg(feature = "gpuikit")]
+            preview_top: 0,
+            #[cfg(feature = "gpuikit")]
+            preview_source_offset: 0.0,
         }
     }
 
@@ -180,6 +252,23 @@ impl Document {
         {
             self.editor.read(cx).value().to_string()
         }
+    }
+
+    /// Send new source to the preview and rebuild the block map.
+    #[cfg(feature = "gpuikit")]
+    pub fn refresh_preview(&mut self, text: &str, cx: &mut App) {
+        self.blocks = source_blocks(text);
+        self.preview
+            .update(cx, |preview, cx| preview.set_text(text, cx));
+    }
+
+    /// The top-level block that contains `byte`, clamped to the block list.
+    #[cfg(feature = "gpuikit")]
+    pub fn block_for_byte(&self, byte: usize) -> usize {
+        self.blocks
+            .partition_point(|block| block.start_byte <= byte)
+            .saturating_sub(1)
+            .min(self.blocks.len().saturating_sub(1))
     }
 
     /// The active selection as a byte range, or `None` when it is collapsed.

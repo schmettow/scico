@@ -1034,10 +1034,12 @@ impl SciscraperApp {
                     document.editor.clone(),
                     document.scroll_id.clone(),
                     document.scroll.clone(),
+                    state.editor_font_family(cx),
+                    state.editor_font_size,
                 )
             })
         };
-        let Some((editor, scroll_id, scroll_cell)) = editor else {
+        let Some((editor, scroll_id, scroll_cell, font_family, font_size)) = editor else {
             return self.empty_editor(cx);
         };
         let scroll = window
@@ -1058,6 +1060,24 @@ impl SciscraperApp {
                     .flex()
                     .flex_col()
                     .overflow_y_scroll()
+                    .on_scroll_wheel(cx.listener(
+                        |this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
+                            if !event.modifiers.control && !event.modifiers.platform {
+                                return;
+                            }
+                            let lines = match event.delta {
+                                gpui_kit::ScrollDelta::Lines(delta) => delta.y,
+                                gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
+                            };
+                            if lines.abs() < f32::EPSILON {
+                                return;
+                            }
+                            let step = if lines > 0.0 { -1.0 } else { 1.0 };
+                            this.state
+                                .update(cx, |state, cx| state.zoom_editor_font(step, cx));
+                            cx.stop_propagation();
+                        },
+                    ))
                     .track_scroll(&scroll)
                     .child(
                         div()
@@ -1067,7 +1087,8 @@ impl SciscraperApp {
                             .mx_auto()
                             .px_8()
                             .py_6()
-                            .text_size(px(16.))
+                            .font_family(font_family)
+                            .text_size(px(font_size))
                             .text_color(theme.foreground)
                             .child(editor),
                     ),
@@ -1098,15 +1119,18 @@ impl SciscraperApp {
                     .unwrap_or_else(|| PathBuf::from("."));
                 (
                     document.editor.clone(),
-                    document.text(cx),
+                    document.preview.clone(),
+                    state.editor_font_family(cx),
+                    state.editor_font_size,
                     state.show_preview,
                     state.sync_scroll,
-                    state.preview_scroll(),
                     base,
                 )
             })
         };
-        let Some((editor, text, show_preview, sync_scroll, preview_scroll, base)) = active else {
+        let Some((editor, preview, font_family, font_size, show_preview, sync_scroll, base)) =
+            active
+        else {
             return self.empty_editor(cx);
         };
         let source = div()
@@ -1114,11 +1138,29 @@ impl SciscraperApp {
             .flex_1()
             .min_w(px(0.))
             .h_full()
+            .on_scroll_wheel(
+                cx.listener(|this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
+                    if !event.modifiers.control && !event.modifiers.platform {
+                        return;
+                    }
+                    let lines = match event.delta {
+                        gpui_kit::ScrollDelta::Lines(delta) => delta.y,
+                        gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
+                    };
+                    if lines.abs() < f32::EPSILON {
+                        return;
+                    }
+                    let step = if lines > 0.0 { -1.0 } else { 1.0 };
+                    this.state
+                        .update(cx, |state, cx| state.zoom_editor_font(step, cx));
+                    cx.stop_propagation();
+                }),
+            )
             .child(
                 gpui_kit::component::input::Editor::new(&editor)
                     .bordered(false)
-                    .font_family(cx.theme().mono_font_family.clone())
-                    .text_size(cx.theme().mono_font_size)
+                    .font_family(font_family)
+                    .text_size(px(font_size))
                     .h_full(),
             );
         let body = if !show_preview {
@@ -1154,7 +1196,7 @@ impl SciscraperApp {
                                 .ghost()
                                 .selected(sync_scroll)
                                 .tooltip(if sync_scroll {
-                                    "Scroll sync on: the preview follows the source"
+                                    "Scroll sync on: the preview follows the source block"
                                 } else {
                                     "Scroll sync off"
                                 })
@@ -1187,23 +1229,11 @@ impl SciscraperApp {
                         .h_full()
                         .child(preview_header)
                         .child(
-                            div()
-                                .id("editor-preview-scroll")
-                                .flex_1()
-                                .min_h(px(0.))
-                                .overflow_y_scroll()
-                                .track_scroll(&preview_scroll)
-                                .on_scroll_wheel(cx.listener(|this, _, _, cx| {
-                                    this.state.update(cx, |state, cx| {
-                                        state.preview_scroll_changed(cx);
-                                    });
-                                }))
-                                .px_6()
-                                .py_4()
-                                .child(
-                                    gpui_kit::base::TextView::markdown("editor-preview", text)
-                                        .image_source(crate::document::preview_image_source(base)),
-                                ),
+                            div().flex_1().min_h(px(0.)).child(
+                                gpui_kit::base::TextView::new(&preview)
+                                    .scrollable(true)
+                                    .image_source(crate::document::preview_image_source(base)),
+                            ),
                         ),
                 )
                 .into_any_element()
@@ -1818,6 +1848,90 @@ mod tests {
     }
 
     #[cfg(feature = "gpuikit")]
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn ctrl_wheel_zooms_the_editor_font(cx: &mut TestAppContext) {
+        use gpui_kit::InputEvent as _;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
+        let size = |cx: &mut VisualTestContext| cx.update(|_, cx| state.read(cx).editor_font_size);
+        let before = size(cx);
+
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-40.))),
+                    modifiers: gpui_kit::Modifiers {
+                        control: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert!(size(cx) > before, "wheel down must zoom in");
+        assert_eq!(
+            cx.update(|_, cx| editor.read(cx).scroll_offset()),
+            gpui_kit::Point::default(),
+            "Ctrl+wheel must zoom, not scroll"
+        );
+
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(40.))),
+                    modifiers: gpui_kit::Modifiers {
+                        control: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert!(size(cx) < before + 1.0, "wheel up must zoom out");
+    }
+
+    #[gpui_kit::test]
+    fn editor_font_defaults_are_comfortable(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert!(!state.editor_font.is_empty());
+            assert!(
+                state.editor_font_size >= crate::state::MIN_EDITOR_FONT_SIZE,
+                "the default follows 150% of the theme mono size"
+            );
+        });
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.set_editor_font_size(1.0, cx);
+                assert_eq!(state.editor_font_size, crate::state::MIN_EDITOR_FONT_SIZE);
+                state.set_editor_font_size(999.0, cx);
+                assert_eq!(state.editor_font_size, crate::state::MAX_EDITOR_FONT_SIZE);
+            });
+        });
+    }
+
+    #[cfg(feature = "gpuikit")]
     #[gpui_kit::test]
     fn documents_choose_a_language_from_their_path(cx: &mut TestAppContext) {
         let (settings, session) = scratch_paths();
@@ -1921,13 +2035,9 @@ mod tests {
 
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
-        let editor = cx.update(|_, cx| {
-            state
-                .read(cx)
-                .active_document()
-                .expect("a document")
-                .editor
-                .clone()
+        let (editor, preview) = cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            (document.editor.clone(), document.preview.clone())
         });
         let text = (0..400)
             .map(|line| format!("## Section {line}\n\nParagraph {line}.\n\n"))
@@ -1939,13 +2049,16 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
+        cx.update(|_, cx| {
+            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
+        });
 
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
             window.dispatch_event(
                 gpui_kit::ScrollWheelEvent {
                     position,
-                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-240.))),
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_200.))),
                     ..Default::default()
                 }
                 .to_platform_input(),
@@ -1953,17 +2066,18 @@ mod tests {
             );
         });
         cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(50));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
 
-        let preview = cx.update(|_, cx| state.read(cx).preview_scroll());
+        let top = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
         assert!(
-            preview.max_offset().y > px(0.),
-            "the preview must be scrollable"
-        );
-        assert!(
-            preview.offset().y < px(0.),
-            "the preview must follow a scrolled source"
+            top > 0,
+            "the preview must jump to the source block at the viewport top"
         );
     }
 
@@ -1972,13 +2086,9 @@ mod tests {
     fn scroll_sync_moves_the_editor_with_the_preview(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
-        let editor = cx.update(|_, cx| {
-            state
-                .read(cx)
-                .active_document()
-                .expect("a document")
-                .editor
-                .clone()
+        let (editor, preview) = cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            (document.editor.clone(), document.preview.clone())
         });
         let text = (0..400)
             .map(|line| format!("## Section {line}\n\nParagraph {line}.\n\n"))
@@ -1990,20 +2100,22 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-
-        let preview = cx.update(|_, cx| state.read(cx).preview_scroll());
-        assert!(
-            preview.max_offset().y > px(0.),
-            "the preview must be scrollable"
-        );
-        preview.set_offset(gpui_kit::point(px(0.), px(-2_000.)));
         cx.update(|_, cx| {
-            state.update(cx, |state, cx| state.preview_scroll_changed(cx));
+            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
         });
-        cx.executor()
-            .advance_clock(std::time::Duration::from_millis(400));
+
+        let count = cx.update(|_, cx| preview.read(cx).list_state().item_count());
+        assert!(count > 50, "the preview must have parsed its blocks");
+        preview.update(cx, |preview, cx| {
+            preview.list_state().scroll_to(gpui_kit::ListOffset {
+                item_ix: 50,
+                offset_in_item: px(0.),
+            });
+            cx.notify();
+        });
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
 
         cx.update(|_, cx| {
             let editor = editor.read(cx);

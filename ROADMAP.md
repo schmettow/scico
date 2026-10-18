@@ -9,9 +9,10 @@ stabilised.
 - Keep the roundtrip experience solid across both editor backends: selection
   capture, guarded write-back, Scico edit mode, and complete crash-safe session
   restore.
-- Polish the `gpuikit` writing surface: collapsible preview, synchronized
-  scrolling, and theme-following syntax highlighting are in place; refine the
-  reading-position mapping and large-file behaviour next.
+- Polish the `gpuikit` writing surface: collapsible preview, block-level
+  synchronized scrolling, theme-following syntax highlighting, and persisted
+  font family/size with Ctrl+wheel zoom are in place. Refine parser parity for
+  exotic Markdown next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
 
@@ -21,6 +22,8 @@ stabilised.
   the source surface where feasible, and PDF chips. Highlighting is already
   provided by the language-independent Syntect adapter (Markdown, BibTeX,
   LaTeX), so no Tree-sitter dependency is needed.
+- Align the preview parser's block boundaries with comrak for every extension,
+  so element sync cannot drift on unusual documents.
 - Deepen reference management: richer viewer routing, corpus maintenance, and
   citation insertion workflows.
 - Exercise the full pipeline against a live GROBID server and larger corpora.
