@@ -3,9 +3,15 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+#[cfg(feature = "gpuikit")]
+use std::time::Instant;
 
+#[cfg(feature = "gpuikit")]
+use gpui_kit::ScrollHandle;
+#[cfg(feature = "gpuikit")]
+use gpui_kit::base::input::RopeExt as _;
 use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
-#[cfg(feature = "zorite")]
+#[cfg(any(feature = "zorite", feature = "gpuikit"))]
 use gpui_kit::{point, px};
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
@@ -57,12 +63,26 @@ pub struct AppState {
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
+    /// Show the rendered preview beside the source editor.
+    pub show_preview: bool,
+    /// Keep the source editor and the preview scrolled together.
+    pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
     /// Width of the SciCo pane in pixels.
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface.
     pub settings_gutter: f32,
+    /// The preview viewport, shared with the renderer.
+    #[cfg(feature = "gpuikit")]
+    preview_scroll: ScrollHandle,
+    /// While set, editor notifications must not drive the preview; the editor
+    /// is still applying a scroll that originated in the preview.
+    #[cfg(feature = "gpuikit")]
+    preview_sync_suppressed_until: Option<Instant>,
+    /// Cancels an older deferred preview refresh.
+    #[cfg(feature = "gpuikit")]
+    preview_sync_generation: u64,
     /// Monotonic token that cancels an older caret-follow animation.
     #[cfg(feature = "zorite")]
     scroll_generation: u64,
@@ -147,6 +167,12 @@ impl AppState {
         let show_agent = restored_session
             .as_ref()
             .map_or(persisted.show_agent, |session| session.show_agent);
+        let show_preview = restored_session
+            .as_ref()
+            .map_or(persisted.show_preview, |session| session.show_preview);
+        let sync_scroll = restored_session
+            .as_ref()
+            .map_or(persisted.sync_scroll, |session| session.sync_scroll);
         let raw_mode = restored_session
             .as_ref()
             .map_or(persisted.raw_mode, |session| session.raw_mode);
@@ -181,9 +207,17 @@ impl AppState {
             library_attached,
             show_library,
             show_agent,
+            show_preview,
+            sync_scroll,
             library_width,
             agent_width,
             settings_gutter,
+            #[cfg(feature = "gpuikit")]
+            preview_scroll: ScrollHandle::new(),
+            #[cfg(feature = "gpuikit")]
+            preview_sync_suppressed_until: None,
+            #[cfg(feature = "gpuikit")]
+            preview_sync_generation: 0,
             #[cfg(feature = "zorite")]
             scroll_generation: 0,
             session_generation: 0,
@@ -301,6 +335,7 @@ impl AppState {
         );
         self.set_status("New document", cx);
         self.persist_session(cx);
+        self.sync_active_preview(cx);
         id
     }
 
@@ -362,6 +397,8 @@ impl AppState {
         self.active = session.active.min(self.documents.len() - 1);
         self.show_library = session.show_library;
         self.show_agent = session.show_agent;
+        self.show_preview = session.show_preview;
+        self.sync_scroll = session.sync_scroll;
         self.raw_mode = session.raw_mode;
         self.library_width = panel_width(session.library_width, self.library_width);
         self.agent_width = panel_width(session.agent_width, self.agent_width);
@@ -391,6 +428,8 @@ impl AppState {
             active: self.active,
             show_library: self.show_library,
             show_agent: self.show_agent,
+            show_preview: self.show_preview,
+            sync_scroll: self.sync_scroll,
             raw_mode: self.raw_mode,
             library_width: self.library_width,
             agent_width: self.agent_width,
@@ -456,6 +495,7 @@ impl AppState {
         {
             self.active = index;
             window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
+            self.sync_active_preview(cx);
             cx.notify();
             return Ok(());
         }
@@ -483,6 +523,7 @@ impl AppState {
         );
         self.set_status(format!("Opened {}", path.display()), cx);
         self.persist_session(cx);
+        self.sync_active_preview(cx);
         Ok(())
     }
 
@@ -594,6 +635,7 @@ impl AppState {
         window.focus(&editor, cx);
         self.persist_session(cx);
         self.follow_caret(id, cx);
+        self.sync_active_preview(cx);
         cx.notify();
     }
 
@@ -635,6 +677,163 @@ impl AppState {
         self.persist_session(cx);
         self.set_status(if raw { "Raw Markdown" } else { "Live preview" }, cx);
     }
+
+    /// Show or hide the rendered preview beside the source editor.
+    pub fn set_show_preview(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_preview == show {
+            return;
+        }
+        self.show_preview = show;
+        self.settings.show_preview = show;
+        self.persist(cx);
+        self.persist_session(cx);
+        if show {
+            self.sync_active_preview(cx);
+        }
+        self.set_status(
+            if show {
+                "Preview shown"
+            } else {
+                "Preview hidden"
+            },
+            cx,
+        );
+    }
+
+    /// Keep the source editor and the preview scrolled together.
+    pub fn set_sync_scroll(&mut self, sync: bool, cx: &mut Context<Self>) {
+        if self.sync_scroll == sync {
+            return;
+        }
+        self.sync_scroll = sync;
+        self.settings.sync_scroll = sync;
+        self.persist(cx);
+        self.persist_session(cx);
+        if sync {
+            self.sync_active_preview(cx);
+        }
+        self.set_status(
+            if sync {
+                "Scroll sync on"
+            } else {
+                "Scroll sync off"
+            },
+            cx,
+        );
+    }
+
+    /// The preview viewport, for the renderer to track.
+    #[cfg(feature = "gpuikit")]
+    pub fn preview_scroll(&self) -> ScrollHandle {
+        self.preview_scroll.clone()
+    }
+
+    /// Schedule a source follow-up after the user scrolled the preview.
+    ///
+    /// The wheel event arrives before the preview's native scrolling, so the
+    /// offset is read on the next frame.
+    #[cfg(feature = "gpuikit")]
+    pub fn preview_scroll_changed(&mut self, cx: &mut Context<Self>) {
+        if !self.sync_scroll || !self.show_preview {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            let _ = this.update(cx, |this, cx| this.apply_preview_scroll(cx));
+        })
+        .detach();
+    }
+
+    #[cfg(feature = "gpuikit")]
+    fn apply_preview_scroll(&mut self, cx: &mut Context<Self>) {
+        if !self.sync_scroll || !self.show_preview {
+            return;
+        }
+        let max = f32::from(self.preview_scroll.max_offset().y).abs();
+        if max <= 0.0 {
+            return;
+        }
+        let offset = (-f32::from(self.preview_scroll.offset().y)).clamp(0.0, max);
+        let fraction = offset / max;
+        let Some((id, editor)) = self
+            .active_document()
+            .map(|document| (document.id, document.editor.clone()))
+        else {
+            return;
+        };
+        let Some(max_editor) = editor_max_scroll(editor.read(cx)) else {
+            return;
+        };
+
+        // The editor applies its new offset on the next layout. Suppress the
+        // editor-to-preview direction until then, or the preview would jump
+        // back to the editor's old fraction.
+        self.preview_sync_suppressed_until = Some(Instant::now() + Duration::from_millis(220));
+        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
+        let generation = self.preview_sync_generation;
+        editor.update(cx, |editor, cx| {
+            editor.set_scroll_offset(point(px(0.), px(-fraction * max_editor)), cx);
+        });
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(240))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.preview_sync_generation == generation {
+                    this.preview_sync_suppressed_until = None;
+                    this.sync_preview_to_editor(id, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Move the preview to the editor's current fraction of its scroll range.
+    #[cfg(feature = "gpuikit")]
+    fn sync_preview_to_editor(&mut self, id: u64, cx: &mut Context<Self>) {
+        if !self.sync_scroll || !self.show_preview {
+            return;
+        }
+        if self.active_document().map(|document| document.id) != Some(id) {
+            return;
+        }
+        if self
+            .preview_sync_suppressed_until
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return;
+        }
+        self.preview_sync_suppressed_until = None;
+
+        let Some(fraction) = self
+            .document(id)
+            .and_then(|document| editor_scroll_fraction(document.editor.read(cx)))
+        else {
+            return;
+        };
+        let max = f32::from(self.preview_scroll.max_offset().y).abs();
+        if max <= 0.0 {
+            return;
+        }
+        let target = -fraction * max;
+        if (f32::from(self.preview_scroll.offset().y) - target).abs() < 1.0 {
+            return;
+        }
+        self.preview_scroll.set_offset(point(px(0.), px(target)));
+        cx.notify();
+    }
+
+    #[cfg(feature = "gpuikit")]
+    fn sync_active_preview(&mut self, cx: &mut Context<Self>) {
+        if let Some(id) = self.active_document().map(|document| document.id) {
+            self.sync_preview_to_editor(id, cx);
+        }
+    }
+
+    #[cfg(feature = "zorite")]
+    fn sync_active_preview(&mut self, _cx: &mut Context<Self>) {}
 
     /// Make `path` the editor and RAG workspace.
     ///
@@ -724,6 +923,8 @@ impl AppState {
         self.settings.library_attached = self.library_attached;
         self.settings.show_library = self.show_library;
         self.settings.show_agent = self.show_agent;
+        self.settings.show_preview = self.show_preview;
+        self.settings.sync_scroll = self.sync_scroll;
         self.settings.library_width = self.library_width;
         self.settings.agent_width = self.agent_width;
         self.settings.settings_gutter = self.settings_gutter;
@@ -976,6 +1177,8 @@ impl AppState {
             if content_changed || cursor_moved || dirty_changed {
                 cx.notify();
             }
+            #[cfg(feature = "gpuikit")]
+            this.sync_preview_to_editor(id, cx);
         })
         .detach();
     }
@@ -1071,6 +1274,38 @@ fn panel_width(value: f32, fallback: f32) -> f32 {
     } else {
         fallback.clamp(180.0, 1_600.0)
     }
+}
+
+/// The editor's current position as a fraction of its scroll range.
+#[cfg(feature = "gpuikit")]
+fn editor_scroll_fraction(editor: &EditorState) -> Option<f32> {
+    let max = editor_max_scroll(editor)?;
+    if max <= 0.0 {
+        return Some(0.0);
+    }
+    let offset = -f32::from(editor.scroll_offset().y);
+    Some((offset / max).clamp(0.0, 1.0))
+}
+
+/// The largest vertical offset the editor can scroll to.
+///
+/// The editor owns its viewport but does not expose its content height. The
+/// logical line count times the laid-out row height is a faithful estimate for
+/// unwrapped text and a slight underestimate once soft wrap adds rows; the
+/// preview then reaches its bottom marginally early, which is preferable to
+/// disabling the link.
+#[cfg(feature = "gpuikit")]
+fn editor_max_scroll(editor: &EditorState) -> Option<f32> {
+    let line_height = f32::from(editor.line_height()?);
+    if line_height <= 0.0 {
+        return None;
+    }
+    let rows = editor.text().lines_len() as f32;
+    let viewport = editor
+        .text_bounds()
+        .map(|bounds| f32::from(bounds.size.height))
+        .unwrap_or(0.0);
+    Some((rows * line_height - viewport).max(0.0))
 }
 
 /// Whether the answer carries replacement blocks. Kept here so both the chat

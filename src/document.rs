@@ -130,13 +130,18 @@ impl Document {
         #[cfg(feature = "gpuikit")]
         let editor = {
             let _ = (style, init.raw);
+            let language = crate::highlight::language_for_path(init.path.as_deref());
             cx.new(|cx| {
-                EditorState::new(window, cx)
-                    .language("markdown")
+                let mut editor = EditorState::new(window, cx)
+                    .language(language)
                     .line_number(false)
                     .soft_wrap(true)
                     .default_value(init.text)
-                    .placeholder("Write your paper…")
+                    .placeholder("Write your paper…");
+                let factory: gpui_kit::base::input::InputHighlighterFactory =
+                    Rc::new(crate::highlight::highlighter_for);
+                editor.set_highlighter_factory(factory, cx);
+                editor
             })
         };
 

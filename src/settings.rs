@@ -156,6 +156,10 @@ pub struct PersistedSettings {
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
+    /// Show the rendered preview beside the source editor.
+    pub show_preview: bool,
+    /// Keep the source editor and the preview scrolled together.
+    pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
     /// Width of the SciCo pane in pixels.
@@ -205,6 +209,8 @@ impl Default for PersistedSettings {
             library_attached: false,
             show_library: true,
             show_agent: true,
+            show_preview: true,
+            sync_scroll: true,
             library_width: 340.0,
             agent_width: 430.0,
             settings_gutter: 360.0,

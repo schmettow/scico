@@ -9,16 +9,18 @@ stabilised.
 - Keep the roundtrip experience solid across both editor backends: selection
   capture, guarded write-back, SciCo edit mode, and complete crash-safe session
   restore.
-- Polish the settings surface: profiles, pending-change marks, and a resizable
-  controls column.
+- Polish the `gpuikit` writing surface: collapsible preview, synchronized
+  scrolling, and theme-following syntax highlighting are in place; refine the
+  reading-position mapping and large-file behaviour next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
 
 ## Next
 
-- Bring the `gpuikit` backend to parity: inline images and tables in the source
-  surface where feasible, PDF chips, and Markdown syntax highlighting once
-  `gpui-kit` can depend on a published `tree-sitter` 0.26.13.
+- Bring the `gpuikit` backend to functional parity: inline images and tables in
+  the source surface where feasible, and PDF chips. Highlighting is already
+  provided by the language-independent Syntect adapter (Markdown, BibTeX,
+  LaTeX), so no Tree-sitter dependency is needed.
 - Deepen reference management: richer viewer routing, corpus maintenance, and
   citation insertion workflows.
 - Exercise the full pipeline against a live GROBID server and larger corpora.

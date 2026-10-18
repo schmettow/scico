@@ -42,6 +42,10 @@ pub struct SessionState {
     pub show_library: bool,
     /// Show the SciCo pane.
     pub show_agent: bool,
+    /// Show the rendered preview beside the source editor.
+    pub show_preview: bool,
+    /// Keep the source editor and the preview scrolled together.
+    pub sync_scroll: bool,
     /// Render raw Markdown rather than the live preview.
     pub raw_mode: bool,
     /// Width of the library pane.
@@ -57,6 +61,8 @@ impl Default for SessionState {
             active: 0,
             show_library: true,
             show_agent: true,
+            show_preview: true,
+            sync_scroll: true,
             raw_mode: false,
             library_width: 340.0,
             agent_width: 430.0,
@@ -171,6 +177,8 @@ mod tests {
             active: 1,
             show_library: false,
             show_agent: true,
+            show_preview: false,
+            sync_scroll: false,
             raw_mode: true,
             library_width: 280.0,
             agent_width: 512.0,

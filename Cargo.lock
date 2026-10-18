@@ -7239,6 +7239,7 @@ dependencies = [
  "ragrig-gpui",
  "serde",
  "serde_json",
+ "syntect",
  "zorite-editor",
 ]
 

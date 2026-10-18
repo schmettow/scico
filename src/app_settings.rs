@@ -497,11 +497,6 @@ pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
 
 /// The Editor page: preview and document context.
 pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
-    let live_preview = state_switch(
-        state.clone(),
-        |state| !state.raw_mode,
-        |state, value, cx| state.set_raw_mode(!value, cx),
-    );
     let show_sci_co = state_switch(
         state.clone(),
         |state| state.show_agent,
@@ -522,21 +517,53 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
         },
     );
 
+    let editor_group = {
+        let group = SettingGroup::new().title("Editor");
+        #[cfg(feature = "gpuikit")]
+        let group =
+            {
+                let show_preview = state_switch(
+                    state.clone(),
+                    |state| state.show_preview,
+                    |state, value, cx| state.set_show_preview(value, cx),
+                );
+                let sync_scroll = state_switch(
+                    state.clone(),
+                    |state| state.sync_scroll,
+                    |state, value, cx| state.set_sync_scroll(value, cx),
+                );
+                group
+                    .item(
+                        SettingItem::new("Rendered preview", show_preview).description(
+                            "Show the Markdown preview beside the source; Ctrl+Shift+E toggles it.",
+                        ),
+                    )
+                    .item(SettingItem::new("Sync scroll", sync_scroll).description(
+                        "Keep the source and the preview at the same reading position.",
+                    ))
+            };
+        #[cfg(feature = "zorite")]
+        let group = {
+            let live_preview = state_switch(
+                state.clone(),
+                |state| !state.raw_mode,
+                |state, value, cx| state.set_raw_mode(!value, cx),
+            );
+            group.item(
+                SettingItem::new("Live preview", live_preview)
+                    .description("Off shows raw Markdown; Ctrl+Shift+E toggles it."),
+            )
+        };
+        group.item(
+            SettingItem::new("Show SciCo", show_sci_co)
+                .description("Right pane with the RAG transcript."),
+        )
+    };
+
     SettingPage::new("Editor")
         .description("How the editor renders and which panes stay open.")
         .default_open(false)
-        .group(
-            SettingGroup::new()
-                .title("Editor")
-                .item(
-                    SettingItem::new("Live preview", live_preview)
-                        .description("Off shows raw Markdown; Ctrl+Shift+E toggles it."),
-                )
-                .item(
-                    SettingItem::new("Show SciCo", show_sci_co)
-                        .description("Right pane with the RAG transcript."),
-                ),
-        )
+        .group(editor_group)
         .group(
             SettingGroup::new().title("Context").item(
                 SettingItem::new("Attach document by default", document_attached)

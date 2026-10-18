@@ -4,7 +4,9 @@ A scientific Markdown editor with an integrated RAG assistant, SciCo, and a
 reference library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
 [Sciscraper](https://github.com/schmettow/sciscraper-rs) and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
-[`zorite-editor`](https://crates.io/crates/zorite-editor) Markdown editor.
+[`gpuikit`](https://crates.io/crates/gpui-kit) source editor and a rendered
+Markdown preview. The optional `zorite` backend remains available for the
+original live-preview experience.
 
 The defining feature is the **roundtrip**: the agent reads the document, the
 bibliography, and a marked passage; its answer can replace the marked passage
@@ -12,17 +14,21 @@ in place, guarded by a digest of the version you marked.
 
 ## Editor backends
 
-- **`zorite` (default)** — live-preview Markdown editor, including inline
-  images, tables, math, and clickable PDF/EPUB/HTML chips.
-- **`gpuikit`** — GPUI Kit's source editor with a rendered Markdown preview
-  beside it. Build with `cargo run --no-default-features --features gpuikit`.
-  The source editor owns scrolling and has virtualized layout; the preview
-  renders inline images and tables. The two features are mutually exclusive.
+- **`gpuikit` (default)** — GPUI Kit's source editor with a rendered Markdown
+  preview beside it. The source editor owns scrolling and has virtualized
+  layout; the preview renders inline images and tables. It is built with
+  `cargo run`.
+- **`zorite`** — live-preview Markdown editor, including inline images, tables,
+  math, and clickable PDF/EPUB/HTML chips. Build with
+  `cargo run --no-default-features --features zorite`. The two features are
+  mutually exclusive.
 
-`gpui-kit 0.7.3`'s optional `tree-sitter-markdown` feature currently requires
-`tree-sitter ^0.26.13`, which is not published on crates.io (latest is 0.26.9),
-so the gpuikit backend deliberately builds without Tree-sitter highlighting
-until that upstream packaging issue is fixed.
+Syntax highlighting is language-independent: a Syntect-backed adapter maps
+TextMate scopes onto the semantic colours of the component theme, so the
+palette follows the application. Markdown, BibTeX, and LaTeX grammars ship
+with Syntect; documents choose their grammar from the file extension. The
+adapter parses incrementally, so an edit re-parses the changed line and reuses
+the unchanged tail.
 
 Status: **working prototype**. The editor, RAG chat, library, reference
 management, settings, and co-edit roundtrip are implemented. The public API is
@@ -56,6 +62,12 @@ not stabilised.
 cargo run
 ```
 
+This starts the default `gpuikit` backend. For the zorite live-preview editor:
+
+```sh
+cargo run --no-default-features --features zorite
+```
+
 Useful environment variables:
 
 | Variable | Meaning |
@@ -84,14 +96,17 @@ model.
 
 ### Editor
 
-- Type in the live preview. Markdown markers are styled in place; headings,
-  lists, tables, math, code blocks, and block widgets are rendered by
-  `zorite-editor`.
-- **Preview / Raw** (toolbar, `Ctrl+Shift+E`) switches every tab between live
-  preview and raw Markdown.
+- Type in the source editor. Markdown, BibTeX, and LaTeX files are highlighted
+  by the grammar that matches their extension.
+- **Preview** (toolbar, `Ctrl+Shift+E`) shows or hides the rendered preview in
+  the `gpuikit` backend. The preview header has its own collapse button and a
+  **scroll-sync** toggle; drag-free `Ctrl+Shift+E` also restores a collapsed
+  preview. When sync is on, scrolling either side moves the other.
+- The `zorite` backend keeps its **Preview / Raw** behaviour on the same
+  shortcut: it switches every tab between live preview and raw Markdown.
 - Images referenced as `![](figure.png)` render inline relative to the
   document. `![](paper.pdf)`, `.epub`, `.docx`, `.html`, and `.txt` lines render
-  as clickable file chips and open in the configured viewer.
+  as clickable file chips and open in the configured viewer (zorite).
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
   `Ctrl+W` closes. A dirty tab is kept until it is saved.
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
@@ -102,9 +117,10 @@ model.
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
   The session journal keeps the exact buffer text, so even a crash or a forced
-  shutdown reopens every tab, the active tab, caret, and pane layout. Content
-  edits are journaled within 300 ms; explicit actions such as open, save,
-  close, and layout changes flush immediately.
+  shutdown reopens every tab, the active tab, caret, pane layout, and the
+  preview/scroll-sync choices. Content edits are journaled within 300 ms;
+  explicit actions such as open, save, close, and layout changes flush
+  immediately.
 
 ### Mark passages and co-edit
 
@@ -178,8 +194,8 @@ of the controls column and the chosen width is remembered.
   external viewers for PDF/EPUB/HTML, the default library attachment, and
   reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button.
-- **Editor** — live preview, SciCo visibility, and the default document
-  attachment.
+- **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
+  preview (zorite); SciCo visibility; and the default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
   and memory. The token budgets are sliders over powers of two (512, 1024,
   2048, …).
@@ -226,12 +242,13 @@ sciscraper-gpui
   app.rs          toolbar, tabs, layout, actions, file dialogs
   state.rs        documents, workspace, settings, replacement write-back
   document.rs     EditorState per tab, save, selection, image/PDF providers
+  highlight.rs    incremental Syntect highlighter and Markdown/BibTeX grammars
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
   app_settings.rs Overview, Library, and Editor settings pages
   settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
-  theme.rs        zorite SyntaxStyle, or the gpuikit theme placeholder
+  theme.rs        zorite SyntaxStyle glue
   document.rs     backend-selected editor entity + EditorSurface implementation
         │
 ragrig-gpui (path dependency)
@@ -273,15 +290,20 @@ cargo fmt --check
 cargo check --all-targets
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
+# zorite backend
+cargo check --no-default-features --features zorite --all-targets
+cargo test --no-default-features --features zorite --all-targets
+cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 56 tests covering the protocol, digest guard, multi-byte
+Current suite: 44 tests covering the protocol, digest guard, multi-byte
 ranges, replacement extraction, settings persistence, external viewer routing,
 the atomic session journal, context budgeting, PDF ingestion naming, window
 mounting, typing, Ctrl+Arrow word movement, multiple-selection capture,
 direct-edit mode, undo/dirty tracking, preview and settings toggling, pane
 toggling, the unsaved-changes close guard, crash recovery into a second window,
-selection capture, and guarded write-back plus undo in a headless GPUI window.
+selection capture, guarded write-back plus undo in a headless GPUI window,
+incremental Markdown/BibTeX highlighting, and bidirectional scroll sync.
 
 ## Known limitations
 
@@ -294,10 +316,12 @@ selection capture, and guarded write-back plus undo in a headless GPUI window.
 - Library rows insert on click; drag-to-cite is not implemented.
 - PDFs open in the configured external viewer; there is no embedded PDF reader.
 - `$$…$$` math and mermaid blocks are edited as source (no typesetting or
-  diagram rendering); `zorite-editor` accepts host providers for both.
+  diagram rendering); the zorite backend accepts host providers for both.
 - The `gpuikit` backend shows inline images and tables in the rendered preview,
-  not as atomic objects inside the source editor. Markdown syntax highlighting
-  waits on the upstream `tree-sitter` 0.26.13 packaging blocker.
+  not as atomic objects inside the source editor. Its preview is a rendered
+  view, so scroll sync maps reading fractions, not identical lines.
+- The Syntect grammars are packaged with the binary; themes still come from
+  the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the
   path environment variables.
 - Closing a dirty tab is still refused with a status message; the window-close

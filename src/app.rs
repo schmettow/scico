@@ -435,6 +435,11 @@ impl SciscraperApp {
     }
 
     fn toggle_preview(&mut self, _: &TogglePreview, _: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(feature = "gpuikit")]
+        self.state.update(cx, |state, cx| {
+            state.set_show_preview(!state.show_preview, cx);
+        });
+        #[cfg(feature = "zorite")]
         self.state.update(cx, |state, cx| {
             let raw = !state.raw_mode;
             state.set_raw_mode(raw, cx);
@@ -717,11 +722,19 @@ impl SciscraperApp {
     }
 
     fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (raw_mode, show_library, show_agent) = {
+        let (preview_on, show_library, show_agent) = {
             let state = self.state.read(cx);
-            (state.raw_mode, state.show_library, state.show_agent)
+            #[cfg(feature = "gpuikit")]
+            let preview_on = state.show_preview;
+            #[cfg(feature = "zorite")]
+            let preview_on = !state.raw_mode;
+            (preview_on, state.show_library, state.show_agent)
         };
         let theme = cx.theme();
+        #[cfg(feature = "gpuikit")]
+        let preview_label = if preview_on { "Preview" } else { "Preview off" };
+        #[cfg(feature = "zorite")]
+        let preview_label = if preview_on { "Preview" } else { "Raw" };
 
         h_flex()
             .items_center()
@@ -796,11 +809,28 @@ impl SciscraperApp {
             .child(div().w(px(1.)).h(px(20.)).mx_2().bg(theme.border))
             .child(
                 Button::new("toolbar-preview")
-                    .label(if raw_mode { "Raw" } else { "Preview" })
+                    .label(preview_label)
                     .small()
-                    .selected(!raw_mode)
+                    .selected(preview_on)
                     .ghost()
-                    .tooltip("Toggle live preview (Ctrl+Shift+E)")
+                    .when(cfg!(feature = "gpuikit"), |button| {
+                        button.icon(if preview_on {
+                            IconName::PanelRightClose
+                        } else {
+                            IconName::PanelRightOpen
+                        })
+                    })
+                    .tooltip(if cfg!(feature = "gpuikit") {
+                        if preview_on {
+                            "Hide the rendered preview (Ctrl+Shift+E)"
+                        } else {
+                            "Show the rendered preview (Ctrl+Shift+E)"
+                        }
+                    } else if preview_on {
+                        "Switch to raw Markdown (Ctrl+Shift+E)"
+                    } else {
+                        "Switch to the live preview (Ctrl+Shift+E)"
+                    })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_preview(&TogglePreview, window, cx);
                     })),
@@ -1069,40 +1099,111 @@ impl SciscraperApp {
                 (
                     document.editor.clone(),
                     document.text(cx),
-                    state.raw_mode,
+                    state.show_preview,
+                    state.sync_scroll,
+                    state.preview_scroll(),
                     base,
                 )
             })
         };
-        let Some((editor, text, raw, base)) = active else {
+        let Some((editor, text, show_preview, sync_scroll, preview_scroll, base)) = active else {
             return self.empty_editor(cx);
         };
-        let source = div().flex_1().min_w(px(0.)).h_full().child(
-            gpui_kit::component::input::Editor::new(&editor)
-                .bordered(false)
-                .font_family(cx.theme().mono_font_family.clone())
-                .text_size(cx.theme().mono_font_size)
-                .h_full(),
-        );
-        let body = if raw {
+        let source = div()
+            .id("editor-source")
+            .flex_1()
+            .min_w(px(0.))
+            .h_full()
+            .child(
+                gpui_kit::component::input::Editor::new(&editor)
+                    .bordered(false)
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(cx.theme().mono_font_size)
+                    .h_full(),
+            );
+        let body = if !show_preview {
             source.into_any_element()
         } else {
+            let preview_header = h_flex()
+                .flex_none()
+                .items_center()
+                .justify_between()
+                .px_3()
+                .py_1()
+                .border_b_1()
+                .border_color(theme.border)
+                .bg(theme.title_bar)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child("Preview"),
+                )
+                .child(
+                    h_flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            Button::new("preview-sync")
+                                .icon(if sync_scroll {
+                                    IconName::Link
+                                } else {
+                                    IconName::Link2Off
+                                })
+                                .xsmall()
+                                .ghost()
+                                .selected(sync_scroll)
+                                .tooltip(if sync_scroll {
+                                    "Scroll sync on: the preview follows the source"
+                                } else {
+                                    "Scroll sync off"
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.state.update(cx, |state, cx| {
+                                        state.set_sync_scroll(!state.sync_scroll, cx);
+                                    });
+                                })),
+                        )
+                        .child(
+                            Button::new("preview-collapse")
+                                .icon(IconName::PanelRightClose)
+                                .xsmall()
+                                .ghost()
+                                .tooltip("Collapse the preview (Ctrl+Shift+E)")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_preview(&TogglePreview, window, cx);
+                                })),
+                        ),
+                );
+
             h_flex()
                 .size_full()
                 .child(source)
                 .child(div().w(px(1.)).h_full().bg(theme.border))
                 .child(
-                    div()
-                        .id("editor-preview-scroll")
+                    v_flex()
                         .flex_1()
                         .min_w(px(0.))
                         .h_full()
-                        .overflow_y_scroll()
-                        .px_6()
-                        .py_4()
+                        .child(preview_header)
                         .child(
-                            gpui_kit::base::TextView::markdown("editor-preview", text)
-                                .image_source(crate::document::preview_image_source(base)),
+                            div()
+                                .id("editor-preview-scroll")
+                                .flex_1()
+                                .min_h(px(0.))
+                                .overflow_y_scroll()
+                                .track_scroll(&preview_scroll)
+                                .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                                    this.state.update(cx, |state, cx| {
+                                        state.preview_scroll_changed(cx);
+                                    });
+                                }))
+                                .px_6()
+                                .py_4()
+                                .child(
+                                    gpui_kit::base::TextView::markdown("editor-preview", text)
+                                        .image_source(crate::document::preview_image_source(base)),
+                                ),
                         ),
                 )
                 .into_any_element()
@@ -1445,14 +1546,20 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn the_preview_shortcut_switches_raw_mode(cx: &mut TestAppContext) {
+    fn the_preview_shortcut_toggles_the_preview(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         cx.simulate_keystrokes("ctrl-shift-e");
         cx.update(|_, cx| {
+            #[cfg(feature = "gpuikit")]
+            assert!(!app.read(cx).state.read(cx).show_preview);
+            #[cfg(feature = "zorite")]
             assert!(app.read(cx).state.read(cx).raw_mode);
         });
         cx.simulate_keystrokes("ctrl-shift-e");
         cx.update(|_, cx| {
+            #[cfg(feature = "gpuikit")]
+            assert!(app.read(cx).state.read(cx).show_preview);
+            #[cfg(feature = "zorite")]
             assert!(!app.read(cx).state.read(cx).raw_mode);
         });
     }
@@ -1710,6 +1817,37 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn documents_choose_a_language_from_their_path(cx: &mut TestAppContext) {
+        let (settings, session) = scratch_paths();
+        let directory = settings.parent().expect("scratch dir").to_path_buf();
+        std::fs::write(directory.join("paper.md"), "# Paper").expect("markdown");
+        std::fs::write(directory.join("references.bib"), "@article{key}").expect("bibtex");
+        let (app, cx) = mount_at(cx, settings, session);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+
+        for (name, expected) in [("paper.md", "markdown"), ("references.bib", "bibtex")] {
+            cx.update(|window, cx| {
+                state.update(cx, |state, cx| {
+                    state
+                        .open_path(&directory.join(name), window, cx)
+                        .expect("open");
+                });
+            });
+            let language = cx.update(|_, cx| {
+                state
+                    .read(cx)
+                    .active_document()
+                    .expect("a document")
+                    .editor
+                    .read(cx)
+                    .language_name()
+            });
+            assert_eq!(language.as_ref(), expected, "{name}");
+        }
+    }
+
     #[gpui_kit::test]
     fn closing_with_unsaved_work_asks_first(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -1734,6 +1872,8 @@ mod tests {
         cx.update(|_, cx| {
             state.update(cx, |state, cx| {
                 state.show_agent = false;
+                state.set_show_preview(false, cx);
+                state.set_sync_scroll(false, cx);
                 state.set_panel_widths(480.0, 430.0, cx);
             });
         });
@@ -1752,6 +1892,8 @@ mod tests {
             assert_eq!(document.text(cx), "recovered draft");
             assert!(document.dirty, "recovered text is unsaved");
             assert!(!state.show_agent);
+            assert!(!state.show_preview);
+            assert!(!state.sync_scroll);
             assert_eq!(state.library_width, 480.0);
         });
     }
@@ -1769,6 +1911,107 @@ mod tests {
             let state = state.read(cx);
             assert_eq!(state.library_width, 500.0);
             assert_eq!(state.agent_width, 1_600.0);
+        });
+    }
+
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn scroll_sync_follows_the_editor(cx: &mut TestAppContext) {
+        use gpui_kit::InputEvent as _;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let text = (0..400)
+            .map(|line| format!("## Section {line}\n\nParagraph {line}.\n\n"))
+            .collect::<String>();
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_value(text, window, cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+
+        let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-240.))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+
+        let preview = cx.update(|_, cx| state.read(cx).preview_scroll());
+        assert!(
+            preview.max_offset().y > px(0.),
+            "the preview must be scrollable"
+        );
+        assert!(
+            preview.offset().y < px(0.),
+            "the preview must follow a scrolled source"
+        );
+    }
+
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn scroll_sync_moves_the_editor_with_the_preview(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let text = (0..400)
+            .map(|line| format!("## Section {line}\n\nParagraph {line}.\n\n"))
+            .collect::<String>();
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_value(text, window, cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+
+        let preview = cx.update(|_, cx| state.read(cx).preview_scroll());
+        assert!(
+            preview.max_offset().y > px(0.),
+            "the preview must be scrollable"
+        );
+        preview.set_offset(gpui_kit::point(px(0.), px(-2_000.)));
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| state.preview_scroll_changed(cx));
+        });
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(400));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.update(|_, cx| {
+            let editor = editor.read(cx);
+            assert!(
+                editor.scroll_offset().y < px(0.),
+                "the editor must follow a scrolled preview, got {:?}",
+                editor.scroll_offset()
+            );
         });
     }
 

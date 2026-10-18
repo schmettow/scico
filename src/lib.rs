@@ -16,6 +16,8 @@ pub mod agent;
 pub mod app;
 pub mod app_settings;
 pub mod document;
+#[cfg(feature = "gpuikit")]
+pub mod highlight;
 pub mod library;
 pub mod session;
 pub mod settings;
