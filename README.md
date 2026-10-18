@@ -196,8 +196,8 @@ The result side is one fenced block:
 ```
 ````
 
-`src/roundtrip.rs` owns the markers, container writers, char-indexed
-replacement, digest, and extraction. It caps a container at 100,000 characters
+`ragrig-gpui/src/editor/protocol.rs` owns the markers, container writers,
+char-indexed replacement, digest, and extraction. It caps a container at 100,000 characters
 and shortens further when the configured context window is small, marking the
 excerpt with `<sciscraper:v1:truncated shown="…" total="…"/>`.
 
@@ -217,10 +217,10 @@ sciscraper-gpui
   app_settings.rs Overview, Library, and Editor settings pages
   settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
-  roundtrip.rs    protocol, containers, digest guard, replacement extraction
   theme.rs        zorite SyntaxStyle from the GPUI Kit theme
         │
 ragrig-gpui (path dependency)
+  editor/         EditorSurface + RoundtripHost + Roundtrip; containers, digest guard
   RagController → worker thread → Ragrig agent/vector store/session store
   SciscraperAttach → creator/corpus containers
 ```

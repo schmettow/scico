@@ -9,10 +9,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::{
-    App, AppContext as _, ElementId, Entity, EntityInputHandler as _, RenderImage, ScrollHandle,
-    SharedString, Window,
+    App, AppContext as _, ElementId, Entity, EntityInputHandler as _, Focusable as _, RenderImage,
+    ScrollHandle, SharedString, Window,
 };
 use image::Frame;
+use ragrig_gpui::editor::{EditorSurface, byte_to_char_index};
 use zorite_editor::{EditorState, SyntaxStyle};
 
 /// One open Markdown document.
@@ -160,8 +161,8 @@ impl Document {
             return None;
         }
         let text = self.editor.read(cx).text().to_owned();
-        let start = crate::roundtrip::byte_to_char_index(&text, range.start);
-        let end = crate::roundtrip::byte_to_char_index(&text, range.end);
+        let start = byte_to_char_index(&text, range.start);
+        let end = byte_to_char_index(&text, range.end);
         Some(start..end)
     }
 
@@ -207,6 +208,41 @@ impl Document {
         self.saved_text = text;
         self.dirty = false;
         Ok(())
+    }
+}
+
+impl EditorSurface for Document {
+    fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn name(&self) -> SharedString {
+        self.title.clone()
+    }
+
+    fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    fn text(&self, cx: &App) -> SharedString {
+        Document::text(self, cx).into()
+    }
+
+    fn cursor(&self, cx: &App) -> (usize, usize) {
+        self.cursor_position(cx)
+    }
+
+    fn selection(&self, window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
+        self.selection_chars(window, cx)
+    }
+
+    fn replace(&self, range: Range<usize>, text: &str, cx: &mut App) {
+        Document::replace(self, range, text, cx);
+    }
+
+    fn focus(&self, window: &mut Window, cx: &mut App) {
+        let handle = self.editor.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
     }
 }
 

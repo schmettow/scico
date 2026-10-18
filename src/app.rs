@@ -1425,7 +1425,15 @@ mod tests {
         let outcome = cx.update(|_, cx| {
             let state = app.read(cx).state.clone();
             state.update(cx, |state, cx| {
-                state.apply_replacement(tab_id, range.clone(), &digest, "new passage", cx)
+                state.apply_replacement(
+                    ragrig_gpui::editor::ReplacementTarget {
+                        document_id: tab_id,
+                        range: range.clone(),
+                        digest: digest.clone(),
+                    },
+                    "new passage",
+                    cx,
+                )
             })
         });
         assert!(matches!(
@@ -1443,7 +1451,15 @@ mod tests {
         let outcome = cx.update(|_, cx| {
             let state = app.read(cx).state.clone();
             state.update(cx, |state, cx| {
-                state.apply_replacement(tab_id, range, &digest, "stale text", cx)
+                state.apply_replacement(
+                    ragrig_gpui::editor::ReplacementTarget {
+                        document_id: tab_id,
+                        range,
+                        digest,
+                    },
+                    "stale text",
+                    cx,
+                )
             })
         });
         assert!(matches!(

@@ -7,33 +7,18 @@ use std::time::Duration;
 use gpui_kit::{
     App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window, point, px,
 };
+pub use ragrig_gpui::editor::ReplacementOutcome;
+use ragrig_gpui::editor::{
+    EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
+    SelectionSnapshot, replace_at, verified_bytes,
+};
 use ragrig_gpui::{ChatProvider, RagChanges, RagController, RagSettings};
 use zorite_editor::{EditorEvent, SyntaxStyle};
 
 use crate::document::{Document, line_column, read_document, title_for};
-use crate::roundtrip::{Replacement, replace_at, verified_bytes};
 use crate::session::{SessionDocument, SessionState};
 use crate::settings::PersistedSettings;
 use crate::theme::syntax_style;
-
-/// The outcome of trying to write an agent replacement into a document.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReplacementOutcome {
-    /// The passage matched its digest and was replaced.
-    Applied {
-        /// A transcript-ready summary.
-        message: String,
-    },
-    /// The passage changed (or the tab vanished); offer the text instead.
-    Offered {
-        /// The replacement text.
-        text: String,
-        /// Why it was not applied.
-        reason: String,
-    },
-    /// There was nothing to write.
-    Empty,
-}
 
 /// Shared editor and workspace state.
 pub struct AppState {
@@ -747,9 +732,7 @@ impl AppState {
     /// Apply the first replacement block of a finished answer.
     pub fn apply_replacement(
         &mut self,
-        tab_id: u64,
-        range: Range<usize>,
-        guard: &str,
+        target: ReplacementTarget,
         text: &str,
         cx: &mut Context<Self>,
     ) -> ReplacementOutcome {
@@ -757,7 +740,7 @@ impl AppState {
             return ReplacementOutcome::Empty;
         }
         let (title, current) = {
-            let Some(document) = self.document(tab_id) else {
+            let Some(document) = self.document(target.document_id) else {
                 return ReplacementOutcome::Offered {
                     text: text.to_owned(),
                     reason: "the document was closed".to_owned(),
@@ -766,18 +749,18 @@ impl AppState {
             (document.title.clone(), document.text(cx))
         };
         let total = current.chars().count();
-        let start = range.start.min(total);
-        let end = range.end.min(total).max(start);
-        let Some(bytes) = verified_bytes(&current, start..end, guard) else {
+        let start = target.range.start.min(total);
+        let end = target.range.end.min(total).max(start);
+        let Some(bytes) = verified_bytes(&current, start..end, &target.digest) else {
             return ReplacementOutcome::Offered {
                 text: text.to_owned(),
                 reason: "the marked passage changed while the agent was writing".to_owned(),
             };
         };
-        if let Some(document) = self.document(tab_id) {
+        if let Some(document) = self.document(target.document_id) {
             document.replace(bytes, text, cx);
         }
-        if let Some(document) = self.document_mut(tab_id) {
+        if let Some(document) = self.document_mut(target.document_id) {
             document.dirty = true;
         }
         let old_chars = end.saturating_sub(start);
@@ -991,14 +974,50 @@ impl AppState {
     }
 }
 
+/// The roundtrip host backed by [`AppState`]'s active document.
+///
+/// The agent holds this behind [`ragrig_gpui::Roundtrip`], so it never names
+/// the editor backend.
+pub struct AppStateHost {
+    /// The application state that owns the documents.
+    pub state: Entity<AppState>,
+}
+
+impl RoundtripHost for AppStateHost {
+    fn active_document(&self, cx: &App) -> Option<EditorSnapshot> {
+        let state = self.state.read(cx);
+        state
+            .active_document()
+            .map(|document| document.snapshot(cx))
+    }
+
+    fn selection(&self, window: &mut Window, cx: &mut App) -> Option<SelectionSnapshot> {
+        self.state.update(cx, |state, cx| {
+            let document = state.active_document()?;
+            let range = document.selection(window, cx)?;
+            Some(SelectionSnapshot {
+                document: document.snapshot(cx),
+                range,
+            })
+        })
+    }
+
+    fn apply_replacement(
+        &self,
+        target: ReplacementTarget,
+        text: &str,
+        cx: &mut App,
+    ) -> ReplacementOutcome {
+        self.state
+            .update(cx, |state, cx| state.apply_replacement(target, text, cx))
+    }
+}
+
 /// Format a replacement as the protocol's fenced block, e.g. for copy actions.
 pub fn replacement_block(range: Range<usize>, text: &str) -> String {
     format!(
         "```{} target=\"{}..{}\"\n{}\n```",
-        crate::roundtrip::MARKER_REPLACE,
-        range.start,
-        range.end,
-        text
+        MARKER_REPLACE, range.start, range.end, text
     )
 }
 

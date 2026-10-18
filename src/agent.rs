@@ -6,6 +6,7 @@
 //! may carry a replacement block that belongs back in the document.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui_kit::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
@@ -17,8 +18,7 @@ use gpui_kit::{
 };
 use ragrig_gpui::prelude::*;
 
-use crate::roundtrip::{EditorBuffer, Replacement, RoundtripContext, context_note};
-use crate::state::{AppState, ReplacementOutcome};
+use crate::state::{AppState, AppStateHost};
 
 /// What the SciCo pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +54,7 @@ struct PendingTurn {
 /// The Sciscraper SciCo pane.
 pub struct AgentPane {
     state: Entity<AppState>,
+    roundtrip: Roundtrip,
     chat: Entity<ChatView>,
     composer: Entity<Composer>,
     pending: Option<PendingTurn>,
@@ -92,8 +93,12 @@ impl AgentPane {
         subscriptions.push(cx.observe(&state, |_, _, cx| cx.notify()));
 
         let status = controller.read(cx).status_line();
+        let roundtrip = Roundtrip::new(Rc::new(AppStateHost {
+            state: state.clone(),
+        }));
         let this = Self {
             state,
+            roundtrip,
             chat,
             composer,
             pending: None,
@@ -184,26 +189,11 @@ impl AgentPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<(String, bool)> {
-        let captured = self.state.update(cx, |state, cx| {
-            let document = state.active_document()?;
-            let range = document.selection_chars(window, cx)?;
-            Some((
-                document.id,
-                document.title.clone(),
-                document.path.clone(),
-                document.text(cx),
-                document.cursor_position(cx),
-                range,
-            ))
-        });
-        let (tab_id, title, path, text, cursor, range) = captured?;
-        let buffer = EditorBuffer {
-            name: &title,
-            path: path.as_deref(),
-            cursor,
-            content: &text,
-        };
-        let context = RoundtripContext::selection(buffer, range)?;
+        let selection = self
+            .roundtrip
+            .selection_context(window, cx, MAX_CONTEXT_CHARS)?;
+        let tab_id = selection.document_id;
+        let context = selection.context;
         let range = context.range();
         let digest = context.digest().to_owned();
         if let Some(existing) = self.selections.iter().find(|selection| {
@@ -394,14 +384,7 @@ impl AgentPane {
         // never keeps the entity locked while the prompt is assembled.
         let (document_attached, library_attached, document, bibliography, context_tokens) = {
             let state = self.state.read(cx);
-            let document = state.active_document().map(|document| {
-                (
-                    document.title.clone(),
-                    document.path.clone(),
-                    document.text(cx),
-                    document.cursor_position(cx),
-                )
-            });
+            let document = self.roundtrip.active_document(cx);
             let bibliography = state
                 .bibliography
                 .clone()
@@ -423,21 +406,16 @@ impl AgentPane {
         let mut attachments = Vec::new();
         let mut notes: Vec<String> = Vec::new();
 
-        if document_attached && let Some((name, path, text, cursor)) = document {
-            let buffer = EditorBuffer {
-                name: &name,
-                path: path.as_deref(),
-                cursor,
-                content: &text,
-            };
-            if let Some(context) = RoundtripContext::document_with_limit(buffer, limit) {
-                notes.push(context_note(&context.note()));
-                attachments.push(PendingAttachment::text(
-                    "context-document",
-                    context.attachment_label(),
-                    context.container(),
-                ));
-            }
+        if document_attached
+            && let Some(document) = document
+            && let Some(context) = RoundtripContext::document_with_limit(document.buffer(), limit)
+        {
+            notes.push(context_note(&context.note()));
+            attachments.push(PendingAttachment::text(
+                "context-document",
+                context.attachment_label(),
+                context.container(),
+            ));
         }
 
         if library_attached
@@ -675,11 +653,12 @@ impl AgentPane {
         };
         let extra = blocks.len().saturating_sub(1);
         if let Some(target) = pending.target {
-            let range = target.context.range().unwrap_or(0..0);
-            let digest = target.context.digest().to_owned();
-            let outcome = self.state.update(cx, |state, cx| {
-                state.apply_replacement(target.tab_id, range, &digest, &block.body, cx)
-            });
+            let target = ReplacementTarget {
+                document_id: target.tab_id,
+                range: target.context.range().unwrap_or(0..0),
+                digest: target.context.digest().to_owned(),
+            };
+            let outcome = self.roundtrip.apply(target, &block.body, cx);
             match outcome {
                 ReplacementOutcome::Applied { message } => {
                     if empty_prose {
@@ -750,9 +729,10 @@ impl AgentPane {
     fn chips(&self, cx: &Context<Self>) -> Vec<Attachment> {
         let state = self.state.read(cx);
         let mut chips = Vec::new();
-        let document_label = state
-            .active_document()
-            .map(|document| document.title.clone())
+        let document_label = self
+            .roundtrip
+            .active_document(cx)
+            .map(|document| document.name)
             .unwrap_or_else(|| "No document".into());
         chips.push(
             Attachment::document("context-document", document_label)
@@ -1019,7 +999,7 @@ fn context_char_limit(context_tokens: usize, items: usize) -> usize {
     let context_chars = context_tokens.saturating_sub(1_024).saturating_mul(3);
     let attachment_chars = context_chars * 70 / 100;
     let editor_chars = attachment_chars * 60 / 100;
-    (editor_chars / items.max(1)).clamp(600, crate::roundtrip::MAX_CONTEXT_CHARS)
+    (editor_chars / items.max(1)).clamp(600, MAX_CONTEXT_CHARS)
 }
 
 fn citation_note(resolved: &[CitationAttachment], missed: &[String]) -> Option<String> {

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Roundtrip contract moved to `ragrig-gpui::editor`.** `Document` implements
+  `EditorSurface`, `AppStateHost` implements `RoundtripHost`, and `AgentPane`
+  holds a `Roundtrip` façade. The containers, digest guard, and replacement
+  extraction are now shared with other hosts; the zorite backend stays behind
+  the trait.
 - `PageUp` / `PageDown` (and `Shift` variants) navigate the editor by a
   viewport, using the editor’s own goal-column movement.
 - **Settings → Overview**: profile picker and name, per-section pending-change

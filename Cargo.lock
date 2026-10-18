@@ -6388,6 +6388,8 @@ version = "0.2.0"
 dependencies = [
  "async-channel",
  "biblatex",
+ "blake3",
+ "comrak",
  "gpui-kit",
  "grobid-bibtex",
  "ragrig",
