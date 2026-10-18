@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Quarto `.qmd` files open like Markdown: the file dialog accepts them, and the
+  editor highlights them with the Markdown grammar.
 - **Syntax highlighting** in the `gpuikit` backend. A language-independent
   Syntect adapter maps TextMate scopes onto the component theme's semantic
   colours, so the palette keeps following the application. Markdown, BibTeX,
@@ -49,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The assistant is called **Scico** everywhere (previously “SciCo”).
 - **`gpuikit` is now the default backend.** `cargo run` opens the source editor
   and rendered preview; the live-preview `zorite` backend is opt-in with
   `--no-default-features --features zorite`. The README documents both.

@@ -57,7 +57,7 @@ pub fn language_for_path(path: Option<&Path>) -> &'static str {
         return "markdown";
     };
     match extension.to_ascii_lowercase().as_str() {
-        "md" | "markdown" | "mdown" | "mkd" | "mdx" | "txt" => "markdown",
+        "md" | "markdown" | "mdown" | "mkd" | "mdx" | "qmd" | "txt" => "markdown",
         "bib" | "bibtex" => "bibtex",
         "tex" | "latex" | "sty" | "cls" => "latex",
         _ => "text",
@@ -529,6 +529,10 @@ mod tests {
         assert_eq!(language_for_path(None), "markdown");
         assert_eq!(
             language_for_path(Some(Path::new("/tmp/paper.md"))),
+            "markdown"
+        );
+        assert_eq!(
+            language_for_path(Some(Path::new("/tmp/paper.qmd"))),
             "markdown"
         );
         assert_eq!(

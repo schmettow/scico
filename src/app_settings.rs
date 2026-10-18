@@ -555,7 +555,7 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
             )
         };
         group.item(
-            SettingItem::new("Show SciCo", show_sci_co)
+            SettingItem::new("Show Scico", show_sci_co)
                 .description("Right pane with the RAG transcript."),
         )
     };

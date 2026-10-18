@@ -243,7 +243,7 @@ impl SciscraperApp {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Open Markdown documents".into()),
+            prompt: Some("Open Markdown or Quarto documents".into()),
         });
         let state = self.state.clone();
         cx.spawn_in(window, async move |_, cx| {
@@ -872,7 +872,7 @@ impl SciscraperApp {
             )
             .child(
                 Button::new("toolbar-agent")
-                    .label("SciCo")
+                    .label("Scico")
                     .icon(if show_agent {
                         IconName::PanelRightClose
                     } else {
@@ -882,9 +882,9 @@ impl SciscraperApp {
                     .ghost()
                     .selected(show_agent)
                     .tooltip(if show_agent {
-                        "Hide SciCo (Ctrl+Shift+A)"
+                        "Hide Scico (Ctrl+Shift+A)"
                     } else {
-                        "Show SciCo (Ctrl+Shift+A)"
+                        "Show Scico (Ctrl+Shift+A)"
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_agent(&ToggleAgent, window, cx);

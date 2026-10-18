@@ -7,7 +7,7 @@ stabilised.
 ## Now
 
 - Keep the roundtrip experience solid across both editor backends: selection
-  capture, guarded write-back, SciCo edit mode, and complete crash-safe session
+  capture, guarded write-back, Scico edit mode, and complete crash-safe session
   restore.
 - Polish the `gpuikit` writing surface: collapsible preview, synchronized
   scrolling, and theme-following syntax highlighting are in place; refine the

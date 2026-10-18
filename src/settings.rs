@@ -2,7 +2,7 @@
 //!
 //! The RAG fields mirror [`RagSettings`] but are stored as plain strings, so a
 //! settings file stays readable and stable across Ragrig upgrades. The
-//! The SciCo prompt is compiled in; an empty `system_prompt` means "use the
+//! The Scico prompt is compiled in; an empty `system_prompt` means "use the
 //! built-in one".
 
 use std::fs;
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use ragrig_gpui::{ChatProvider, MemoryChoice, PdfBackend, RagSettings};
 use serde::{Deserialize, Serialize};
 
-/// The SciCo prompt compiled into the binary.
+/// The Scico prompt compiled into the binary.
 pub const SCICO_PROMPT: &str = include_str!("../assets/prompts/sci-co.md");
 
 /// A file kind with an assignable external viewer.
@@ -162,7 +162,7 @@ pub struct PersistedSettings {
     pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the SciCo pane in pixels.
+    /// Width of the Scico pane in pixels.
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface, in pixels.
     pub settings_gutter: f32,

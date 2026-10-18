@@ -1,5 +1,5 @@
 //! Sciscraper GPUI: a scientific Markdown editor with an integrated RAG
-//! SciCo and reference library.
+//! Scico and reference library.
 //!
 //! The binary lives in `main.rs`; everything else is exposed here so the
 //! editor roundtrip and its tests can be used (and audited) independently.

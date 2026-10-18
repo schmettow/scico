@@ -1,4 +1,4 @@
-//! The SciCo pane: transcript, composer, context chips, and roundtrip.
+//! The Scico pane: transcript, composer, context chips, and roundtrip.
 //!
 //! This is the Sciscraper-specific composite built on Ragrig's primitives
 //! instead of `RagChat`, because a question has to carry the editor's own
@@ -20,7 +20,7 @@ use ragrig_gpui::prelude::*;
 
 use crate::state::{AppState, AppStateHost};
 
-/// What the SciCo pane tells its host.
+/// What the Scico pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentPaneEvent {
     /// A one-line status for the window's status bar.
@@ -59,7 +59,7 @@ struct PendingWrite {
     empty_prose: bool,
 }
 
-/// The Sciscraper SciCo pane.
+/// The Sciscraper Scico pane.
 pub struct AgentPane {
     state: Entity<AppState>,
     roundtrip: Roundtrip,
@@ -249,7 +249,7 @@ impl AgentPane {
         self.selections.len()
     }
 
-    /// The latest SciCo status line.
+    /// The latest Scico status line.
     pub fn status(&self) -> &SharedString {
         &self.status
     }
@@ -964,7 +964,7 @@ impl Render for AgentPane {
                             .justify_between()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().child("SciCo"))
+                            .child(div().text_lg().child("Scico"))
                             .child(picker),
                     )
                     .child(

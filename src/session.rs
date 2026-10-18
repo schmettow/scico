@@ -40,7 +40,7 @@ pub struct SessionState {
     pub active: usize,
     /// Show the library pane.
     pub show_library: bool,
-    /// Show the SciCo pane.
+    /// Show the Scico pane.
     pub show_agent: bool,
     /// Show the rendered preview beside the source editor.
     pub show_preview: bool,
@@ -50,7 +50,7 @@ pub struct SessionState {
     pub raw_mode: bool,
     /// Width of the library pane.
     pub library_width: f32,
-    /// Width of the SciCo pane.
+    /// Width of the Scico pane.
     pub agent_width: f32,
 }
 

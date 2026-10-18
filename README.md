@@ -1,6 +1,6 @@
 # sciscraper-gpui
 
-A scientific Markdown editor with an integrated RAG assistant, SciCo, and a
+A scientific Markdown editor with an integrated RAG assistant, Scico, and a
 reference library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
 [Sciscraper](https://github.com/schmettow/sciscraper-rs) and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
@@ -96,8 +96,8 @@ model.
 
 ### Editor
 
-- Type in the source editor. Markdown, BibTeX, and LaTeX files are highlighted
-  by the grammar that matches their extension.
+- Type in the source editor. Markdown (including Quarto `.qmd`), BibTeX, and
+  LaTeX files are highlighted by the grammar that matches their extension.
 - **Preview** (toolbar, `Ctrl+Shift+E`) shows or hides the rendered preview in
   the `gpuikit` backend. The preview header has its own collapse button and a
   **scroll-sync** toggle; drag-free `Ctrl+Shift+E` also restores a collapsed
@@ -112,7 +112,7 @@ model.
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
 - `PageUp` / `PageDown` move by a viewport; add `Shift` to extend the
   selection.
-- **Library** (top left) and **SciCo** (top right) toggle their panes. Both
+- **Library** (top left) and **Scico** (top right) toggle their panes. Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
@@ -136,7 +136,7 @@ model.
    step, and the transcript reports the character delta. `Ctrl+Z` restores the
    original. If more than one passage is marked, the one captured last is the
    edit target and the others remain context.
-4. If the passage changed while SciCo was writing, nothing is written: an
+4. If the passage changed while Scico was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
 The same flow works if you switch tabs while the answer streams; the edit
@@ -170,7 +170,7 @@ target stays bound to the tab the passage came from.
   empty.
 - The filter field matches keys, authors, years, titles, and venues.
 
-### SciCo
+### Scico
 
 - Answers stream token by token. **Stop** keeps the partial answer; a failed
   answer can be retried.
@@ -195,7 +195,7 @@ of the controls column and the chosen width is remembered.
   reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
-  preview (zorite); SciCo visibility; and the default document attachment.
+  preview (zorite); Scico visibility; and the default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
   and memory. The token budgets are sliders over powers of two (512, 1024,
   2048, …).
@@ -206,7 +206,7 @@ changes” line; the Overview page lists how many fields changed per section.
 
 ## The roundtrip protocol
 
-The SciCo prompt is compiled in at
+The Scico prompt is compiled in at
 `assets/prompts/sci-co.md`. Editor contexts use the versioned
 containers the prompt documents:
 
@@ -246,7 +246,7 @@ sciscraper-gpui
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
   app_settings.rs Overview, Library, and Editor settings pages
-  settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
+  settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
   document.rs     backend-selected editor entity + EditorSurface implementation

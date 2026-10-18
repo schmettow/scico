@@ -69,7 +69,7 @@ pub struct AppState {
     pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the SciCo pane in pixels.
+    /// Width of the Scico pane in pixels.
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface.
     pub settings_gutter: f32,
