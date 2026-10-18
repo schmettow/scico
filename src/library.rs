@@ -542,7 +542,7 @@ impl Render for LibraryPane {
                 let copy_key = {
                     let key = key.clone();
                     Button::new(ElementId::Name(format!("library-copy-key-{index}").into()))
-                        .icon(IconName::AtSign)
+                        .icon(IconName::Copy)
                         .xsmall()
                         .ghost()
                         .tooltip("Copy @key")

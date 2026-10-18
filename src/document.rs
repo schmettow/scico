@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::{
-    App, AppContext as _, Entity, EntityInputHandler as _, RenderImage, SharedString, Window,
+    App, AppContext as _, ElementId, Entity, EntityInputHandler as _, RenderImage, ScrollHandle,
+    SharedString, Window,
 };
 use image::Frame;
 use zorite_editor::{EditorState, SyntaxStyle};
@@ -31,6 +33,12 @@ pub struct Document {
     pub cursor: (usize, usize),
     /// Cached character count, refreshed when the editor notifies.
     pub chars: usize,
+    /// The scroll viewport this document is rendered in (filled at render time).
+    pub scroll: Rc<RefCell<ScrollHandle>>,
+    /// Key under which the scroll viewport stores `scroll`.
+    pub scroll_id: ElementId,
+    /// Digest of the last journaled buffer, so cursor-only changes stay cheap.
+    pub content_digest: [u8; 32],
 }
 
 /// The data needed to create a document.
@@ -50,6 +58,8 @@ pub struct DocumentInit {
 impl Document {
     /// Create a document with the given editor style.
     pub fn new(window: &mut Window, cx: &mut App, style: &SyntaxStyle, init: DocumentInit) -> Self {
+        let content_digest = *blake3::hash(init.text.as_bytes()).as_bytes();
+        let scroll_id = ElementId::Name(format!("editor-scroll-{}", init.id).into());
         let base = init
             .path
             .as_deref()
@@ -110,6 +120,9 @@ impl Document {
             saved_text,
             cursor,
             chars,
+            scroll: Rc::new(RefCell::new(ScrollHandle::new())),
+            scroll_id,
+            content_digest,
         }
     }
 

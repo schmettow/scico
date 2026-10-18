@@ -1,18 +1,19 @@
 //! The application shell: toolbar, tabs, editor, panes, and status bar.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui_kit::{
     App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, PathPromptOptions,
-    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
-    actions,
+    Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
+    Window, actions,
     assets::IconName,
     component::{
         ActiveTheme as _, ResizableState, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
         h_flex, h_resizable, resizable_panel,
-        scroll::ScrollableElement as _,
+        scroll::Scrollbar,
         v_flex,
     },
     div,
@@ -21,7 +22,7 @@ use gpui_kit::{
 };
 
 use crate::agent::{AgentPane, AgentPaneEvent};
-use crate::app_settings::{app_editor_page, app_library_page};
+use crate::app_settings::{app_editor_page, app_library_page, app_overview_page};
 use crate::library::{LibraryEvent, LibraryPane};
 use crate::session::SessionState;
 use crate::state::AppState;
@@ -100,6 +101,7 @@ pub struct SciscraperApp {
     close_prompt: bool,
     allow_close: bool,
     resizable: Entity<ResizableState>,
+    settings_resizable: Entity<ResizableState>,
     last_panes: (bool, bool),
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -193,6 +195,7 @@ impl SciscraperApp {
             close_prompt: false,
             allow_close: false,
             resizable: cx.new(|_| ResizableState::default()),
+            settings_resizable: cx.new(|_| ResizableState::default()),
             last_panes: initial_panes,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
@@ -315,7 +318,7 @@ impl SciscraperApp {
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
-            state.close_active(cx);
+            state.close_active(window, cx);
             if state.documents.is_empty() {
                 state.new_document(window, cx);
             }
@@ -607,7 +610,7 @@ impl SciscraperApp {
                     .min_w(px(0.))
                     .child(self.toolbar(window, cx))
                     .child(self.tab_bar(cx))
-                    .child(self.editor(cx))
+                    .child(self.editor(window, cx))
                     .child(self.status_bar(cx)),
             ),
         );
@@ -846,7 +849,7 @@ impl SciscraperApp {
                                     if state.active != index {
                                         state.select_tab(index, window, cx);
                                     }
-                                    state.close_active(cx);
+                                    state.close_active(window, cx);
                                 });
                             })),
                     ),
@@ -855,15 +858,19 @@ impl SciscraperApp {
         bar
     }
 
-    fn editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
+    fn editor(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
         let editor = {
             let state = self.state.read(cx);
-            state
-                .active_document()
-                .map(|document| document.editor.clone())
+            state.active_document().map(|document| {
+                (
+                    document.editor.clone(),
+                    document.scroll_id.clone(),
+                    document.scroll.clone(),
+                )
+            })
         };
-        let Some(editor) = editor else {
+        let Some((editor, scroll_id, scroll_cell)) = editor else {
             return div()
                 .flex_1()
                 .flex()
@@ -894,21 +901,45 @@ impl SciscraperApp {
                 )
                 .into_any_element();
         };
+        let scroll = window
+            .use_keyed_state(scroll_id.clone(), cx, |_, _| ScrollHandle::new())
+            .read(cx)
+            .clone();
+        *scroll_cell.borrow_mut() = scroll.clone();
         div()
             .flex_1()
             .min_w(px(0.))
+            .min_h(px(0.))
+            .relative()
             .bg(theme.background)
-            .overflow_y_scrollbar()
-            .id("sciscraper-editor-scroll")
             .child(
                 div()
-                    .max_w(px(900.))
-                    .mx_auto()
-                    .px_8()
-                    .py_6()
-                    .text_size(px(16.))
-                    .text_color(theme.foreground)
-                    .child(editor),
+                    .id(scroll_id)
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .track_scroll(&scroll)
+                    .child(
+                        div()
+                            .flex_none()
+                            .min_h_full()
+                            .max_w(px(900.))
+                            .mx_auto()
+                            .px_8()
+                            .py_6()
+                            .text_size(px(16.))
+                            .text_color(theme.foreground)
+                            .child(editor),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.))
+                    .left(px(0.))
+                    .size_full()
+                    .child(Scrollbar::vertical(&scroll).viewport_from_layout()),
             )
             .into_any_element()
     }
@@ -971,16 +1002,40 @@ impl SciscraperApp {
 
     fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let (rag, controller) = {
-            let state = self.state.read(cx);
-            (state.rag.clone(), state.controller.clone())
+        let rag = self.state.read(cx).rag.clone();
+        let changes: ragrig_gpui::Changes = {
+            let state = self.state.clone();
+            Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
         };
+        let now = self.state.read(cx).rag_changes(cx);
         let settings = gpui_kit::component::setting::Settings::new(ElementId::Name(
             "sciscraper-settings".into(),
         ))
-        .page(app_library_page(self.state.clone()).group(ragrig_gpui::rag_references_group(&rag)))
+        .page(app_overview_page(self.state.clone(), &now, cx))
+        .page(app_library_page(self.state.clone(), cx))
         .page(app_editor_page(self.state.clone()))
-        .page(ragrig_gpui::rag_model_page(rag, controller, cx));
+        .page(ragrig_gpui::rag_model_page(rag, changes, cx));
+        let gutter = self.state.read(cx).settings_gutter;
+        let resize_state = self.state.clone();
+        let layout = h_resizable(ElementId::Name("sciscraper-settings-layout".into()))
+            .with_state(&self.settings_resizable)
+            .on_resize(move |resizable, _window, cx| {
+                let gutter = resizable
+                    .read(cx)
+                    .sizes()
+                    .get(1)
+                    .map(|size| size.as_f32())
+                    .unwrap_or(360.0);
+                resize_state.update(cx, |state, cx| state.set_settings_gutter(gutter, cx));
+            })
+            .child(resizable_panel().child(settings))
+            .child(
+                resizable_panel()
+                    .size(px(gutter))
+                    .size_range(px(80.)..px(900.))
+                    .flex_none()
+                    .child(div().size_full().bg(theme.muted.opacity(0.06))),
+            );
         v_flex()
             .size_full()
             .bg(theme.background)
@@ -1005,7 +1060,7 @@ impl SciscraperApp {
                     )
                     .child(div().text_lg().child("Settings")),
             )
-            .child(div().flex_1().min_h(px(0.)).child(settings))
+            .child(div().flex_1().min_h(px(0.)).child(layout))
     }
 }
 

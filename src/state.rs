@@ -2,9 +2,12 @@
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
-use ragrig_gpui::{ChatProvider, RagController, RagSettings};
+use gpui_kit::{
+    App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window, point, px,
+};
+use ragrig_gpui::{ChatProvider, RagChanges, RagController, RagSettings};
 use zorite_editor::{EditorEvent, SyntaxStyle};
 
 use crate::document::{Document, line_column, read_document, title_for};
@@ -44,6 +47,8 @@ pub struct AppState {
     last_session: Option<SessionState>,
     /// The editable Ragrig settings.
     pub rag: Entity<RagSettings>,
+    /// The configuration last handed to the worker.
+    applied_rag: RagSettings,
     /// The RAG worker controller.
     pub controller: Entity<RagController>,
     /// Open documents, in tab order.
@@ -70,6 +75,10 @@ pub struct AppState {
     pub library_width: f32,
     /// Width of the SciCo pane in pixels.
     pub agent_width: f32,
+    /// Empty gutter on the right of the settings surface.
+    pub settings_gutter: f32,
+    /// Monotonic token that cancels an older caret-follow animation.
+    scroll_generation: u64,
     /// Render raw Markdown instead of the live preview.
     pub raw_mode: bool,
     /// The status bar text.
@@ -132,6 +141,7 @@ impl AppState {
             }
         };
         let rag = cx.new(|_| rag_values);
+        let applied_rag = rag.read(cx).clone();
         let controller = cx.new(|cx| {
             RagController::new(with_bibliography(setup, bibliography.clone()), cx)
                 .expect("the RAG worker thread must start")
@@ -163,12 +173,14 @@ impl AppState {
                 .map_or(persisted.agent_width, |session| session.agent_width),
             persisted.agent_width,
         );
+        let settings_gutter = gutter_width(persisted.settings_gutter);
         let mut state = Self {
             settings: persisted,
             settings_path,
             session_path,
             last_session: restored_session.clone(),
             rag,
+            applied_rag,
             controller,
             documents: Vec::new(),
             active: 0,
@@ -182,6 +194,8 @@ impl AppState {
             show_agent,
             library_width,
             agent_width,
+            settings_gutter,
+            scroll_generation: 0,
             raw_mode,
             status,
             style,
@@ -365,6 +379,10 @@ impl AppState {
         if let Some(document) = self.documents.get(self.active) {
             window.focus(&document.editor.read(cx).focus_handle(cx), cx);
         }
+        let active = self.active_document().map(|document| document.id);
+        if let Some(id) = active {
+            self.follow_caret(id, cx);
+        }
     }
 
     /// The current window state, including buffers as they are on screen.
@@ -521,7 +539,7 @@ impl AppState {
     }
 
     /// Close the active tab. A dirty document is kept until saved.
-    pub fn close_active(&mut self, cx: &mut Context<Self>) {
+    pub fn close_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(document) = self.active_document() else {
             return;
         };
@@ -540,6 +558,10 @@ impl AppState {
             // tab leaves an empty state rather than creating an editor here.
         } else {
             self.active = self.active.min(self.documents.len() - 1);
+            window.focus(
+                &self.documents[self.active].editor.read(cx).focus_handle(cx),
+                cx,
+            );
         }
         self.persist_session(cx);
         cx.notify();
@@ -547,12 +569,18 @@ impl AppState {
 
     /// Select the tab at `index`.
     pub fn select_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(document) = self.documents.get(index) {
-            self.active = index;
-            window.focus(&document.editor.read(cx).focus_handle(cx), cx);
-            self.persist_session(cx);
-            cx.notify();
-        }
+        let Some((id, editor)) = self
+            .documents
+            .get(index)
+            .map(|document| (document.id, document.editor.clone()))
+        else {
+            return;
+        };
+        self.active = index;
+        window.focus(&editor.read(cx).focus_handle(cx), cx);
+        self.persist_session(cx);
+        self.follow_caret(id, cx);
+        cx.notify();
     }
 
     /// Insert text at the active document's selection or caret.
@@ -630,11 +658,17 @@ impl AppState {
                 let setup = with_bibliography(setup, self.bibliography.clone());
                 self.controller
                     .update(cx, |controller, cx| controller.apply(setup, cx));
+                self.applied_rag = self.rag.read(cx).clone();
                 self.persist(cx);
                 self.set_status("RAG agent rebuilt", cx);
             }
             Err(error) => self.set_status(format!("Settings: {error}"), cx),
         }
+    }
+
+    /// Which settings fields differ from the running configuration.
+    pub fn rag_changes(&self, cx: &App) -> RagChanges {
+        self.rag.read(cx).dirty_since(&self.applied_rag)
     }
 
     /// Record pane widths after a divider drag.
@@ -643,6 +677,13 @@ impl AppState {
         self.agent_width = panel_width(agent, self.agent_width);
         self.persist(cx);
         self.persist_session(cx);
+        cx.notify();
+    }
+
+    /// Record the settings gutter after a divider drag.
+    pub fn set_settings_gutter(&mut self, gutter: f32, cx: &mut Context<Self>) {
+        self.settings_gutter = gutter_width(gutter);
+        self.persist(cx);
         cx.notify();
     }
 
@@ -668,6 +709,7 @@ impl AppState {
         self.settings.show_agent = self.show_agent;
         self.settings.library_width = self.library_width;
         self.settings.agent_width = self.agent_width;
+        self.settings.settings_gutter = self.settings_gutter;
         self.settings.raw_mode = self.raw_mode;
         if let Err(error) = self.settings.save(&self.settings_path) {
             self.status = error.into();
@@ -763,6 +805,81 @@ impl AppState {
         }
     }
 
+    /// Keep the caret inside the editor viewport with an eased scroll.
+    ///
+    /// The editor auto-grows; this is the host scroll view. Running after a
+    /// short delay lets the caret bounds reflect the frame the keystroke just
+    /// produced. Each call bumps a generation, so key repeat retargets the
+    /// animation instead of stacking scroll tasks.
+    fn follow_caret(&mut self, id: u64, cx: &mut Context<Self>) {
+        if self.active_document().map(|document| document.id) != Some(id) {
+            return;
+        }
+        let Some(document) = self.document(id) else {
+            return;
+        };
+        let editor = document.editor.clone();
+        let scroll = document.scroll.borrow().clone();
+        self.scroll_generation = self.scroll_generation.wrapping_add(1);
+        let generation = self.scroll_generation;
+        cx.spawn(async move |this, cx| {
+            let mut computed = None;
+            for attempt in 0..3u64 {
+                cx.background_executor()
+                    .timer(Duration::from_millis(8 + attempt * 16))
+                    .await;
+                let still_current = this
+                    .update(cx, |this, _| this.scroll_generation == generation)
+                    .unwrap_or(false);
+                if !still_current {
+                    return;
+                }
+                computed = cx.update(|cx| {
+                    let caret = editor.read(cx).caret_screen_bounds()?;
+                    let viewport = scroll.bounds();
+                    if viewport.size.height <= px(0.) {
+                        return None;
+                    }
+                    let margin = px(64.);
+                    let mut target = f32::from(scroll.offset().y);
+                    if caret.top() < viewport.top() + margin {
+                        target += f32::from(viewport.top() + margin - caret.top());
+                    } else if caret.bottom() > viewport.bottom() - margin {
+                        target -= f32::from(caret.bottom() - (viewport.bottom() - margin));
+                    }
+                    let max = f32::from(scroll.max_offset().y);
+                    Some((f32::from(scroll.offset().y), target.clamp(-max, 0.0)))
+                });
+                if computed.is_some() {
+                    break;
+                }
+            }
+            let Some((start, target)) = computed else {
+                return;
+            };
+            if (target - start).abs() < 1.0 {
+                return;
+            }
+            for step in 1..=10 {
+                cx.background_executor()
+                    .timer(Duration::from_millis(14))
+                    .await;
+                let still_current = this
+                    .update(cx, |this, _| this.scroll_generation == generation)
+                    .unwrap_or(false);
+                if !still_current {
+                    return;
+                }
+                let t = step as f32 / 10.0;
+                let eased = 1.0 - (1.0 - t).powi(3);
+                let y = start + (target - start) * eased;
+                scroll.set_offset(point(px(0.), px(y)));
+                let _ = this.update(cx, |_, cx| cx.notify());
+            }
+        })
+        .detach();
+    }
+
     fn subscribe_editor(
         &mut self,
         editor: &Entity<zorite_editor::EditorState>,
@@ -797,19 +914,28 @@ impl AppState {
             let Some(document) = this.document_mut(id) else {
                 return;
             };
-            let (dirty, chars, cursor) = {
+            let (dirty, chars, cursor, digest) = {
                 let editor = editor.read(cx);
                 let text = editor.text();
                 (
                     text != document.saved_text,
                     text.chars().count(),
                     line_column(text, editor.cursor()),
+                    *blake3::hash(text.as_bytes()).as_bytes(),
                 )
             };
             document.dirty = dirty;
             document.chars = chars;
             document.cursor = cursor;
-            this.persist_session(cx);
+            let content_changed = digest != document.content_digest;
+            document.content_digest = digest;
+            // Cursor-only movements are cheap: keep them in memory and let the
+            // next edit, save, or close journal them. Writing (and fsyncing) the
+            // whole session on every arrow key is what made key repeat stutter.
+            if content_changed {
+                this.persist_session(cx);
+            }
+            this.follow_caret(id, cx);
             cx.notify();
         })
         .detach();
@@ -847,6 +973,14 @@ fn with_bibliography(
 fn non_empty_path(value: &str) -> Option<PathBuf> {
     let value = value.trim();
     (!value.is_empty()).then(|| PathBuf::from(value))
+}
+
+fn gutter_width(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(80.0, 900.0)
+    } else {
+        360.0
+    }
 }
 
 fn panel_width(value: f32, fallback: f32) -> f32 {

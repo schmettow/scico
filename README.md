@@ -146,8 +146,16 @@ target stays bound to the tab the passage came from.
 
 ### Settings
 
-`Ctrl+,` opens the settings surface, organised into three pages:
+`Ctrl+,` opens the settings surface. The divider on the right adjusts the width
+of the controls column and the chosen width is remembered.
 
+- **Overview** — profile picker and name, a per-section count of pending
+  changes, and the action row: **Apply**, **Profile Defaults**, **Update
+  Profile**, and **Load profile**. Apply is disabled (grey) while nothing is
+  pending and violet when a rebuild is due. Profile Defaults re-reads the
+  selected profile, or the built-in defaults when none exists; Update Profile
+  writes the current values to the name above (creating the profile when the
+  name is new); Load profile reads the selected profile from disk.
 - **Library** — workspace, corpus folder, bibliography, pane visibility,
   external viewers for PDF/EPUB/HTML, the default library attachment, and
   reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
@@ -155,8 +163,12 @@ target stays bound to the tab the passage came from.
 - **Editor** — live preview, SciCo visibility, and the default document
   attachment.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
-  memory, profiles, and **Apply**. The token budgets are sliders over powers of
-  two (512, 1024, 2048, …).
+  and memory. The token budgets are sliders over powers of two (512, 1024,
+  2048, …).
+
+RAG fields that differ from the running configuration are bold violet. Their
+section and page carry a `●` in the sidebar, and the section shows an “Unsaved
+changes” line; the Overview page lists how many fields changed per section.
 
 ## The roundtrip protocol
 
@@ -198,7 +210,7 @@ sciscraper-gpui
   document.rs     EditorState per tab, save, selection, image/PDF providers
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
-  app_settings.rs Library and Editor settings pages
+  app_settings.rs Overview, Library, and Editor settings pages
   settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   roundtrip.rs    protocol, containers, digest guard, replacement extraction
@@ -228,6 +240,12 @@ The following were fixed in `ragrig-gpui` during development:
   `rag_references_group`, so a host can build Library / Editor / RAG pages.
 - Reference-row copy actions are always visible instead of relying on a
   hover-only reveal that could leave the icons invisible.
+- `RagChanges`, `RagField`, and `RagSection` expose field-level pending edits;
+  `SettingRow`, `dirty_color`, and `dirty_header` render the bold-violet marks.
+  `RagSettings::reset_to_profile_defaults()` backs the Overview button.
+- The agent bar uses `Layers` for the vector store and `Columns3` for the
+  chunker; the previous `Server`/`Hash` SVGs contain `<line>` shapes that the
+  SVG rasteriser drops.
 
 ## Checks
 

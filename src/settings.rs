@@ -160,6 +160,8 @@ pub struct PersistedSettings {
     pub library_width: f32,
     /// Width of the SciCo pane in pixels.
     pub agent_width: f32,
+    /// Empty gutter on the right of the settings surface, in pixels.
+    pub settings_gutter: f32,
     /// Start in raw markdown rather than live preview.
     pub raw_mode: bool,
     /// External programs for PDF, EPUB, and HTML files.
@@ -205,6 +207,7 @@ impl Default for PersistedSettings {
             show_agent: true,
             library_width: 340.0,
             agent_width: 430.0,
+            settings_gutter: 360.0,
             raw_mode: false,
             viewers: ExternalViewers::default(),
         }

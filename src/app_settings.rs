@@ -1,25 +1,319 @@
 //! The Sciscraper-specific settings pages.
 //!
 //! Ragrig supplies the model/retrieval page and the reference-ingestion group.
-//! These pages own the workspace, the editor layout, and external viewers.
+//! These pages own the workspace, the editor layout, external viewers, and the
+//! profile/apply overview.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui_kit::{
-    App, Entity, ParentElement as _, SharedString, Styled as _,
+    App, Entity, FontWeight, IntoElement, ParentElement as _, SharedString, Styled as _,
     component::{
-        ActiveTheme as _,
+        ActiveTheme as _, Disableable as _, Sizable as _,
+        button::Button,
+        h_flex,
         setting::{SettingField, SettingGroup, SettingItem, SettingPage},
+        v_flex,
     },
+    div,
+    prelude::FluentBuilder as _,
 };
 
 use crate::settings::ViewerKind;
 use crate::state::AppState;
-use ragrig_gpui::path_setting;
+use ragrig_gpui::{
+    Changes, RagChanges, RagField, RagSection, SettingRow, dirty_color, dirty_header,
+    dropdown_control, path_control, path_setting, text_control,
+};
+
+/// A live view of the unsaved RAG settings.
+fn changes_of(state: &Entity<AppState>) -> Changes {
+    let state = state.clone();
+    Rc::new(move |cx| state.read(cx).rag_changes(cx))
+}
+
+fn page_title(label: &str, dirty: bool) -> SharedString {
+    if dirty {
+        format!("{label} ●").into()
+    } else {
+        SharedString::from(label)
+    }
+}
+
+/// The Overview page: profiles and the Apply row.
+///
+/// Apply, Profile Defaults, Update Profile, and Load profile sit together in
+/// the footer so the profile workflow stays in one place.
+pub fn app_overview_page(state: Entity<AppState>, changes: &RagChanges, cx: &App) -> SettingPage {
+    let profile = SettingRow::new(
+        "Profile",
+        dropdown_control(
+            "overview-profile",
+            {
+                let state = state.clone();
+                move |cx| profile_options(&state, cx)
+            },
+            {
+                let state = state.clone();
+                move |cx| state.read(cx).rag.read(cx).profile_name.clone()
+            },
+            {
+                let state = state.clone();
+                move |value, cx| {
+                    state.update(cx, |state, cx| {
+                        state.rag.update(cx, |rag, cx| {
+                            rag.profile_name = value;
+                            cx.notify();
+                        });
+                        cx.notify();
+                    });
+                }
+            },
+        ),
+    )
+    .description("Load and Update Profile act on this profile.");
+
+    let profile_name = SettingRow::new(
+        "Profile name",
+        text_control(
+            "overview-profile-name",
+            {
+                let state = state.clone();
+                move |cx| state.read(cx).rag.read(cx).profile_name.clone()
+            },
+            {
+                let state = state.clone();
+                move |value, cx| {
+                    state.update(cx, |state, cx| {
+                        state.rag.update(cx, |rag, cx| {
+                            rag.profile_name = value;
+                            cx.notify();
+                        });
+                        cx.notify();
+                    });
+                }
+            },
+        ),
+    )
+    .description("Update Profile writes the current values here; a new name creates a profile.");
+
+    let summary = SettingItem::render({
+        let state = state.clone();
+        move |_, _, cx| {
+            let changes = state.read(cx).rag_changes(cx);
+            let mut lines = v_flex().gap_1();
+            if changes.is_empty() {
+                lines = lines.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("All settings are applied."),
+                );
+            } else {
+                for section in RagSection::ALL {
+                    let count = changes.count_in(section);
+                    if count > 0 {
+                        lines = lines.child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(dirty_color(cx))
+                                .child(format!(
+                                    "{} — {count} {}",
+                                    section.label(),
+                                    if count == 1 { "change" } else { "changes" }
+                                )),
+                        );
+                    }
+                }
+            }
+            lines.into_any_element()
+        }
+    });
+
+    let unsaved = changes.any();
+    let unsaved_count = changes.len();
+    let summary_group = SettingGroup::new()
+        .title(page_title("Pending changes", unsaved))
+        .item(summary)
+        .footer({
+            let state = state.clone();
+            move |_, cx| actions_row(state.clone(), cx)
+        });
+
+    let profile_group = SettingGroup::new()
+        .title("Profiles")
+        .item(profile.into_item())
+        .item(profile_name.into_item())
+        .footer({
+            let state = state.clone();
+            move |_, cx| {
+                let status = state.read(cx).rag.read(cx).status.clone();
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(status.unwrap_or_else(|| {
+                        "Profiles are JSON files in .ragrig/profiles; secrets are never written."
+                            .to_owned()
+                    }))
+            }
+        });
+
+    let page = SettingPage::new(page_title("Overview", unsaved))
+        .description("Profiles and pending changes. Apply rebuilds the agent.")
+        .default_open(true)
+        .title_suffix(move |_, cx| {
+            div()
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(dirty_color(cx))
+                .child(if unsaved {
+                    format!("{unsaved_count} unsaved")
+                } else {
+                    String::new()
+                })
+        });
+    let page = if unsaved {
+        page.header_style(&dirty_header(cx))
+    } else {
+        page
+    };
+    page.group(profile_group).group(summary_group)
+}
+
+fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
+    let changes = state.read(cx).rag_changes(cx);
+    let unsaved = changes.any();
+    let violet = dirty_color(cx);
+
+    let apply = {
+        let state = state.clone();
+        Button::new("overview-apply")
+            .label("Apply")
+            .small()
+            .disabled(!unsaved)
+            .when(unsaved, |this| {
+                this.bg(violet)
+                    .border_color(violet)
+                    .text_color(gpui_kit::white())
+            })
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| state.apply_rag(cx));
+            })
+    };
+    let defaults = {
+        let state = state.clone();
+        Button::new("overview-profile-defaults")
+            .label("Profile Defaults")
+            .small()
+            .outline()
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.rag.update(cx, |rag, cx| {
+                        if let Err(message) = rag.reset_to_profile_defaults() {
+                            rag.status = Some(message);
+                        }
+                        cx.notify();
+                    });
+                    cx.notify();
+                });
+            })
+    };
+    let update = {
+        let state = state.clone();
+        Button::new("overview-profile-update")
+            .label("Update Profile")
+            .small()
+            .outline()
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.rag.update(cx, |rag, cx| {
+                        if let Err(message) = rag.save_profile() {
+                            rag.status = Some(message);
+                        }
+                        cx.notify();
+                    });
+                    state.persist(cx);
+                    cx.notify();
+                });
+            })
+    };
+    let load = {
+        let state = state.clone();
+        Button::new("overview-profile-load")
+            .label("Load profile")
+            .icon(gpui_kit::assets::IconName::FolderOpen)
+            .small()
+            .outline()
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.rag.update(cx, |rag, cx| {
+                        let name = rag.profile_name.trim().to_owned();
+                        if name.is_empty() {
+                            rag.status = Some("choose a profile first".to_owned());
+                        } else if let Err(message) = rag.load_profile(&name) {
+                            rag.status = Some(message);
+                        }
+                        cx.notify();
+                    });
+                    cx.notify();
+                });
+            })
+    };
+
+    let controller = state.read(cx).controller.clone();
+    let status = state
+        .read(cx)
+        .rag
+        .read(cx)
+        .status
+        .clone()
+        .unwrap_or_else(|| controller.read(cx).status_line());
+    let has_error = controller.read(cx).error().is_some();
+    let color = if has_error {
+        cx.theme().danger
+    } else {
+        cx.theme().muted_foreground
+    };
+
+    v_flex()
+        .gap_2()
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(apply)
+                .child(defaults)
+                .child(update)
+                .child(load),
+        )
+        .child(div().text_xs().text_color(color).child(status))
+        .into_any_element()
+}
+
+fn profile_options(state: &Entity<AppState>, cx: &App) -> Vec<(SharedString, SharedString)> {
+    let rag = state.read(cx).rag.read(cx);
+    let mut names = rag.profiles.clone();
+    let current = rag.profile_name.trim().to_owned();
+    if !current.is_empty() && !names.iter().any(|name| name == &current) {
+        names.push(current);
+    }
+    names
+        .into_iter()
+        .filter(|name| !name.is_empty())
+        .map(|name| (name.as_str().into(), name.as_str().into()))
+        .collect()
+}
 
 /// The Library page: paths, viewers, and library context.
-pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
-    let workspace = path_setting(
+pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
+    let now = state.read(cx).rag_changes(cx);
+    let changes = changes_of(&state);
+    let dirty = now.section(RagSection::Workspace) || now.section(RagSection::References);
+    let title = page_title("Library", dirty);
+
+    let workspace = path_control(
         "app-workspace",
         "Choose the workspace folder",
         true,
@@ -48,8 +342,14 @@ pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
             }
         },
     );
+    let workspace_row = SettingRow::new("Workspace folder", workspace)
+        .description("Documents, .ragrig store, and sessions.")
+        .dirty({
+            let state = state.clone();
+            move |cx| state.read(cx).rag_changes(cx).contains(RagField::Workspace)
+        });
 
-    let corpus = path_setting(
+    let corpus = path_control(
         "app-corpus",
         "Choose the corpus folder",
         true,
@@ -78,8 +378,10 @@ pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
             }
         },
     );
+    let corpus_row = SettingRow::new("Corpus folder", corpus)
+        .description("Indexed papers; Add PDFs and GROBID use this folder.");
 
-    let bibliography = path_setting(
+    let bibliography = path_control(
         "app-bibliography",
         "Choose the bibliography file",
         false,
@@ -111,6 +413,17 @@ pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
             }
         },
     );
+    let bibliography_row = SettingRow::new("Bibliography", bibliography)
+        .description("The .bib the library shows and GROBID merges into.")
+        .dirty({
+            let state = state.clone();
+            move |cx| {
+                state
+                    .read(cx)
+                    .rag_changes(cx)
+                    .contains(RagField::Bibliography)
+            }
+        });
 
     let show_library = state_switch(
         state.clone(),
@@ -151,39 +464,38 @@ pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
             .child("The document path is passed as the only argument.")
     });
 
-    SettingPage::new("Library")
+    let references = state.read(cx).rag.clone();
+
+    let page = SettingPage::new(title)
         .description("Workspace, bibliography, external viewers, and library context.")
-        .default_open(true)
-        .group(
-            SettingGroup::new()
-                .title("Workspace")
-                .item(
-                    SettingItem::new("Workspace folder", workspace)
-                        .description("Documents, .ragrig store, and sessions."),
-                )
-                .item(
-                    SettingItem::new("Corpus folder", corpus)
-                        .description("Indexed papers; Add PDFs and GROBID use this folder."),
-                )
-                .item(
-                    SettingItem::new("Bibliography", bibliography)
-                        .description("The .bib the library shows and GROBID merges into."),
-                )
-                .item(
-                    SettingItem::new("Show library pane", show_library)
-                        .description("Left pane with references and corpus actions."),
-                ),
-        )
-        .group(viewers)
-        .group(
-            SettingGroup::new().title("Context").item(
-                SettingItem::new("Attach library by default", library_attached)
-                    .description("Ride the whole .bib with every question."),
+        .default_open(true);
+    let page = if dirty {
+        page.header_style(&dirty_header(cx))
+    } else {
+        page
+    };
+    page.group(
+        SettingGroup::new()
+            .title(page_title("Workspace", now.section(RagSection::Workspace)))
+            .item(workspace_row.into_item())
+            .item(corpus_row.into_item())
+            .item(bibliography_row.into_item())
+            .item(
+                SettingItem::new("Show library pane", show_library)
+                    .description("Left pane with references and corpus actions."),
             ),
-        )
+    )
+    .group(viewers)
+    .group(ragrig_gpui::rag_references_group(&references, &changes))
+    .group(
+        SettingGroup::new().title("Context").item(
+            SettingItem::new("Attach library by default", library_attached)
+                .description("Ride the whole .bib with every question."),
+        ),
+    )
 }
 
-/// The Editor page: preview, pane visibility, and document context.
+/// The Editor page: preview and document context.
 pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
     let live_preview = state_switch(
         state.clone(),

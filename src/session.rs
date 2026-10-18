@@ -122,9 +122,9 @@ impl SessionState {
                 .map_err(|error| format!("cannot create '{}': {error}", temporary.display()))?;
             file.write_all(&bytes)
                 .map_err(|error| format!("cannot write '{}': {error}", temporary.display()))?;
-            // The rename below is only atomic once the bytes are on disk.
-            file.sync_all()
-                .map_err(|error| format!("cannot flush '{}': {error}", temporary.display()))?;
+            // No fsync on the hot path: the process-crash safety comes from the
+            // atomic rename, while an fsync per keystroke makes key repeat
+            // visibly stutter. The OS flushes the completed file normally.
         }
         fs::rename(&temporary, path)
             .map_err(|error| format!("cannot replace '{}': {error}", path.display()))?;
