@@ -2083,6 +2083,57 @@ mod tests {
 
     #[cfg(feature = "gpuikit")]
     #[gpui_kit::test]
+    fn block_sync_survives_soft_wrapping(cx: &mut TestAppContext) {
+        use gpui_kit::InputEvent as _;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let (editor, preview) = cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            (document.editor.clone(), document.preview.clone())
+        });
+        let body = "word ".repeat(400);
+        let text = (0..30)
+            .map(|index| format!("Paragraph {index}. {body}\n\n"))
+            .collect::<String>();
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_value(text, window, cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
+        });
+
+        let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-3_000.))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(50));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+
+        let top = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
+        assert!(top > 0, "wrapped paragraphs must still advance the preview");
+    }
+
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
     fn scroll_sync_moves_the_editor_with_the_preview(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
