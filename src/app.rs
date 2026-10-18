@@ -1058,11 +1058,23 @@ impl SciscraperApp {
         let theme = cx.theme().clone();
         let active = {
             let state = self.state.read(cx);
-            state
-                .active_document()
-                .map(|document| (document.editor.clone(), document.text(cx), state.raw_mode))
+            state.active_document().map(|document| {
+                let base = document
+                    .path
+                    .as_deref()
+                    .and_then(std::path::Path::parent)
+                    .map(std::path::Path::to_path_buf)
+                    .or_else(|| std::env::current_dir().ok())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                (
+                    document.editor.clone(),
+                    document.text(cx),
+                    state.raw_mode,
+                    base,
+                )
+            })
         };
-        let Some((editor, text, raw)) = active else {
+        let Some((editor, text, raw, base)) = active else {
             return self.empty_editor(cx);
         };
         let source = div().flex_1().min_w(px(0.)).h_full().child(
@@ -1088,10 +1100,10 @@ impl SciscraperApp {
                         .overflow_y_scroll()
                         .px_6()
                         .py_4()
-                        .child(gpui_kit::component::text::TextView::markdown(
-                            "editor-preview",
-                            text,
-                        )),
+                        .child(
+                            gpui_kit::base::TextView::markdown("editor-preview", text)
+                                .image_source(crate::document::preview_image_source(base)),
+                        ),
                 )
                 .into_any_element()
         };

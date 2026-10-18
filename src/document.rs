@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 #[cfg(feature = "zorite")]
 use gpui_kit::EntityInputHandler as _;
-#[cfg(feature = "zorite")]
+#[cfg(any(feature = "zorite", feature = "gpuikit"))]
 use gpui_kit::RenderImage;
 use gpui_kit::{
     App, AppContext as _, ElementId, Entity, FocusHandle, Focusable as _, ScrollHandle,
     SharedString, Window,
 };
-#[cfg(feature = "zorite")]
+#[cfg(any(feature = "zorite", feature = "gpuikit"))]
 use image::Frame;
 use ragrig_gpui::editor::{EditorSurface, byte_to_char_index};
 
@@ -361,6 +361,49 @@ fn image_provider(base: PathBuf) -> impl Fn(&str) -> Option<Arc<RenderImage>> + 
         });
         cache.borrow_mut().insert(path, loaded.clone());
         loaded
+    }
+}
+
+/// Resolve a preview's image URI relative to the document.
+///
+/// `TextView`'s default handling is URI-based; this resolver keeps local
+/// Markdown images working and caches both hits and misses.
+#[cfg(feature = "gpuikit")]
+pub fn preview_image_source(
+    base: PathBuf,
+) -> impl Fn(&gpui_kit::SharedUri) -> gpui_kit::ImageSource + Send + Sync + 'static {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    let cache: Arc<Mutex<HashMap<PathBuf, Option<Arc<RenderImage>>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    move |uri| {
+        let src = uri.to_string();
+        if src.starts_with("http://") || src.starts_with("https://") || src.starts_with("data:") {
+            return gpui_kit::ImageSource::from(uri.clone());
+        }
+        let path = if Path::new(&src).is_absolute() {
+            PathBuf::from(&src)
+        } else {
+            base.join(&src)
+        };
+        let mut cache = cache.lock().expect("preview image cache");
+        if let Some(cached) = cache.get(&path) {
+            return cached.clone().map_or_else(
+                || gpui_kit::ImageSource::from(uri.clone()),
+                gpui_kit::ImageSource::Render,
+            );
+        }
+        let loaded = image::open(&path).ok().map(|image| {
+            let frame = Frame::new(image.into_rgba8());
+            Arc::new(RenderImage::new([frame]))
+        });
+        let source = loaded.clone().map_or_else(
+            || gpui_kit::ImageSource::from(uri.clone()),
+            gpui_kit::ImageSource::Render,
+        );
+        cache.insert(path, loaded);
+        source
     }
 }
 
