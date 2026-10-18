@@ -43,6 +43,10 @@ actions!(
         FocusSelection,
         EditSelection,
         CancelClose,
+        EditorPageUp,
+        EditorPageDown,
+        EditorSelectPageUp,
+        EditorSelectPageDown,
     ]
 );
 
@@ -89,6 +93,10 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
             zorite_editor::SelectWordRight,
             Some("Editor"),
         ),
+        KeyBinding::new("pageup", EditorPageUp, Some("Editor")),
+        KeyBinding::new("pagedown", EditorPageDown, Some("Editor")),
+        KeyBinding::new("shift-pageup", EditorSelectPageUp, Some("Editor")),
+        KeyBinding::new("shift-pagedown", EditorSelectPageDown, Some("Editor")),
     ]);
 }
 
@@ -323,6 +331,73 @@ impl SciscraperApp {
                 state.new_document(window, cx);
             }
         });
+    }
+
+    fn editor_page_up(&mut self, _: &EditorPageUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor_page(true, false, window, cx);
+    }
+
+    fn editor_page_down(
+        &mut self,
+        _: &EditorPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor_page(false, false, window, cx);
+    }
+
+    fn editor_select_page_up(
+        &mut self,
+        _: &EditorSelectPageUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor_page(true, true, window, cx);
+    }
+
+    fn editor_select_page_down(
+        &mut self,
+        _: &EditorSelectPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor_page(false, true, window, cx);
+    }
+
+    /// Move or extend the caret by one viewport using the editor's own
+    /// goal-column movement.
+    fn editor_page(&mut self, up: bool, select: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((editor, scroll)) = self
+            .state
+            .read(cx)
+            .active_document()
+            .map(|document| (document.editor.clone(), document.scroll.borrow().clone()))
+        else {
+            return;
+        };
+        let viewport = {
+            let height = scroll.bounds().size.height;
+            if height > px(0.) {
+                height
+            } else {
+                window.viewport_size().height
+            }
+        };
+        let rows = editor.read(cx).row_layout();
+        let page = if rows.is_empty() {
+            (f32::from(viewport) / (16.0 * zorite_editor::LINE_HEIGHT_RATIO)).floor() as usize
+        } else {
+            rows.iter().filter(|(top, _)| *top < viewport).count()
+        }
+        .clamp(1, 50);
+        for _ in 0..page {
+            match (up, select) {
+                (true, false) => window.dispatch_action(Box::new(zorite_editor::Up), cx),
+                (true, true) => window.dispatch_action(Box::new(zorite_editor::SelectUp), cx),
+                (false, false) => window.dispatch_action(Box::new(zorite_editor::Down), cx),
+                (false, true) => window.dispatch_action(Box::new(zorite_editor::SelectDown), cx),
+            }
+        }
     }
 
     fn toggle_agent(&mut self, _: &ToggleAgent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1103,6 +1178,10 @@ impl Render for SciscraperApp {
             .on_action(cx.listener(Self::focus_selection))
             .on_action(cx.listener(Self::edit_selection))
             .on_action(cx.listener(Self::cancel_close))
+            .on_action(cx.listener(Self::editor_page_up))
+            .on_action(cx.listener(Self::editor_page_down))
+            .on_action(cx.listener(Self::editor_select_page_up))
+            .on_action(cx.listener(Self::editor_select_page_down))
             .child(body)
             .when(self.close_prompt, |this| this.child(self.close_dialog(cx)))
     }
@@ -1414,6 +1493,57 @@ mod tests {
                 (0, 13)
             );
         });
+    }
+
+    #[gpui_kit::test]
+    fn page_keys_move_by_a_viewport(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let editor = cx.update(|_, cx| {
+            app.read(cx)
+                .state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let text = (0..40)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        cx.update(|_, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.set_text(text, cx);
+                editor.set_cursor(0, cx);
+            });
+        });
+        cx.run_until_parked();
+
+        let line = |cx: &mut VisualTestContext| {
+            cx.update(|_, cx| {
+                app.read(cx)
+                    .state
+                    .read(cx)
+                    .active_document()
+                    .expect("a document")
+                    .cursor_position(cx)
+                    .0
+            })
+        };
+
+        assert_eq!(line(cx), 0);
+        cx.simulate_keystrokes("pagedown");
+        cx.run_until_parked();
+        let after = line(cx);
+        assert!(
+            after > 1,
+            "pagedown must move more than one line (0 -> {after})"
+        );
+
+        cx.simulate_keystrokes("pageup");
+        cx.run_until_parked();
+        let back = line(cx);
+        assert!(back < after, "pageup must move back ({after} -> {back})");
     }
 
     #[gpui_kit::test]

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PageUp` / `PageDown` (and `Shift` variants) navigate the editor by a
+  viewport, using the editor’s own goal-column movement.
 - **Settings → Overview**: profile picker and name, per-section pending-change
   counts, and a single action row with **Apply**, **Profile Defaults**,
   **Update Profile**, and **Load profile**. Apply is disabled while nothing is
@@ -32,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Editor scrolling no longer jumps back while the mouse is over the text:
+  caret-follow now listens to editor change/selection events instead of every
+  repaint, and it applies one stable offset after the layout settles. It also
+  cancels itself when the user scrolls during the wait.
+- Typing and hovering no longer re-render the whole window: hover-only editor
+  notifications update cached state silently, and caret-follow no longer
+  multiplies renders with a ten-step animation.
 - Session journaling: content edits are written within 300 ms, while explicit
   actions (open, save, close, tab switch, layout) still flush immediately.
 - The `Copy @key` action, the vector-store component, and the chunker component

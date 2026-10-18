@@ -81,6 +81,8 @@ model.
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
   `Ctrl+W` closes. A dirty tab is kept until it is saved.
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
+- `PageUp` / `PageDown` move by a viewport; add `Shift` to extend the
+  selection.
 - **Library** (top left) and **SciCo** (top right) toggle their panes. Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
