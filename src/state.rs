@@ -940,10 +940,12 @@ impl AppState {
                     *blake3::hash(text.as_bytes()).as_bytes(),
                 )
             };
+            let content_changed = digest != document.content_digest;
+            let dirty_changed = dirty != document.dirty;
+            let cursor_moved = cursor != document.cursor;
             document.dirty = dirty;
             document.chars = chars;
             document.cursor = cursor;
-            let content_changed = digest != document.content_digest;
             document.content_digest = digest;
             // Cursor-only movements are cheap: keep them in memory and let the
             // next edit, save, or close journal them. Writing (and fsyncing) the
@@ -951,7 +953,11 @@ impl AppState {
             if content_changed {
                 this.persist_session(cx);
             }
-            cx.notify();
+            // Hover repaints and table affordances notify the editor too; they
+            // do not change anything the rest of the window shows.
+            if content_changed || cursor_moved || dirty_changed {
+                cx.notify();
+            }
         })
         .detach();
     }
