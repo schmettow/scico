@@ -52,6 +52,7 @@ Useful environment variables:
 | `SCISCRAPER_FILE` | Markdown file to open at startup |
 | `SCISCRAPER_ASK` | Ask this question once the window opens |
 | `SCISCRAPER_SETTINGS` | Settings file (defaults to the platform config dir) |
+| `SCISCRAPER_SESSION` | Session journal (defaults to `session.json` beside the settings file) |
 
 For a first roundtrip without a corpus:
 
@@ -79,6 +80,12 @@ model.
   as clickable file chips and open in the system viewer.
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
   `Ctrl+W` closes. A dirty tab is kept until it is saved.
+- **Library** (top left) and **Co-writer** (top right) toggle their panes. Both
+  buttons stay in the toolbar while the pane is hidden. Drag either divider to
+  resize the pane; the width is remembered.
+- Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
+  The session journal keeps the exact buffer text, so even a crash or a forced
+  shutdown reopens every tab, the active tab, caret, and pane layout.
 
 ### Mark a passage and co-edit
 
@@ -117,8 +124,8 @@ replacement targets the tab the passage came from.
   incremental index update; it turns into **Stop** while running.
 - Click a reference row to insert `@key` at the cursor. `+` selects a row;
   select several to insert `[@Key1, @Key2]`, copy keys/paths, or attach the PDFs
-  to the next question. Hover actions copy the key, copy the path, or open the
-  PDF in the system viewer.
+  to the next question. The copy-key, copy-path, and open actions stay visible
+  on every row and become fully opaque on hover.
 - The filter field matches keys, authors, years, titles, and venues.
 
 ### Co-writer
@@ -134,10 +141,12 @@ replacement targets the tab the passage came from.
 `Ctrl+,` opens the settings surface:
 
 - **Sciscraper** — workspace, corpus folder, bibliography, live preview, pane
-  visibility, and the default context attachments.
+  visibility, and the default context attachments. Every path field has a
+  **Browse…** button for the platform file dialog.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
-  memory, GROBID, and the bibliography used by the worker. Press **Apply** to
-  rebuild the agent.
+  memory, GROBID, and the bibliography used by the worker. **Maximum tokens**
+  and **Context tokens** are sliders over powers of two (512, 1024, 2048, …).
+  Press **Apply** to rebuild the agent.
 
 ## The roundtrip protocol
 
@@ -180,6 +189,7 @@ sciscraper-gpui
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
   app_settings.rs Sciscraper settings page
+  session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   settings.rs     persisted JSON settings and the co-writer prompt path
   roundtrip.rs    protocol, containers, digest guard, replacement extraction
   theme.rs        zorite SyntaxStyle from the GPUI Kit theme
@@ -202,6 +212,10 @@ The following were fixed in `ragrig-gpui` during development:
   remains `<workspace>/.ragrig/references.bib`).
 - `ChatView::set_message_text` updates a finished message in place, so the host
   can lift a replacement block out of the transcript without rebuilding it.
+- `path_setting` adds a **Browse…** button to every path field, and
+  `token_slider` renders the 2^x token controls used by both hosts.
+- Reference-row copy actions are always visible instead of relying on a
+  hover-only reveal that could leave the icons invisible.
 
 ## Checks
 
@@ -212,11 +226,12 @@ cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 ```
 
-Current suite: 43 tests covering the protocol, digest guard, multi-byte
-ranges, replacement extraction, settings persistence, context budgeting, PDF
-ingestion naming, window mounting, typing, undo/dirty tracking, preview and
-settings toggling, selection capture, and guarded write-back plus undo in a
-headless GPUI window.
+Current suite: 53 tests covering the protocol, digest guard, multi-byte
+ranges, replacement extraction, settings persistence, the atomic session
+journal, context budgeting, PDF ingestion naming, window mounting, typing,
+undo/dirty tracking, preview and settings toggling, pane toggling, the
+unsaved-changes close guard, crash recovery into a second window, selection
+capture, and guarded write-back plus undo in a headless GPUI window.
 
 ## Known limitations
 
@@ -232,8 +247,8 @@ headless GPUI window.
   diagram rendering); `zorite-editor` accepts host providers for both.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the
   path environment variables.
-- Closing a dirty tab is refused with a status message rather than a modal
-  discard confirmation.
+- Closing a dirty tab is still refused with a status message; the window-close
+  path has the modal Save all / Discard / Cancel dialog.
 - Images load synchronously on first paint and are cached per document; very
   large images can hitch the first frame.
 

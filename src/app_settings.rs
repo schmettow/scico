@@ -6,33 +6,38 @@
 use std::path::PathBuf;
 
 use gpui_kit::{
-    App, Entity, ParentElement as _, SharedString, Styled as _,
+    App, Entity, ParentElement as _, Styled as _,
     component::{
         ActiveTheme as _, Sizable as _,
         button::ButtonVariants as _,
         setting::{SettingField, SettingGroup, SettingItem, SettingPage},
     },
 };
+use ragrig_gpui::path_setting;
 
 use crate::state::AppState;
 
 /// Build the app page that sits beside Ragrig's settings page.
 pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
-    let workspace = SettingField::input(
+    let workspace = path_setting(
+        "app-workspace",
+        "Choose the workspace folder",
+        true,
+        false,
         {
             let state = state.clone();
-            move |cx: &App| {
+            move |cx| {
                 state
                     .read(cx)
                     .workspace
                     .as_ref()
-                    .map(|path| SharedString::from(path.display().to_string()))
+                    .map(|path| path.display().to_string())
                     .unwrap_or_default()
             }
         },
         {
             let state = state.clone();
-            move |value: SharedString, cx: &mut App| {
+            move |value, cx| {
                 let value = value.trim().to_owned();
                 if value.is_empty() {
                     return;
@@ -44,46 +49,55 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
         },
     );
 
-    let corpus = SettingField::input(
+    let corpus = path_setting(
+        "app-corpus",
+        "Choose the corpus folder",
+        true,
+        false,
         {
             let state = state.clone();
-            move |cx: &App| {
+            move |cx| {
                 state
                     .read(cx)
                     .corpus
                     .as_ref()
-                    .map(|path| SharedString::from(path.display().to_string()))
+                    .map(|path| path.display().to_string())
                     .unwrap_or_default()
             }
         },
         {
             let state = state.clone();
-            move |value: SharedString, cx: &mut App| {
+            move |value, cx| {
                 let value = value.trim().to_owned();
                 state.update(cx, |state, cx| {
                     state.corpus = (!value.is_empty()).then(|| PathBuf::from(value));
                     state.persist(cx);
+                    state.persist_session(cx);
                     cx.notify();
                 });
             }
         },
     );
 
-    let bibliography = SettingField::input(
+    let bibliography = path_setting(
+        "app-bibliography",
+        "Choose the bibliography file",
+        false,
+        true,
         {
             let state = state.clone();
-            move |cx: &App| {
+            move |cx| {
                 state
                     .read(cx)
                     .bibliography
                     .as_ref()
-                    .map(|path| SharedString::from(path.display().to_string()))
+                    .map(|path| path.display().to_string())
                     .unwrap_or_default()
             }
         },
         {
             let state = state.clone();
-            move |value: SharedString, cx: &mut App| {
+            move |value, cx| {
                 let value = value.trim().to_owned();
                 state.update(cx, |state, cx| {
                     state.bibliography = (!value.is_empty()).then(|| PathBuf::from(value.clone()));
@@ -91,6 +105,7 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
                         rag.bibliography = value;
                     });
                     state.persist(cx);
+                    state.persist_session(cx);
                     cx.notify();
                 });
             }
@@ -108,6 +123,7 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
                 state.update(cx, |state, cx| {
                     state.show_library = value;
                     state.persist(cx);
+                    state.persist_session(cx);
                     cx.notify();
                 });
             }
@@ -124,6 +140,7 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
                 state.update(cx, |state, cx| {
                     state.show_agent = value;
                     state.persist(cx);
+                    state.persist_session(cx);
                     cx.notify();
                 });
             }

@@ -10,6 +10,7 @@ pub mod app_settings;
 pub mod document;
 pub mod library;
 pub mod roundtrip;
+pub mod session;
 pub mod settings;
 pub mod state;
 pub mod theme;

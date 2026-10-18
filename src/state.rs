@@ -3,12 +3,13 @@
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use gpui_kit::{AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
+use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 use ragrig_gpui::{ChatProvider, RagController, RagSettings};
 use zorite_editor::{EditorEvent, SyntaxStyle};
 
 use crate::document::{Document, line_column, read_document, title_for};
 use crate::roundtrip::{Replacement, replace_at, verified_bytes};
+use crate::session::{SessionDocument, SessionState};
 use crate::settings::PersistedSettings;
 use crate::theme::syntax_style;
 
@@ -37,6 +38,10 @@ pub struct AppState {
     pub settings: PersistedSettings,
     /// Where `settings` is written.
     pub settings_path: PathBuf,
+    /// Where the crash-safe session journal is written.
+    pub session_path: PathBuf,
+    /// The last snapshot written to `session_path`.
+    last_session: Option<SessionState>,
     /// The editable Ragrig settings.
     pub rag: Entity<RagSettings>,
     /// The RAG worker controller.
@@ -61,6 +66,10 @@ pub struct AppState {
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
+    /// Width of the library pane in pixels.
+    pub library_width: f32,
+    /// Width of the co-writer pane in pixels.
+    pub agent_width: f32,
     /// Render raw Markdown instead of the live preview.
     pub raw_mode: bool,
     /// The status bar text.
@@ -75,6 +84,7 @@ impl AppState {
         cx: &mut Context<Self>,
         persisted: PersistedSettings,
         settings_path: PathBuf,
+        session_path: PathBuf,
     ) -> Self {
         let mut rag_values = RagSettings::default();
         persisted.apply_to(&mut rag_values);
@@ -129,14 +139,35 @@ impl AppState {
 
         let style = syntax_style(cx);
         let startup_status = status.clone();
+        let (restored_session, session_error) = SessionState::load(&session_path);
         let document_attached = persisted.document_attached;
         let library_attached = persisted.library_attached;
-        let show_library = persisted.show_library;
-        let show_agent = persisted.show_agent;
-        let raw_mode = persisted.raw_mode;
+        let show_library = restored_session
+            .as_ref()
+            .map_or(persisted.show_library, |session| session.show_library);
+        let show_agent = restored_session
+            .as_ref()
+            .map_or(persisted.show_agent, |session| session.show_agent);
+        let raw_mode = restored_session
+            .as_ref()
+            .map_or(persisted.raw_mode, |session| session.raw_mode);
+        let library_width = panel_width(
+            restored_session
+                .as_ref()
+                .map_or(persisted.library_width, |session| session.library_width),
+            persisted.library_width,
+        );
+        let agent_width = panel_width(
+            restored_session
+                .as_ref()
+                .map_or(persisted.agent_width, |session| session.agent_width),
+            persisted.agent_width,
+        );
         let mut state = Self {
             settings: persisted,
             settings_path,
+            session_path,
+            last_session: restored_session.clone(),
             rag,
             controller,
             documents: Vec::new(),
@@ -149,6 +180,8 @@ impl AppState {
             library_attached,
             show_library,
             show_agent,
+            library_width,
+            agent_width,
             raw_mode,
             status,
             style,
@@ -161,12 +194,17 @@ impl AppState {
             if let Err(error) = state.open_path(&path, window, cx) {
                 state.set_status(error, cx);
             }
+        } else if let Some(session) = restored_session {
+            state.restore_session(session, window, cx);
         } else {
             state.new_document(window, cx);
-            if startup_status.starts_with("RAG settings") {
-                state.set_status(startup_status, cx);
-            }
         }
+        if let Some(error) = session_error {
+            state.set_status(error, cx);
+        } else if startup_status.starts_with("RAG settings") {
+            state.set_status(startup_status, cx);
+        }
+        state.persist_session(cx);
 
         // Persist Ragrig edits even before the user presses Apply, and keep the
         // app's bibliography/workspace in step with the settings page.
@@ -227,7 +265,16 @@ impl AppState {
     pub fn new_document(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
         let id = self.next_document;
         self.next_document += 1;
-        let title = format!("Untitled-{id}");
+        let mut title = format!("Untitled-{id}");
+        let mut suffix = 1u64;
+        while self
+            .documents
+            .iter()
+            .any(|document| document.title.as_ref() == title.as_str())
+        {
+            suffix += 1;
+            title = format!("Untitled-{id}-{suffix}");
+        }
         let document = Document::new(
             window,
             cx,
@@ -248,7 +295,115 @@ impl AppState {
             cx,
         );
         self.set_status("New document", cx);
+        self.persist_session(cx);
         id
+    }
+
+    /// Rebuild every tab from a journal snapshot.
+    ///
+    /// File-backed buffers compare their journal text with the file on disk:
+    /// a match restores cleanly, a difference reopens as an unsaved change.
+    /// Untitled buffers always come back exactly as they were left.
+    fn restore_session(
+        &mut self,
+        session: SessionState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for snapshot in session.documents {
+            let id = self.next_document;
+            self.next_document += 1;
+            let (title, saved_text, dirty) = match &snapshot.path {
+                Some(path) => {
+                    let disk = read_document(path).unwrap_or_default();
+                    let dirty = disk != snapshot.text;
+                    (title_for(path), disk, dirty)
+                }
+                None => (
+                    SharedString::from(if snapshot.title.trim().is_empty() {
+                        format!("Untitled-{id}")
+                    } else {
+                        snapshot.title
+                    }),
+                    String::new(),
+                    !snapshot.text.is_empty(),
+                ),
+            };
+            let document = Document::new(
+                window,
+                cx,
+                &self.style,
+                crate::document::DocumentInit {
+                    id,
+                    title,
+                    path: snapshot.path,
+                    text: snapshot.text,
+                    raw: self.raw_mode,
+                },
+            );
+            self.subscribe_editor(&document.editor, id, cx);
+            document
+                .editor
+                .update(cx, |editor, cx| editor.set_cursor(snapshot.cursor, cx));
+            let mut document = document;
+            document.saved_text = saved_text;
+            document.dirty = dirty;
+            document.cursor = document.cursor_position(cx);
+            self.documents.push(document);
+        }
+
+        if self.documents.is_empty() {
+            self.new_document(window, cx);
+            return;
+        }
+        self.active = session.active.min(self.documents.len() - 1);
+        self.show_library = session.show_library;
+        self.show_agent = session.show_agent;
+        self.raw_mode = session.raw_mode;
+        self.library_width = panel_width(session.library_width, self.library_width);
+        self.agent_width = panel_width(session.agent_width, self.agent_width);
+        if let Some(document) = self.documents.get(self.active) {
+            window.focus(&document.editor.read(cx).focus_handle(cx), cx);
+        }
+    }
+
+    /// The current window state, including buffers as they are on screen.
+    fn session_snapshot(&self, cx: &App) -> SessionState {
+        SessionState {
+            documents: self
+                .documents
+                .iter()
+                .map(|document| SessionDocument {
+                    path: document.path.clone(),
+                    title: document.title.to_string(),
+                    text: document.text(cx),
+                    cursor: document.editor.read(cx).cursor(),
+                    dirty: document.dirty,
+                })
+                .collect(),
+            active: self.active,
+            show_library: self.show_library,
+            show_agent: self.show_agent,
+            raw_mode: self.raw_mode,
+            library_width: self.library_width,
+            agent_width: self.agent_width,
+        }
+    }
+
+    /// Journal the window state atomically.
+    ///
+    /// Called after every edit and every layout change. A snapshot is skipped
+    /// when nothing it records has changed, so moving the caret within one
+    /// character still costs a comparison rather than a disk write.
+    pub fn persist_session(&mut self, cx: &App) {
+        let snapshot = self.session_snapshot(cx);
+        if self.last_session.as_ref() == Some(&snapshot) {
+            return;
+        }
+        match snapshot.save(&self.session_path) {
+            Ok(()) => self.last_session = Some(snapshot),
+            Err(error) => self.status = format!("Session not saved: {error}").into(),
+        }
     }
 
     /// Open a file, or switch to it when already open.
@@ -295,6 +450,7 @@ impl AppState {
             cx,
         );
         self.set_status(format!("Opened {}", path.display()), cx);
+        self.persist_session(cx);
         Ok(())
     }
 
@@ -311,6 +467,45 @@ impl AppState {
                     .map(|document| document.title.clone())
                     .unwrap_or_default();
                 self.set_status(format!("Saved {name}"), cx);
+                self.persist_session(cx);
+            }
+            Err(error) => self.set_status(error.clone(), cx),
+        }
+        result
+    }
+
+    /// Save a document by identity to its existing path.
+    pub fn save_document(&mut self, id: u64, cx: &mut Context<Self>) -> Result<(), String> {
+        let result = match self.document_mut(id) {
+            Some(document) => document.save(cx),
+            None => Err("that document is no longer open".to_owned()),
+        };
+        match &result {
+            Ok(()) => self.persist_session(cx),
+            Err(error) => self.set_status(error.clone(), cx),
+        }
+        result
+    }
+
+    /// Save a document by identity under a new path.
+    pub fn save_document_as(
+        &mut self,
+        id: u64,
+        path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let result = match self.document_mut(id) {
+            Some(document) => document.save_as(path, cx),
+            None => Err("that document is no longer open".to_owned()),
+        };
+        match &result {
+            Ok(()) => {
+                let name = self
+                    .document(id)
+                    .map(|document| document.title.clone())
+                    .unwrap_or_default();
+                self.set_status(format!("Saved {name}"), cx);
+                self.persist_session(cx);
             }
             Err(error) => self.set_status(error.clone(), cx),
         }
@@ -319,21 +514,10 @@ impl AppState {
 
     /// Save the active document under a new path.
     pub fn save_active_as(&mut self, path: PathBuf, cx: &mut Context<Self>) -> Result<(), String> {
-        let result = match self.active_document_mut() {
-            Some(document) => document.save_as(path, cx),
-            None => Err("no document is open".to_owned()),
+        let Some(id) = self.active_document().map(|document| document.id) else {
+            return Err("no document is open".to_owned());
         };
-        match &result {
-            Ok(()) => {
-                let name = self
-                    .active_document()
-                    .map(|document| document.title.clone())
-                    .unwrap_or_default();
-                self.set_status(format!("Saved {name}"), cx);
-            }
-            Err(error) => self.set_status(error.clone(), cx),
-        }
-        result
+        self.save_document_as(id, path, cx)
     }
 
     /// Close the active tab. A dirty document is kept until saved.
@@ -357,6 +541,7 @@ impl AppState {
         } else {
             self.active = self.active.min(self.documents.len() - 1);
         }
+        self.persist_session(cx);
         cx.notify();
     }
 
@@ -365,6 +550,7 @@ impl AppState {
         if let Some(document) = self.documents.get(index) {
             self.active = index;
             window.focus(&document.editor.read(cx).focus_handle(cx), cx);
+            self.persist_session(cx);
             cx.notify();
         }
     }
@@ -379,6 +565,7 @@ impl AppState {
         if let Some(document) = self.active_document_mut() {
             document.dirty = true;
         }
+        self.persist_session(cx);
         cx.notify();
     }
 
@@ -400,6 +587,7 @@ impl AppState {
         }
         self.settings.raw_mode = raw;
         self.persist(cx);
+        self.persist_session(cx);
         self.set_status(if raw { "Raw Markdown" } else { "Live preview" }, cx);
     }
 
@@ -449,6 +637,15 @@ impl AppState {
         }
     }
 
+    /// Record pane widths after a divider drag.
+    pub fn set_panel_widths(&mut self, library: f32, agent: f32, cx: &mut Context<Self>) {
+        self.library_width = panel_width(library, self.library_width);
+        self.agent_width = panel_width(agent, self.agent_width);
+        self.persist(cx);
+        self.persist_session(cx);
+        cx.notify();
+    }
+
     /// Write the settings file and update the in-memory snapshot.
     pub fn persist(&mut self, cx: &mut Context<Self>) {
         let rag = self.rag.read(cx).clone();
@@ -469,6 +666,8 @@ impl AppState {
         self.settings.library_attached = self.library_attached;
         self.settings.show_library = self.show_library;
         self.settings.show_agent = self.show_agent;
+        self.settings.library_width = self.library_width;
+        self.settings.agent_width = self.agent_width;
         self.settings.raw_mode = self.raw_mode;
         if let Err(error) = self.settings.save(&self.settings_path) {
             self.status = error.into();
@@ -518,6 +717,7 @@ impl AppState {
             "Replacement applied to {title}: −{old_chars} / {sign}{} chars — Ctrl+Z undoes it.",
             delta.unsigned_abs()
         );
+        self.persist_session(cx);
         cx.notify();
         ReplacementOutcome::Applied { message }
     }
@@ -587,6 +787,7 @@ impl AppState {
             document.dirty = dirty;
             document.chars = chars;
             document.cursor = cursor;
+            this.persist_session(cx);
             cx.notify();
         })
         .detach();
@@ -624,6 +825,19 @@ fn with_bibliography(
 fn non_empty_path(value: &str) -> Option<PathBuf> {
     let value = value.trim();
     (!value.is_empty()).then(|| PathBuf::from(value))
+}
+
+fn panel_width(value: f32, fallback: f32) -> f32 {
+    let fallback = if fallback.is_finite() && fallback > 0.0 {
+        fallback
+    } else {
+        340.0
+    };
+    if value.is_finite() {
+        value.clamp(180.0, 1_600.0)
+    } else {
+        fallback.clamp(180.0, 1_600.0)
+    }
 }
 
 /// Whether the answer carries replacement blocks. Kept here so both the chat

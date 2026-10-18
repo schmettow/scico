@@ -74,6 +74,10 @@ pub struct PersistedSettings {
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
+    /// Width of the library pane in pixels.
+    pub library_width: f32,
+    /// Width of the co-writer pane in pixels.
+    pub agent_width: f32,
     /// Start in raw markdown rather than live preview.
     pub raw_mode: bool,
 }
@@ -115,6 +119,8 @@ impl Default for PersistedSettings {
             library_attached: false,
             show_library: true,
             show_agent: true,
+            library_width: 340.0,
+            agent_width: 430.0,
             raw_mode: false,
         }
     }
@@ -259,6 +265,8 @@ mod tests {
         assert!(!settings.library_attached);
         assert!(settings.show_agent);
         assert!(!settings.raw_mode);
+        assert_eq!(settings.library_width, 340.0);
+        assert_eq!(settings.agent_width, 430.0);
     }
 
     #[test]

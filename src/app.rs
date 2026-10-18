@@ -3,14 +3,15 @@
 use std::path::PathBuf;
 
 use gpui_kit::{
-    AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable, InteractiveElement as _,
-    IntoElement, KeyBinding, ParentElement as _, PathPromptOptions, Render, SharedString,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window, actions,
+    App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, PathPromptOptions,
+    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    actions,
     assets::IconName,
     component::{
-        ActiveTheme as _, Selectable as _, Sizable as _,
+        ActiveTheme as _, ResizableState, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
-        h_flex,
+        h_flex, h_resizable, resizable_panel,
         scroll::ScrollableElement as _,
         v_flex,
     },
@@ -22,6 +23,7 @@ use gpui_kit::{
 use crate::agent::{AgentPane, AgentPaneEvent};
 use crate::app_settings::app_settings_page;
 use crate::library::{LibraryEvent, LibraryPane};
+use crate::session::SessionState;
 use crate::state::AppState;
 
 actions!(
@@ -38,6 +40,7 @@ actions!(
         TogglePreview,
         ToggleSettings,
         FocusSelection,
+        CancelClose,
     ]
 );
 
@@ -66,6 +69,7 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("cmd-shift-p", FocusSelection, None),
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("cmd-,", ToggleSettings, None),
+        KeyBinding::new("escape", CancelClose, None),
     ]);
 }
 
@@ -75,6 +79,10 @@ pub struct SciscraperApp {
     agent: Entity<AgentPane>,
     library: Entity<LibraryPane>,
     show_settings: bool,
+    close_prompt: bool,
+    allow_close: bool,
+    resizable: Entity<ResizableState>,
+    last_panes: (bool, bool),
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -85,16 +93,45 @@ impl SciscraperApp {
         let settings_path = std::env::var_os("SCISCRAPER_SETTINGS")
             .map(PathBuf::from)
             .unwrap_or_else(crate::settings::PersistedSettings::default_path);
+        let session_path = std::env::var_os("SCISCRAPER_SESSION")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| SessionState::path_for_settings(&settings_path));
+        Self::new_with_paths(window, cx, settings_path, session_path)
+    }
+
+    /// Build a window with explicit persistence paths (used by tests).
+    pub(crate) fn new_with_paths(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        settings_path: PathBuf,
+        session_path: PathBuf,
+    ) -> Self {
         let (persisted, load_error) = crate::settings::PersistedSettings::load(&settings_path);
-        let state = cx.new(|cx| AppState::new(window, cx, persisted, settings_path));
+        let state = cx.new(|cx| AppState::new(window, cx, persisted, settings_path, session_path));
         if let Some(error) = load_error {
             state.update(cx, |state, cx| state.set_status(error, cx));
         }
         let agent = cx.new(|cx| AgentPane::new(window, cx, state.clone()));
         let library = cx.new(|cx| LibraryPane::new(window, cx, state.clone(), agent.clone()));
+        let initial_panes = {
+            let state = state.read(cx);
+            (state.show_library, state.show_agent)
+        };
 
         let mut subscriptions = Vec::new();
-        subscriptions.push(cx.observe(&state, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&state, |this, state, cx| {
+            let panes = {
+                let state = state.read(cx);
+                (state.show_library, state.show_agent)
+            };
+            if panes != this.last_panes {
+                this.last_panes = panes;
+                // A panel count change remaps the old slots; start clean so a
+                // hidden pane comes back at its recorded width.
+                this.resizable = cx.new(|_| ResizableState::default());
+            }
+            cx.notify();
+        }));
         subscriptions.push(cx.subscribe(
             &agent,
             |this, _, event: &AgentPaneEvent, cx| match event {
@@ -135,9 +172,21 @@ impl SciscraperApp {
             agent,
             library,
             show_settings: false,
+            close_prompt: false,
+            allow_close: false,
+            resizable: cx.new(|_| ResizableState::default()),
+            last_panes: initial_panes,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
+
+        // Intercept the window manager's close request so unsaved buffers can
+        // be saved (or deliberately discarded) before the window goes away.
+        let weak = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            weak.update(cx, |this, cx| this.on_close_requested(window, cx))
+                .unwrap_or(true)
+        });
 
         if let Ok(prompt) = std::env::var("SCISCRAPER_ASK")
             && !prompt.trim().is_empty()
@@ -259,6 +308,7 @@ impl SciscraperApp {
         self.state.update(cx, |state, cx| {
             state.show_agent = !state.show_agent;
             state.persist(cx);
+            state.persist_session(cx);
             cx.notify();
         });
     }
@@ -267,6 +317,7 @@ impl SciscraperApp {
         self.state.update(cx, |state, cx| {
             state.show_library = !state.show_library;
             state.persist(cx);
+            state.persist_session(cx);
             cx.notify();
         });
     }
@@ -286,6 +337,266 @@ impl SciscraperApp {
     fn focus_selection(&mut self, _: &FocusSelection, window: &mut Window, cx: &mut Context<Self>) {
         self.agent
             .update(cx, |agent, cx| agent.focus_selection(window, cx));
+    }
+
+    fn cancel_close(&mut self, _: &CancelClose, _: &mut Window, cx: &mut Context<Self>) {
+        if self.close_prompt {
+            self.close_prompt = false;
+            cx.notify();
+        }
+    }
+
+    fn dirty_count(&self, cx: &App) -> usize {
+        self.state
+            .read(cx)
+            .documents
+            .iter()
+            .filter(|document| document.dirty)
+            .count()
+    }
+
+    /// Called by the window manager before the window closes.
+    ///
+    /// `false` cancels the close and puts the unsaved-changes dialog on screen;
+    /// `true` lets the window go away after flushing the session journal.
+    fn on_close_requested(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.state.update(cx, |state, cx| state.persist_session(cx));
+        if self.allow_close || self.dirty_count(cx) == 0 {
+            return true;
+        }
+        if !self.close_prompt {
+            self.close_prompt = true;
+            cx.notify();
+        }
+        false
+    }
+
+    fn finish_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| state.persist_session(cx));
+        self.allow_close = true;
+        self.close_prompt = false;
+        window.remove_window();
+    }
+
+    /// Save every dirty buffer, then close. Untitled buffers ask for a path one
+    /// at a time; cancelling any of those dialogs leaves the window open.
+    fn save_all_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let mut failure = None;
+        let untitled = state.update(cx, |state, cx| {
+            let dirty: Vec<u64> = state
+                .documents
+                .iter()
+                .filter(|document| document.dirty)
+                .map(|document| document.id)
+                .collect();
+            for id in dirty {
+                if state
+                    .document(id)
+                    .is_some_and(|document| document.path.is_some())
+                    && let Err(error) = state.save_document(id, cx)
+                {
+                    failure = Some(error);
+                    return None;
+                }
+            }
+            state
+                .documents
+                .iter()
+                .find(|document| document.dirty)
+                .map(|document| (document.id, document.title.to_string()))
+        });
+        if let Some(error) = failure {
+            state.update(cx, |state, cx| state.set_status(error, cx));
+            return;
+        }
+        let Some((id, title)) = untitled else {
+            self.finish_close(window, cx);
+            return;
+        };
+        let directory = state
+            .read(cx)
+            .workspace
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some(&title));
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+            let result = state.update_in(cx, |state, _window, cx| {
+                state.save_document_as(id, path, cx)
+            });
+            match result {
+                Ok(Ok(())) => {
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        this.save_all_and_close(window, cx);
+                    });
+                }
+                Ok(Err(error)) => {
+                    state.update(cx, |state, cx| state.set_status(error, cx));
+                }
+                Err(_) => {}
+            }
+        })
+        .detach();
+    }
+
+    fn close_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let (count, names) = {
+            let state = self.state.read(cx);
+            let dirty: Vec<&str> = state
+                .documents
+                .iter()
+                .filter(|document| document.dirty)
+                .map(|document| document.title.as_ref())
+                .collect();
+            (dirty.len(), dirty.join(", "))
+        };
+        let summary = if count == 1 {
+            format!("“{names}” has unsaved changes.")
+        } else {
+            format!("{count} documents have unsaved changes: {names}")
+        };
+        div()
+            .absolute()
+            .top(px(0.))
+            .left(px(0.))
+            .size_full()
+            .occlude()
+            .bg(theme.background.opacity(0.55))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                v_flex()
+                    .w(px(480.))
+                    .p_5()
+                    .gap_4()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.background)
+                    .child(div().text_lg().child("Save changes before closing?"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child(summary),
+                    )
+                    .child(div().text_xs().text_color(theme.muted_foreground).child(
+                        "Unsaved text is also journaled and will be restored on the next launch.",
+                    ))
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                Button::new("close-cancel")
+                                    .label("Cancel")
+                                    .small()
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.close_prompt = false;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("close-discard")
+                                    .label("Discard and close")
+                                    .small()
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.finish_close(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("close-save-all")
+                                    .label("Save all and close")
+                                    .small()
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.save_all_and_close(window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
+    fn dock(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (show_library, show_agent, library_width, agent_width) = {
+            let state = self.state.read(cx);
+            (
+                state.show_library,
+                state.show_agent,
+                state.library_width,
+                state.agent_width,
+            )
+        };
+        let resize_state = self.state.clone();
+        let mut dock = h_resizable(ElementId::Name("sciscraper-dock".into()))
+            .with_state(&self.resizable)
+            .on_resize(move |resizable, _window, cx| {
+                let sizes: Vec<f32> = resizable
+                    .read(cx)
+                    .sizes()
+                    .iter()
+                    .map(|size| size.as_f32())
+                    .collect();
+                let (show_library, show_agent, fallback_library, fallback_agent) = {
+                    let state = resize_state.read(cx);
+                    (
+                        state.show_library,
+                        state.show_agent,
+                        state.library_width,
+                        state.agent_width,
+                    )
+                };
+                let library = if show_library {
+                    sizes.first().copied().unwrap_or(fallback_library)
+                } else {
+                    fallback_library
+                };
+                let agent_index = if show_library { 2 } else { 1 };
+                let agent = if show_agent {
+                    sizes.get(agent_index).copied().unwrap_or(fallback_agent)
+                } else {
+                    fallback_agent
+                };
+                resize_state.update(cx, |state, cx| {
+                    state.set_panel_widths(library, agent, cx);
+                });
+            });
+        if show_library {
+            dock = dock.child(
+                resizable_panel()
+                    .size(px(library_width))
+                    .size_range(px(200.)..px(720.))
+                    .child(self.library.clone()),
+            );
+        }
+        dock = dock.child(
+            resizable_panel().child(
+                v_flex()
+                    .size_full()
+                    .min_w(px(0.))
+                    .child(self.toolbar(window, cx))
+                    .child(self.tab_bar(cx))
+                    .child(self.editor(cx))
+                    .child(self.status_bar(cx)),
+            ),
+        );
+        if show_agent {
+            dock = dock.child(
+                resizable_panel()
+                    .size(px(agent_width))
+                    .size_range(px(280.)..px(900.))
+                    .child(self.agent.clone()),
+            );
+        }
+        dock
     }
 
     fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -312,6 +623,26 @@ impl SciscraperApp {
             .border_b_1()
             .border_color(theme.border)
             .bg(theme.title_bar)
+            .child(
+                Button::new("toolbar-library")
+                    .label("Library")
+                    .icon(if show_library {
+                        IconName::PanelLeftClose
+                    } else {
+                        IconName::PanelLeftOpen
+                    })
+                    .small()
+                    .ghost()
+                    .selected(show_library)
+                    .tooltip(if show_library {
+                        "Hide the library (Ctrl+Shift+L)"
+                    } else {
+                        "Show the library (Ctrl+Shift+L)"
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_library(&ToggleLibrary, window, cx);
+                    })),
+            )
             .child(div().mr_3().text_color(theme.primary).child("Sciscraper"))
             .child(
                 Button::new("toolbar-new")
@@ -386,28 +717,6 @@ impl SciscraperApp {
                     .child(format!("{title}{}", if dirty { " •" } else { "" })),
             )
             .child(
-                Button::new("toolbar-library")
-                    .icon(IconName::BookOpen)
-                    .small()
-                    .ghost()
-                    .selected(show_library)
-                    .tooltip("Toggle the library (Ctrl+Shift+L)")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_library(&ToggleLibrary, window, cx);
-                    })),
-            )
-            .child(
-                Button::new("toolbar-agent")
-                    .icon(IconName::MessagesSquare)
-                    .small()
-                    .ghost()
-                    .selected(show_agent)
-                    .tooltip("Toggle the co-writer (Ctrl+Shift+A)")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_agent(&ToggleAgent, window, cx);
-                    })),
-            )
-            .child(
                 Button::new("toolbar-settings")
                     .icon(IconName::Settings)
                     .small()
@@ -415,6 +724,26 @@ impl SciscraperApp {
                     .tooltip("Settings (Ctrl+,)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_settings(&ToggleSettings, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("toolbar-agent")
+                    .label("Co-writer")
+                    .icon(if show_agent {
+                        IconName::PanelRightClose
+                    } else {
+                        IconName::PanelRightOpen
+                    })
+                    .small()
+                    .ghost()
+                    .selected(show_agent)
+                    .tooltip(if show_agent {
+                        "Hide the co-writer (Ctrl+Shift+A)"
+                    } else {
+                        "Show the co-writer (Ctrl+Shift+A)"
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.toggle_agent(&ToggleAgent, window, cx);
                     })),
             )
     }
@@ -661,47 +990,28 @@ impl SciscraperApp {
 
 impl Render for SciscraperApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (show_library, show_agent, active_title) = {
-            let state = self.state.read(cx);
-            (
-                state.show_library,
-                state.show_agent,
-                state
-                    .active_document()
-                    .map(|document| document.title.to_string())
-                    .unwrap_or_else(|| "Sciscraper".to_owned()),
-            )
-        };
+        let active_title = self
+            .state
+            .read(cx)
+            .active_document()
+            .map(|document| document.title.to_string())
+            .unwrap_or_else(|| "Sciscraper".to_owned());
         window.set_window_title(&format!("Sciscraper — {active_title}"));
         let theme = cx.theme();
 
         let body: gpui_kit::AnyElement = if self.show_settings {
             self.settings_view(cx).into_any_element()
         } else {
-            h_flex()
+            div()
                 .size_full()
                 .bg(theme.background)
                 .text_color(theme.foreground)
-                .when(show_library, |this| {
-                    this.child(div().w(px(340.)).h_full().child(self.library.clone()))
-                })
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .h_full()
-                        .child(self.toolbar(window, cx))
-                        .child(self.tab_bar(cx))
-                        .child(self.editor(cx))
-                        .child(self.status_bar(cx)),
-                )
-                .when(show_agent, |this| {
-                    this.child(div().w(px(430.)).h_full().child(self.agent.clone()))
-                })
+                .child(self.dock(window, cx))
                 .into_any_element()
         };
 
         div()
+            .relative()
             .size_full()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::new_document))
@@ -715,7 +1025,9 @@ impl Render for SciscraperApp {
             .on_action(cx.listener(Self::toggle_preview))
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::focus_selection))
+            .on_action(cx.listener(Self::cancel_close))
             .child(body)
+            .when(self.close_prompt, |this| this.child(self.close_dialog(cx)))
     }
 }
 
@@ -727,9 +1039,24 @@ impl Focusable for SciscraperApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use gpui_kit::{TestAppContext, VisualTestContext};
 
     use super::*;
+
+    static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+
+    /// A scratch persistence directory, unique per test and per window.
+    fn scratch_paths() -> (PathBuf, PathBuf) {
+        let unique = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-app-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        (dir.join("settings.json"), dir.join("session.json"))
+    }
 
     fn mount(cx: &mut TestAppContext) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
         cx.update(|cx| {
@@ -737,7 +1064,42 @@ mod tests {
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
-        cx.add_window_view(SciscraperApp::new)
+        let (settings, session) = scratch_paths();
+        cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths(window, cx, settings, session)
+        })
+    }
+
+    fn mount_at(
+        cx: &mut TestAppContext,
+        settings: PathBuf,
+        session: PathBuf,
+    ) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
+        cx.update(|cx| {
+            ragrig_gpui::init(cx);
+            zorite_editor::bind_keys(cx);
+            bind_keys(cx);
+        });
+        cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths(window, cx, settings, session)
+        })
+    }
+
+    fn type_into_active(cx: &mut VisualTestContext, app: &Entity<SciscraperApp>, text: &str) {
+        let editor = cx.update(|_, cx| {
+            app.read(cx)
+                .state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        cx.update(|window, cx| {
+            let handle = editor.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        });
+        cx.simulate_input(text);
     }
 
     #[gpui_kit::test]
@@ -952,6 +1314,112 @@ mod tests {
                 state.active_document().expect("a document").text(cx),
                 "old passage"
             );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn hiding_and_showing_the_agent_round_trips(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        cx.simulate_keystrokes("ctrl-shift-a");
+        cx.update(|_, cx| {
+            assert!(!app.read(cx).state.read(cx).show_agent);
+        });
+        // The toolbar toggle remains available while the pane is hidden.
+        cx.simulate_keystrokes("ctrl-shift-a");
+        cx.update(|_, cx| {
+            assert!(app.read(cx).state.read(cx).show_agent);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn closing_with_unsaved_work_asks_first(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        type_into_active(cx, &app, "unsaved draft");
+        let allowed =
+            cx.update(|window, cx| app.update(cx, |app, cx| app.on_close_requested(window, cx)));
+        assert!(!allowed, "the window must stay open");
+        cx.update(|_, cx| {
+            assert!(app.read(cx).close_prompt);
+        });
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| app.cancel_close(&CancelClose, window, cx));
+            assert!(!app.read(cx).close_prompt);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn unsaved_text_comes_back_from_the_session(cx: &mut TestAppContext) {
+        let (settings, session) = scratch_paths();
+        let (app, cx) = mount_at(cx, settings.clone(), session.clone());
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.show_agent = false;
+                state.set_panel_widths(480.0, 430.0, cx);
+            });
+        });
+        type_into_active(cx, &app, "recovered draft");
+
+        // A second window on the same persistence paths is the next launch.
+        let (restored, cx) = mount_at(cx, settings, session);
+        cx.update(|_, cx| {
+            let state = restored.read(cx).state.read(cx);
+            let document = state.active_document().expect("a document");
+            assert_eq!(document.text(cx), "recovered draft");
+            assert!(document.dirty, "recovered text is unsaved");
+            assert!(!state.show_agent);
+            assert_eq!(state.library_width, 480.0);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn pane_widths_are_clamped(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.set_panel_widths(500.0, 9_000.0, cx);
+            });
+        });
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert_eq!(state.library_width, 500.0);
+            assert_eq!(state.agent_width, 1_600.0);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_file_backed_buffer_recovers_its_unsaved_tail(cx: &mut TestAppContext) {
+        let (settings, session) = scratch_paths();
+        let paper = settings.parent().expect("scratch dir").join("paper.md");
+        std::fs::write(&paper, "saved text").expect("paper");
+        let (app, cx) = mount_at(cx, settings.clone(), session.clone());
+        cx.update(|window, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| {
+                state.open_path(&paper, window, cx).expect("open");
+            });
+        });
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| {
+                if let Some(document) = state.active_document() {
+                    let end = document.text(cx).len();
+                    document
+                        .editor
+                        .update(cx, |editor, cx| editor.set_cursor(end, cx));
+                }
+            });
+        });
+        type_into_active(cx, &app, " edited");
+
+        let (restored, cx) = mount_at(cx, settings, session);
+        cx.update(|_, cx| {
+            let state = restored.read(cx).state.read(cx);
+            let document = state.active_document().expect("a document");
+            assert_eq!(document.path.as_deref(), Some(paper.as_path()));
+            assert_eq!(document.text(cx), "saved text edited");
+            assert!(document.dirty);
         });
     }
 }

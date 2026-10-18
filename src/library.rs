@@ -676,8 +676,8 @@ impl Render for LibraryPane {
                         h_flex()
                             .flex_none()
                             .gap_1()
-                            .invisible()
-                            .group_hover("library-row", |row| row.visible())
+                            .opacity(0.45)
+                            .group_hover("library-row", |row| row.opacity(1.0))
                             .child(copy_key)
                             .child(copy_path)
                             .child(open_paper),
