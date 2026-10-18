@@ -40,13 +40,13 @@ pub struct SessionState {
     pub active: usize,
     /// Show the library pane.
     pub show_library: bool,
-    /// Show the co-writer pane.
+    /// Show the SciCo pane.
     pub show_agent: bool,
     /// Render raw Markdown rather than the live preview.
     pub raw_mode: bool,
     /// Width of the library pane.
     pub library_width: f32,
-    /// Width of the co-writer pane.
+    /// Width of the SciCo pane.
     pub agent_width: f32,
 }
 

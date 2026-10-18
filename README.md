@@ -1,7 +1,7 @@
 # sciscraper-gpui
 
-A scientific Markdown editor with an integrated RAG co-writer and reference
-library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
+A scientific Markdown editor with an integrated RAG assistant, SciCo, and a
+reference library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
 [Sciscraper](https://github.com/schmettow/sciscraper-rs) and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
 [`zorite-editor`](https://crates.io/crates/zorite-editor) Markdown editor.
@@ -77,31 +77,36 @@ model.
   preview and raw Markdown.
 - Images referenced as `![](figure.png)` render inline relative to the
   document. `![](paper.pdf)`, `.epub`, `.docx`, `.html`, and `.txt` lines render
-  as clickable file chips and open in the system viewer.
+  as clickable file chips and open in the configured viewer.
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
   `Ctrl+W` closes. A dirty tab is kept until it is saved.
-- **Library** (top left) and **Co-writer** (top right) toggle their panes. Both
+- `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
+- **Library** (top left) and **SciCo** (top right) toggle their panes. Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
   The session journal keeps the exact buffer text, so even a crash or a forced
   shutdown reopens every tab, the active tab, caret, and pane layout.
 
-### Mark a passage and co-edit
+### Mark passages and co-edit
 
-1. Select a passage in the editor.
-2. Press **Ask about selection** (toolbar, `Ctrl+Shift+P`). The chip
-   *Marked region (N chars)* appears above the composer and the caret moves to
-   the prompt.
-3. Ask for a change, e.g. *"make this shorter and keep the citation"*.
-4. The answer's protocol block is lifted out of the transcript. If the passage
-   still matches, it is replaced in place as one undo step; the transcript
-   reports the character delta. `Ctrl+Z` restores the original.
-5. If the passage changed while the agent was writing, nothing is written: an
-   *Insert* chip appears above the composer instead.
+1. Select a passage in the editor and press **Ask about selection**
+   (`Ctrl+Shift+P`). Repeat to attach several passages from the same or different
+   tabs; each appears as its own chip above the composer. Duplicate ranges are
+   ignored.
+2. Ask a question. All marked passages ride along as context; a replacement
+   block in the answer is offered as **Insert**, never written silently.
+3. For a direct edit, select a passage and press **Edit selection**
+   (`Ctrl+Shift+D`). The next prompt is treated as an edit instruction: the
+   answer's protocol block replaces the marked passage in place as one undo
+   step, and the transcript reports the character delta. `Ctrl+Z` restores the
+   original. If more than one passage is marked, the one captured last is the
+   edit target and the others remain context.
+4. If the passage changed while SciCo was writing, nothing is written: an
+   **Insert** chip appears above the composer instead.
 
-The same flow works if you switch tabs while the answer streams; the
-replacement targets the tab the passage came from.
+The same flow works if you switch tabs while the answer streams; the edit
+target stays bound to the tab the passage came from.
 
 ### Document and library context
 
@@ -126,9 +131,12 @@ replacement targets the tab the passage came from.
   select several to insert `[@Key1, @Key2]`, copy keys/paths, or attach the PDFs
   to the next question. The copy-key, copy-path, and open actions stay visible
   on every row and become fully opaque on hover.
+- The open action uses the viewer assigned in **Settings → Library → External
+  viewers** (PDF, EPUB, and HTML), or the platform default when the field is
+  empty.
 - The filter field matches keys, authors, years, titles, and venues.
 
-### Co-writer
+### SciCo
 
 - Answers stream token by token. **Stop** keeps the partial answer; a failed
   answer can be retried.
@@ -138,20 +146,22 @@ replacement targets the tab the passage came from.
 
 ### Settings
 
-`Ctrl+,` opens the settings surface:
+`Ctrl+,` opens the settings surface, organised into three pages:
 
-- **Sciscraper** — workspace, corpus folder, bibliography, live preview, pane
-  visibility, and the default context attachments. Every path field has a
-  **Browse…** button for the platform file dialog.
+- **Library** — workspace, corpus folder, bibliography, pane visibility,
+  external viewers for PDF/EPUB/HTML, the default library attachment, and
+  reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
+  field has a **Browse…** button.
+- **Editor** — live preview, SciCo visibility, and the default document
+  attachment.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
-  memory, GROBID, and the bibliography used by the worker. **Maximum tokens**
-  and **Context tokens** are sliders over powers of two (512, 1024, 2048, …).
-  Press **Apply** to rebuild the agent.
+  memory, profiles, and **Apply**. The token budgets are sliders over powers of
+  two (512, 1024, 2048, …).
 
 ## The roundtrip protocol
 
-The co-writer prompt is compiled in at
-`assets/prompts/sciscraper-cowriter.md`. Editor contexts use the versioned
+The SciCo prompt is compiled in at
+`assets/prompts/sci-co.md`. Editor contexts use the versioned
 containers the prompt documents:
 
 ```markdown
@@ -188,9 +198,9 @@ sciscraper-gpui
   document.rs     EditorState per tab, save, selection, image/PDF providers
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
-  app_settings.rs Sciscraper settings page
+  app_settings.rs Library and Editor settings pages
+  settings.rs     persisted JSON settings, viewer programs, and the SciCo prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
-  settings.rs     persisted JSON settings and the co-writer prompt path
   roundtrip.rs    protocol, containers, digest guard, replacement extraction
   theme.rs        zorite SyntaxStyle from the GPUI Kit theme
         │
@@ -214,6 +224,8 @@ The following were fixed in `ragrig-gpui` during development:
   can lift a replacement block out of the transcript without rebuilding it.
 - `path_setting` adds a **Browse…** button to every path field, and
   `token_slider` renders the 2^x token controls used by both hosts.
+- The RAG page is split into `rag_model_page` plus a reusable
+  `rag_references_group`, so a host can build Library / Editor / RAG pages.
 - Reference-row copy actions are always visible instead of relying on a
   hover-only reveal that could leave the icons invisible.
 
@@ -226,12 +238,13 @@ cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 ```
 
-Current suite: 53 tests covering the protocol, digest guard, multi-byte
-ranges, replacement extraction, settings persistence, the atomic session
-journal, context budgeting, PDF ingestion naming, window mounting, typing,
-undo/dirty tracking, preview and settings toggling, pane toggling, the
-unsaved-changes close guard, crash recovery into a second window, selection
-capture, and guarded write-back plus undo in a headless GPUI window.
+Current suite: 56 tests covering the protocol, digest guard, multi-byte
+ranges, replacement extraction, settings persistence, external viewer routing,
+the atomic session journal, context budgeting, PDF ingestion naming, window
+mounting, typing, Ctrl+Arrow word movement, multiple-selection capture,
+direct-edit mode, undo/dirty tracking, preview and settings toggling, pane
+toggling, the unsaved-changes close guard, crash recovery into a second window,
+selection capture, and guarded write-back plus undo in a headless GPUI window.
 
 ## Known limitations
 
@@ -242,7 +255,7 @@ capture, and guarded write-back plus undo in a headless GPUI window.
 - Focus mode is a toolbar action; there is no floating button at the selection
   corner.
 - Library rows insert on click; drag-to-cite is not implemented.
-- PDFs open in the system viewer; there is no embedded PDF reader.
+- PDFs open in the configured external viewer; there is no embedded PDF reader.
 - `$$…$$` math and mermaid blocks are edited as source (no typesetting or
   diagram rendering); `zorite-editor` accepts host providers for both.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the

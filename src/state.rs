@@ -68,7 +68,7 @@ pub struct AppState {
     pub show_agent: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the co-writer pane in pixels.
+    /// Width of the SciCo pane in pixels.
     pub agent_width: f32,
     /// Render raw Markdown instead of the live preview.
     pub raw_mode: bool,
@@ -738,6 +738,31 @@ impl AppState {
         format!("Replacement inserted into {name} ({chars} chars)")
     }
 
+    /// Open a local file with its configured viewer, or the system default.
+    ///
+    /// URLs are always handed to the platform opener; the viewer map only
+    /// applies to local `.pdf`, `.epub`, `.html`, and `.htm` files.
+    pub fn open_external(&self, path: &Path) -> Result<(), String> {
+        let text = path.to_string_lossy();
+        if text.contains("://") {
+            return open::that(path).map_err(|error| format!("cannot open {text}: {error}"));
+        }
+        match self.settings.viewers.program_for(path) {
+            Some(program) => std::process::Command::new(program)
+                .arg(path)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| {
+                    format!(
+                        "cannot launch viewer '{program}' for '{}': {error}",
+                        path.display()
+                    )
+                }),
+            None => open::that(path)
+                .map_err(|error| format!("cannot open '{}': {error}", path.display())),
+        }
+    }
+
     fn subscribe_editor(
         &mut self,
         editor: &Entity<zorite_editor::EditorState>,
@@ -757,12 +782,9 @@ impl AppState {
                         .map(|parent| parent.join(path))
                         .unwrap_or_else(|| path.to_path_buf())
                 };
-                match open::that(&resolved) {
+                match this.open_external(&resolved) {
                     Ok(()) => cx.notify(),
-                    Err(error) => this.set_status(
-                        format!("Could not open {}: {error}", resolved.display()),
-                        cx,
-                    ),
+                    Err(error) => this.set_status(error, cx),
                 };
             }
         })

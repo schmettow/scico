@@ -1,7 +1,7 @@
 //! The container protocol of the editor roundtrip.
 //!
 //! Everything the agent is shown from the editor is wrapped in a versioned,
-//! self-describing container, so the co-writer prompt can tell the author's
+//! self-describing container, so the SciCo prompt can tell the author's
 //! own text apart from retrieved literature:
 //!
 //! ```text
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn the_prompt_knows_every_marker() {
-        let prompt = include_str!("../assets/prompts/sciscraper-cowriter.md");
+        let prompt = include_str!("../assets/prompts/sci-co.md");
         assert!(
             missing_markers(prompt).is_empty(),
             "{:?}",

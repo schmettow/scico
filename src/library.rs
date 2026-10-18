@@ -582,17 +582,15 @@ impl Render for LibraryPane {
                             .icon(IconName::FolderOpen)
                             .xsmall()
                             .ghost()
-                            .tooltip("Open in the system viewer")
+                            .tooltip("Open with the configured viewer")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
-                                match open::that(&path) {
+                                let result = this.state.read(cx).open_external(&path);
+                                match result {
                                     Ok(()) => {
                                         this.set_status(format!("Opened {}", path.display()), cx)
                                     }
-                                    Err(error) => this.set_status(
-                                        format!("Could not open {}: {error}", path.display()),
-                                        cx,
-                                    ),
+                                    Err(error) => this.set_status(error, cx),
                                 }
                             }))
                     }

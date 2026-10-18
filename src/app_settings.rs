@@ -1,24 +1,24 @@
-//! The Sciscraper-specific settings page.
+//! The Sciscraper-specific settings pages.
 //!
-//! Ragrig supplies the model/retrieval part; this page owns the workspace,
-//! corpus, bibliography, pane visibility, and the editor's live-preview switch.
+//! Ragrig supplies the model/retrieval page and the reference-ingestion group.
+//! These pages own the workspace, the editor layout, and external viewers.
 
 use std::path::PathBuf;
 
 use gpui_kit::{
-    App, Entity, ParentElement as _, Styled as _,
+    App, Entity, ParentElement as _, SharedString, Styled as _,
     component::{
-        ActiveTheme as _, Sizable as _,
-        button::ButtonVariants as _,
+        ActiveTheme as _,
         setting::{SettingField, SettingGroup, SettingItem, SettingPage},
     },
 };
+
+use crate::settings::ViewerKind;
+use crate::state::AppState;
 use ragrig_gpui::path_setting;
 
-use crate::state::AppState;
-
-/// Build the app page that sits beside Ragrig's settings page.
-pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
+/// The Library page: paths, viewers, and library context.
+pub fn app_library_page(state: Entity<AppState>) -> SettingPage {
     let workspace = path_setting(
         "app-workspace",
         "Choose the workspace folder",
@@ -112,115 +112,48 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
         },
     );
 
-    let show_library = SettingField::switch(
-        {
-            let state = state.clone();
-            move |cx: &App| state.read(cx).show_library
-        },
-        {
-            let state = state.clone();
-            move |value: bool, cx: &mut App| {
-                state.update(cx, |state, cx| {
-                    state.show_library = value;
-                    state.persist(cx);
-                    state.persist_session(cx);
-                    cx.notify();
-                });
-            }
+    let show_library = state_switch(
+        state.clone(),
+        |state| state.show_library,
+        |state, value, cx| {
+            state.show_library = value;
+            state.persist(cx);
+            state.persist_session(cx);
+            cx.notify();
         },
     );
-    let show_agent = SettingField::switch(
-        {
-            let state = state.clone();
-            move |cx: &App| state.read(cx).show_agent
-        },
-        {
-            let state = state.clone();
-            move |value: bool, cx: &mut App| {
-                state.update(cx, |state, cx| {
-                    state.show_agent = value;
-                    state.persist(cx);
-                    state.persist_session(cx);
-                    cx.notify();
-                });
-            }
-        },
-    );
-    let document_attached = SettingField::switch(
-        {
-            let state = state.clone();
-            move |cx: &App| state.read(cx).document_attached
-        },
-        {
-            let state = state.clone();
-            move |value: bool, cx: &mut App| {
-                state.update(cx, |state, cx| {
-                    state.document_attached = value;
-                    state.persist(cx);
-                    cx.notify();
-                });
-            }
-        },
-    );
-    let library_attached = SettingField::switch(
-        {
-            let state = state.clone();
-            move |cx: &App| state.read(cx).library_attached
-        },
-        {
-            let state = state.clone();
-            move |value: bool, cx: &mut App| {
-                state.update(cx, |state, cx| {
-                    state.library_attached = value;
-                    state.persist(cx);
-                    cx.notify();
-                });
-            }
-        },
-    );
-    let live_preview = SettingField::switch(
-        {
-            let state = state.clone();
-            move |cx: &App| !state.read(cx).raw_mode
-        },
-        {
-            let state = state.clone();
-            move |value: bool, cx: &mut App| {
-                state.update(cx, |state, cx| state.set_raw_mode(!value, cx));
-            }
+    let library_attached = state_switch(
+        state.clone(),
+        |state| state.library_attached,
+        |state, value, cx| {
+            state.library_attached = value;
+            state.persist(cx);
+            cx.notify();
         },
     );
 
-    let apply = SettingItem::render({
-        let state = state.clone();
-        move |_, _, cx| {
-            let button = gpui_kit::component::button::Button::new("sciscraper-settings-apply")
-                .label("Apply to agent")
-                .icon(gpui_kit::assets::IconName::Play)
-                .primary()
-                .small()
-                .on_click({
-                    let state = state.clone();
-                    move |_, _, cx| {
-                        state.update(cx, |state, cx| state.apply_rag(cx));
-                    }
-                });
-            gpui_kit::component::h_flex()
-                .gap_3()
-                .items_center()
-                .child(button)
-                .child(
-                    gpui_kit::div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(state.read(cx).status.clone()),
-                )
-        }
+    let mut viewers = SettingGroup::new().title("External viewers");
+    for kind in ViewerKind::ALL {
+        let key = match kind {
+            ViewerKind::Pdf => "app-viewer-pdf",
+            ViewerKind::Epub => "app-viewer-epub",
+            ViewerKind::Html => "app-viewer-html",
+        };
+        viewers = viewers.item(
+            SettingItem::new(kind.label(), viewer_field(state.clone(), kind, key))
+                .description("Executable path or command; empty uses the system default."),
+        );
+    }
+    viewers = viewers.footer(|_, cx| {
+        gpui_kit::div()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child("The document path is passed as the only argument.")
     });
 
-    SettingPage::new("Sciscraper")
-        .description("Workspace, editor, and what rides along with a question.")
-        .default_open(false)
+    SettingPage::new("Library")
+        .description("Workspace, bibliography, external viewers, and library context.")
+        .default_open(true)
         .group(
             SettingGroup::new()
                 .title("Workspace")
@@ -235,8 +168,51 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
                 .item(
                     SettingItem::new("Bibliography", bibliography)
                         .description("The .bib the library shows and GROBID merges into."),
+                )
+                .item(
+                    SettingItem::new("Show library pane", show_library)
+                        .description("Left pane with references and corpus actions."),
                 ),
         )
+        .group(viewers)
+        .group(
+            SettingGroup::new().title("Context").item(
+                SettingItem::new("Attach library by default", library_attached)
+                    .description("Ride the whole .bib with every question."),
+            ),
+        )
+}
+
+/// The Editor page: preview, pane visibility, and document context.
+pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
+    let live_preview = state_switch(
+        state.clone(),
+        |state| !state.raw_mode,
+        |state, value, cx| state.set_raw_mode(!value, cx),
+    );
+    let show_sci_co = state_switch(
+        state.clone(),
+        |state| state.show_agent,
+        |state, value, cx| {
+            state.show_agent = value;
+            state.persist(cx);
+            state.persist_session(cx);
+            cx.notify();
+        },
+    );
+    let document_attached = state_switch(
+        state.clone(),
+        |state| state.document_attached,
+        |state, value, cx| {
+            state.document_attached = value;
+            state.persist(cx);
+            cx.notify();
+        },
+    );
+
+    SettingPage::new("Editor")
+        .description("How the editor renders and which panes stay open.")
+        .default_open(false)
         .group(
             SettingGroup::new()
                 .title("Editor")
@@ -245,25 +221,60 @@ pub fn app_settings_page(state: Entity<AppState>) -> SettingPage {
                         .description("Off shows raw Markdown; Ctrl+Shift+E toggles it."),
                 )
                 .item(
-                    SettingItem::new("Show library", show_library)
-                        .description("Left pane with references and corpus actions."),
-                )
-                .item(
-                    SettingItem::new("Show co-writer", show_agent)
+                    SettingItem::new("Show SciCo", show_sci_co)
                         .description("Right pane with the RAG transcript."),
                 ),
         )
         .group(
-            SettingGroup::new()
-                .title("Context")
-                .item(
-                    SettingItem::new("Attach document by default", document_attached)
-                        .description("Ride the active buffer with every question."),
-                )
-                .item(
-                    SettingItem::new("Attach library by default", library_attached)
-                        .description("Ride the whole .bib with every question."),
-                ),
+            SettingGroup::new().title("Context").item(
+                SettingItem::new("Attach document by default", document_attached)
+                    .description("Ride the active buffer with every question."),
+            ),
         )
-        .group(SettingGroup::new().title("Apply").item(apply))
+}
+
+fn viewer_field(
+    state: Entity<AppState>,
+    kind: ViewerKind,
+    key: &'static str,
+) -> SettingField<SharedString> {
+    path_setting(
+        key,
+        "Choose the viewer executable",
+        false,
+        true,
+        {
+            let state = state.clone();
+            move |cx| state.read(cx).settings.viewers.program(kind).to_owned()
+        },
+        {
+            let state = state.clone();
+            move |value, cx| {
+                state.update(cx, |state, cx| {
+                    state.settings.viewers.set(kind, value);
+                    state.persist(cx);
+                    cx.notify();
+                });
+            }
+        },
+    )
+}
+
+fn state_switch<R, W>(state: Entity<AppState>, read: R, write: W) -> SettingField<bool>
+where
+    R: Fn(&AppState) -> bool + 'static,
+    W: Fn(&mut AppState, bool, &mut gpui_kit::Context<AppState>) + 'static,
+{
+    SettingField::switch(
+        {
+            let state = state.clone();
+            move |cx: &App| read(state.read(cx))
+        },
+        {
+            let state = state.clone();
+            move |value: bool, cx: &mut App| {
+                state.update(cx, |state, cx| write(state, value, cx));
+            }
+        },
+    )
 }

@@ -21,7 +21,7 @@ use gpui_kit::{
 };
 
 use crate::agent::{AgentPane, AgentPaneEvent};
-use crate::app_settings::app_settings_page;
+use crate::app_settings::{app_editor_page, app_library_page};
 use crate::library::{LibraryEvent, LibraryPane};
 use crate::session::SessionState;
 use crate::state::AppState;
@@ -40,6 +40,7 @@ actions!(
         TogglePreview,
         ToggleSettings,
         FocusSelection,
+        EditSelection,
         CancelClose,
     ]
 );
@@ -67,9 +68,26 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("cmd-shift-e", TogglePreview, None),
         KeyBinding::new("ctrl-shift-p", FocusSelection, None),
         KeyBinding::new("cmd-shift-p", FocusSelection, None),
+        KeyBinding::new("ctrl-shift-d", EditSelection, None),
+        KeyBinding::new("cmd-shift-d", EditSelection, None),
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("cmd-,", ToggleSettings, None),
         KeyBinding::new("escape", CancelClose, None),
+        // zorite-editor binds Alt+Arrows; authors on Linux also expect the
+        // conventional Ctrl+Arrow word jumps. Scope them to the editor so the
+        // composer's own word navigation is untouched.
+        KeyBinding::new("ctrl-left", zorite_editor::WordLeft, Some("Editor")),
+        KeyBinding::new("ctrl-right", zorite_editor::WordRight, Some("Editor")),
+        KeyBinding::new(
+            "ctrl-shift-left",
+            zorite_editor::SelectWordLeft,
+            Some("Editor"),
+        ),
+        KeyBinding::new(
+            "ctrl-shift-right",
+            zorite_editor::SelectWordRight,
+            Some("Editor"),
+        ),
     ]);
 }
 
@@ -339,6 +357,11 @@ impl SciscraperApp {
             .update(cx, |agent, cx| agent.focus_selection(window, cx));
     }
 
+    fn edit_selection(&mut self, _: &EditSelection, window: &mut Window, cx: &mut Context<Self>) {
+        self.agent
+            .update(cx, |agent, cx| agent.edit_selection(window, cx));
+    }
+
     fn cancel_close(&mut self, _: &CancelClose, _: &mut Window, cx: &mut Context<Self>) {
         if self.close_prompt {
             self.close_prompt = false;
@@ -600,18 +623,9 @@ impl SciscraperApp {
     }
 
     fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (raw_mode, show_library, show_agent, title, dirty) = {
+        let (raw_mode, show_library, show_agent) = {
             let state = self.state.read(cx);
-            let document = state.active_document();
-            (
-                state.raw_mode,
-                state.show_library,
-                state.show_agent,
-                document
-                    .map(|document| document.title.to_string())
-                    .unwrap_or_else(|| "No document".to_owned()),
-                document.is_some_and(|document| document.dirty),
-            )
+            (state.raw_mode, state.show_library, state.show_agent)
         };
         let theme = cx.theme();
 
@@ -708,14 +722,20 @@ impl SciscraperApp {
                         this.focus_selection(&FocusSelection, window, cx);
                     })),
             )
-            .child(div().flex_1())
             .child(
-                div()
-                    .mr_3()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(format!("{title}{}", if dirty { " •" } else { "" })),
+                Button::new("toolbar-edit-selection")
+                    .label("Edit selection")
+                    .icon(IconName::Pencil)
+                    .small()
+                    .ghost()
+                    .tooltip(
+                        "Mark a passage, then write instructions; the answer replaces it (Ctrl+Shift+D)",
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.edit_selection(&EditSelection, window, cx);
+                    })),
             )
+            .child(div().flex_1())
             .child(
                 Button::new("toolbar-settings")
                     .icon(IconName::Settings)
@@ -728,7 +748,7 @@ impl SciscraperApp {
             )
             .child(
                 Button::new("toolbar-agent")
-                    .label("Co-writer")
+                    .label("SciCo")
                     .icon(if show_agent {
                         IconName::PanelRightClose
                     } else {
@@ -738,9 +758,9 @@ impl SciscraperApp {
                     .ghost()
                     .selected(show_agent)
                     .tooltip(if show_agent {
-                        "Hide the co-writer (Ctrl+Shift+A)"
+                        "Hide SciCo (Ctrl+Shift+A)"
                     } else {
-                        "Show the co-writer (Ctrl+Shift+A)"
+                        "Show SciCo (Ctrl+Shift+A)"
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_agent(&ToggleAgent, window, cx);
@@ -958,8 +978,9 @@ impl SciscraperApp {
         let settings = gpui_kit::component::setting::Settings::new(ElementId::Name(
             "sciscraper-settings".into(),
         ))
-        .page(ragrig_gpui::rag_settings_page(rag, controller, cx))
-        .page(app_settings_page(self.state.clone()));
+        .page(app_library_page(self.state.clone()).group(ragrig_gpui::rag_references_group(&rag)))
+        .page(app_editor_page(self.state.clone()))
+        .page(ragrig_gpui::rag_model_page(rag, controller, cx));
         v_flex()
             .size_full()
             .bg(theme.background)
@@ -1025,6 +1046,7 @@ impl Render for SciscraperApp {
             .on_action(cx.listener(Self::toggle_preview))
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::focus_selection))
+            .on_action(cx.listener(Self::edit_selection))
             .on_action(cx.listener(Self::cancel_close))
             .child(body)
             .when(self.close_prompt, |this| this.child(self.close_dialog(cx)))
@@ -1314,6 +1336,53 @@ mod tests {
                 state.active_document().expect("a document").text(cx),
                 "old passage"
             );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn ctrl_arrows_move_by_word(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        type_into_active(cx, &app, "one two three");
+        cx.simulate_keystrokes("ctrl-left");
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(
+                state.active_document().expect("doc").cursor_position(cx),
+                (0, 8)
+            );
+        });
+        cx.simulate_keystrokes("ctrl-right");
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(
+                state.active_document().expect("doc").cursor_position(cx),
+                (0, 13)
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn several_selections_can_be_attached_and_edit_mode_arms(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        type_into_active(cx, &app, "alpha beta gamma");
+
+        // Mark "gamma", collapse, mark "beta".
+        cx.simulate_keystrokes("ctrl-shift-left");
+        cx.simulate_keystrokes("ctrl-shift-p");
+        cx.simulate_keystrokes("left");
+        cx.simulate_keystrokes("ctrl-left");
+        cx.simulate_keystrokes("ctrl-shift-right");
+        cx.simulate_keystrokes("ctrl-shift-p");
+
+        let agent = cx.update(|_, cx| app.read(cx).agent.clone());
+        cx.update(|_, cx| {
+            assert_eq!(agent.read(cx).pending_selection_count(), 2);
+            assert_eq!(agent.read(cx).pending_selection_chars(), Some(9));
+        });
+
+        cx.simulate_keystrokes("ctrl-shift-d");
+        cx.update(|_, cx| {
+            assert!(agent.read(cx).edit_target_is_set());
         });
     }
 

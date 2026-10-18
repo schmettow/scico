@@ -1,8 +1,8 @@
-//! The co-writer pane: transcript, composer, context chips, and roundtrip.
+//! The SciCo pane: transcript, composer, context chips, and roundtrip.
 //!
 //! This is the Sciscraper-specific composite built on Ragrig's primitives
 //! instead of `RagChat`, because a question has to carry the editor's own
-//! containers (document, bibliography, marked selection) and a finished answer
+//! containers (document, bibliography, marked selections) and a finished answer
 //! may carry a replacement block that belongs back in the document.
 
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ use ragrig_gpui::prelude::*;
 use crate::roundtrip::{EditorBuffer, Replacement, RoundtripContext, context_note};
 use crate::state::{AppState, ReplacementOutcome};
 
-/// What the co-writer pane tells its host.
+/// What the SciCo pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentPaneEvent {
     /// A one-line status for the window's status bar.
@@ -31,6 +31,7 @@ pub enum AgentPaneEvent {
 
 /// A marked passage waiting for the next question.
 struct PendingSelection {
+    id: String,
     tab_id: u64,
     context: RoundtripContext,
 }
@@ -46,10 +47,11 @@ struct PendingTurn {
     request: RequestId,
     message: MessageId,
     tokens: usize,
-    selection: Option<PendingSelection>,
+    /// The passage an edit answer may replace. `None` means context only.
+    target: Option<PendingSelection>,
 }
 
-/// The Sciscraper co-writer pane.
+/// The Sciscraper SciCo pane.
 pub struct AgentPane {
     state: Entity<AppState>,
     chat: Entity<ChatView>,
@@ -57,7 +59,10 @@ pub struct AgentPane {
     pending: Option<PendingTurn>,
     attachments: Vec<PendingAttachment>,
     attachment_counter: u64,
-    selection: Option<PendingSelection>,
+    selections: Vec<PendingSelection>,
+    selection_counter: u64,
+    /// Selection id that the next submitted prompt must edit directly.
+    edit_target: Option<String>,
     offer: Option<ReplacementOffer>,
     streaming: bool,
     status: SharedString,
@@ -94,7 +99,9 @@ impl AgentPane {
             pending: None,
             attachments: Vec::new(),
             attachment_counter: 0,
-            selection: None,
+            selections: Vec::new(),
+            selection_counter: 0,
+            edit_target: None,
             offer: None,
             streaming: false,
             status: status.into(),
@@ -108,7 +115,7 @@ impl AgentPane {
                     title: "Ask your library".into(),
                     description: "Index a corpus in the Library, attach your draft, \
                                   then ask a question. The document and the marked \
-                                  selection ride along as context."
+                                  selections ride along as context."
                         .into(),
                 },
                 cx,
@@ -117,12 +124,66 @@ impl AgentPane {
         this
     }
 
-    /// Mark the active editor selection as the next question's focus.
+    /// Mark the active editor selection as context for the next question.
     ///
-    /// A blank selection is refused with a status line. The captured container
-    /// keeps the range and digest, so a later answer can only write back when
-    /// the passage still matches.
+    /// Repeated marks accumulate, so one question can carry several passages.
+    /// An identical range is not added twice. The captured container keeps the
+    /// range and digest, so a later edit can only write back when the passage
+    /// still matches.
     pub fn focus_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.capture_selection(window, cx) {
+            Some((_, true)) => {
+                let count = self.selections.len();
+                let chars: usize = self
+                    .selections
+                    .iter()
+                    .map(|selection| selection.context.chars())
+                    .sum();
+                self.set_status(
+                    format!(
+                        "{count} marked region(s) attached ({chars} chars) — ask, or use Edit selection"
+                    ),
+                    cx,
+                );
+            }
+            Some((_, false)) => {
+                self.set_status("That passage is already marked", cx);
+            }
+            None => self.set_status("Mark a passage in the editor first", cx),
+        }
+    }
+
+    /// Arm direct-edit mode for the marked selection.
+    ///
+    /// Uses the editor's current selection when there is one; otherwise the
+    /// last marked passage. The next submitted prompt is written back to that
+    /// passage instead of producing a chat answer with an Insert offer.
+    pub fn edit_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let id = self
+            .capture_selection(window, cx)
+            .map(|(id, _)| id)
+            .or_else(|| self.selections.last().map(|selection| selection.id.clone()));
+        let Some(id) = id else {
+            self.set_status("Mark a passage in the editor first", cx);
+            return;
+        };
+        self.edit_target = Some(id);
+        self.set_status(
+            "Edit mode — describe the change; the answer replaces the marked region",
+            cx,
+        );
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    /// Capture the current selection, returning `(id, added)`.
+    ///
+    /// `added` is false when the same range is already in the list.
+    fn capture_selection(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, bool)> {
         let captured = self.state.update(cx, |state, cx| {
             let document = state.active_document()?;
             let range = document.selection_chars(window, cx)?;
@@ -135,29 +196,36 @@ impl AgentPane {
                 range,
             ))
         });
-        let Some((tab_id, title, path, text, cursor, range)) = captured else {
-            self.set_status("Mark a passage in the editor first", cx);
-            return;
-        };
+        let (tab_id, title, path, text, cursor, range) = captured?;
         let buffer = EditorBuffer {
             name: &title,
             path: path.as_deref(),
             cursor,
             content: &text,
         };
-        let Some(context) = RoundtripContext::selection(buffer, range) else {
-            self.set_status("The marked passage is blank", cx);
-            return;
-        };
-        let chars = context.chars();
-        self.selection = Some(PendingSelection { tab_id, context });
-        self.set_status(
-            format!("Marked region ready ({chars} chars) — ask for a change"),
-            cx,
-        );
+        let context = RoundtripContext::selection(buffer, range)?;
+        let range = context.range();
+        let digest = context.digest().to_owned();
+        if let Some(existing) = self.selections.iter().find(|selection| {
+            selection.tab_id == tab_id
+                && selection.context.range() == range
+                && selection.context.digest() == digest
+        }) {
+            return Some((existing.id.clone(), false));
+        }
+        self.selection_counter = self.selection_counter.wrapping_add(1);
+        let id = format!("selection-{}", self.selection_counter);
+        self.selections.push(PendingSelection {
+            id: id.clone(),
+            tab_id,
+            context,
+        });
+        Some((id, true))
+    }
+
+    fn focus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer
             .update(cx, |composer, cx| composer.focus(window, cx));
-        cx.notify();
     }
 
     /// Whether an answer is currently streaming.
@@ -165,28 +233,42 @@ impl AgentPane {
         self.streaming
     }
 
-    /// Characters in the marked passage waiting for the next question.
+    /// Characters in all marked passages waiting for the next question.
     pub fn pending_selection_chars(&self) -> Option<usize> {
-        self.selection
-            .as_ref()
-            .map(|selection| selection.context.chars())
+        (!self.selections.is_empty()).then(|| {
+            self.selections
+                .iter()
+                .map(|selection| selection.context.chars())
+                .sum()
+        })
     }
 
-    /// The latest co-writer status line.
+    /// How many passages are marked for the next question.
+    pub fn pending_selection_count(&self) -> usize {
+        self.selections.len()
+    }
+
+    /// The latest SciCo status line.
     pub fn status(&self) -> &SharedString {
         &self.status
     }
 
-    /// The pending selection's tab, char range, and digest, for write-back.
+    /// The first pending selection's tab, char range, and digest, for write-back tests.
     #[cfg(test)]
     pub(crate) fn pending_selection_guard(&self) -> Option<(u64, std::ops::Range<usize>, String)> {
-        self.selection.as_ref().map(|selection| {
+        self.selections.first().map(|selection| {
             (
                 selection.tab_id,
                 selection.context.range().unwrap_or(0..0),
                 selection.context.digest().to_owned(),
             )
         })
+    }
+
+    /// Whether direct-edit mode is armed.
+    #[cfg(test)]
+    pub(crate) fn edit_target_is_set(&self) -> bool {
+        self.edit_target.is_some()
     }
 
     /// Queue files as one-shot context for the next question.
@@ -241,8 +323,14 @@ impl AgentPane {
         if self.streaming || prompt.trim().is_empty() {
             return;
         }
-        let (mut attachments, notes) = self.build_context(cx);
-        let selection = self.selection.take();
+        let (mut attachments, mut notes) = self.build_context(cx);
+        let edit_target = self.edit_target.take();
+        let selections = std::mem::take(&mut self.selections);
+        let target =
+            edit_target.and_then(|id| selections.into_iter().find(|selection| selection.id == id));
+        if target.is_some() {
+            notes.push("Direct edit: the answer will replace the marked region.".to_owned());
+        }
         attachments.append(&mut self.attachments);
         let attachment_count = attachments.len();
 
@@ -258,14 +346,27 @@ impl AgentPane {
             });
         }
 
+        let model_prompt = if let Some(target) = &target {
+            let range = target.context.range().unwrap_or(0..0);
+            format!(
+                "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). Return exactly one sciscraper:v1:replace block for that selection.",
+                range.start,
+                range.end,
+                target.context.digest()
+            )
+        } else {
+            prompt
+        };
         let controller = self.controller(cx);
-        match controller.update(cx, |controller, cx| controller.ask(prompt, attachments, cx)) {
+        match controller.update(cx, |controller, cx| {
+            controller.ask(model_prompt, attachments, cx)
+        }) {
             Ok(request) => {
                 self.pending = Some(PendingTurn {
                     request,
                     message,
                     tokens: 0,
-                    selection,
+                    target,
                 });
                 self.streaming = true;
                 self.chat.update(cx, |chat, cx| chat.scroll_to_end(cx));
@@ -316,7 +417,7 @@ impl AgentPane {
 
         let items = usize::from(document_attached && document.is_some())
             + usize::from(library_attached && bibliography.is_some())
-            + usize::from(self.selection.is_some());
+            + self.selections.len();
         let limit = context_char_limit(context_tokens, items);
 
         let mut attachments = Vec::new();
@@ -351,16 +452,15 @@ impl AgentPane {
             ));
         }
 
-        if let Some(selection) = &self.selection {
+        for selection in &self.selections {
             let context = selection.context.shortened(limit);
             notes.push(format!(
-                "Marked region attached: {} ({} chars). Ask for a change and the \
-                 answer can replace it in place.",
+                "Marked region attached: {} ({} chars).",
                 context.attachment_label().trim_start_matches("selection "),
                 context.chars()
             ));
             attachments.push(PendingAttachment::text(
-                "context-selection",
+                selection.id.clone(),
                 context.attachment_label(),
                 context.container(),
             ));
@@ -481,7 +581,8 @@ impl AgentPane {
                 self.pending = None;
                 self.streaming = false;
                 self.attachments.clear();
-                self.selection = None;
+                self.selections.clear();
+                self.edit_target = None;
                 self.offer = None;
                 self.chat.update(cx, |chat, cx| chat.clear(cx));
                 self.composer
@@ -491,7 +592,8 @@ impl AgentPane {
                 self.pending = None;
                 self.streaming = false;
                 self.attachments.clear();
-                self.selection = None;
+                self.selections.clear();
+                self.edit_target = None;
                 self.offer = None;
                 self.chat
                     .update(cx, |chat, cx| chat.replace(loaded_messages(turns), cx));
@@ -542,8 +644,19 @@ impl AgentPane {
     }
 
     fn handle_finished(&mut self, reply: RagReply, pending: PendingTurn, cx: &mut Context<Self>) {
+        let direct = pending.target.is_some();
         let Some((prose, blocks)) = Replacement::extract(&reply.answer) else {
-            self.set_status("Answer complete", cx);
+            if direct {
+                self.chat.update(cx, |chat, cx| {
+                    chat.push_system(
+                        "Direct edit: the answer carried no replacement block; nothing was written.",
+                        cx,
+                    );
+                });
+                self.set_status("Direct edit: no replacement block returned", cx);
+            } else {
+                self.set_status("Answer complete", cx);
+            }
             return;
         };
         let empty_prose = prose.trim().is_empty();
@@ -561,11 +674,11 @@ impl AgentPane {
             return;
         };
         let extra = blocks.len().saturating_sub(1);
-        if let Some(selection) = pending.selection {
-            let range = selection.context.range().unwrap_or(0..0);
-            let digest = selection.context.digest().to_owned();
+        if let Some(target) = pending.target {
+            let range = target.context.range().unwrap_or(0..0);
+            let digest = target.context.digest().to_owned();
             let outcome = self.state.update(cx, |state, cx| {
-                state.apply_replacement(selection.tab_id, range, &digest, &block.body, cx)
+                state.apply_replacement(target.tab_id, range, &digest, &block.body, cx)
             });
             match outcome {
                 ReplacementOutcome::Applied { message } => {
@@ -608,7 +721,7 @@ impl AgentPane {
         } else {
             self.offer = Some(ReplacementOffer {
                 text: block.body.clone(),
-                reason: "no marked passage was attached".to_owned(),
+                reason: "no direct-edit target was armed".to_owned(),
             });
             self.set_status("Replacement ready — Insert above the composer", cx);
         }
@@ -658,13 +771,37 @@ impl AgentPane {
                     .hint("Attach the bibliography to the next question"),
             );
         }
-        if let Some(selection) = &self.selection {
+        if let Some(target_id) = &self.edit_target
+            && let Some(selection) = self
+                .selections
+                .iter()
+                .find(|selection| &selection.id == target_id)
+        {
             chips.push(
                 Attachment::pending(
-                    "context-selection",
-                    format!("Marked region ({} chars)", selection.context.chars()),
+                    "edit-mode",
+                    format!("Direct edit → {} chars", selection.context.chars()),
                 )
-                .hint("The next question consumes this passage"),
+                .hint(format!(
+                    "The next answer replaces {}",
+                    selection.context.attachment_label()
+                )),
+            );
+        }
+        for (index, selection) in self.selections.iter().enumerate() {
+            chips.push(
+                Attachment::pending(
+                    selection.id.clone(),
+                    format!(
+                        "Marked region {} ({} chars)",
+                        index + 1,
+                        selection.context.chars()
+                    ),
+                )
+                .hint(format!(
+                    "The next question uses {}",
+                    selection.context.attachment_label()
+                )),
             );
         }
         if let Some(offer) = &self.offer {
@@ -709,8 +846,16 @@ impl AgentPane {
                     cx.notify();
                 });
             }
-            AttachmentEvent::Dropped(id) if id == "context-selection" => {
-                self.selection = None;
+            AttachmentEvent::Dropped(id) if id == "edit-mode" => {
+                self.edit_target = None;
+                self.set_status("Direct edit cancelled", cx);
+            }
+            AttachmentEvent::Dropped(id) if id.starts_with("selection-") => {
+                let was_target = self.edit_target.as_deref() == Some(id.as_str());
+                self.selections.retain(|selection| selection.id != id);
+                if was_target {
+                    self.edit_target = None;
+                }
                 self.set_status("Marked region dropped", cx);
             }
             AttachmentEvent::Dropped(id) if id == "replacement-offer" => {
@@ -806,7 +951,7 @@ impl Render for AgentPane {
                             .justify_between()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().child("Co-writer"))
+                            .child(div().text_lg().child("SciCo"))
                             .child(picker),
                     )
                     .child(

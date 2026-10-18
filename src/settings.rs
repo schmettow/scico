@@ -2,7 +2,7 @@
 //!
 //! The RAG fields mirror [`RagSettings`] but are stored as plain strings, so a
 //! settings file stays readable and stable across Ragrig upgrades. The
-//! co-writer prompt is compiled in; an empty `system_prompt` means "use the
+//! The SciCo prompt is compiled in; an empty `system_prompt` means "use the
 //! built-in one".
 
 use std::fs;
@@ -11,8 +11,90 @@ use std::path::{Path, PathBuf};
 use ragrig_gpui::{ChatProvider, MemoryChoice, PdfBackend, RagSettings};
 use serde::{Deserialize, Serialize};
 
-/// The co-writer prompt compiled into the binary.
-pub const CO_WRITER_PROMPT: &str = include_str!("../assets/prompts/sciscraper-cowriter.md");
+/// The SciCo prompt compiled into the binary.
+pub const SCICO_PROMPT: &str = include_str!("../assets/prompts/sci-co.md");
+
+/// A file kind with an assignable external viewer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewerKind {
+    /// `.pdf` files.
+    Pdf,
+    /// `.epub` files.
+    Epub,
+    /// `.html` and `.htm` files.
+    Html,
+}
+
+impl ViewerKind {
+    /// Every assignable viewer, in settings order.
+    pub const ALL: [Self; 3] = [Self::Pdf, Self::Epub, Self::Html];
+
+    /// The label shown in settings.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Pdf => "PDF viewer",
+            Self::Epub => "EPUB viewer",
+            Self::Html => "HTML viewer",
+        }
+    }
+
+    /// Extensions this viewer handles, without the dot.
+    pub fn extensions(self) -> &'static [&'static str] {
+        match self {
+            Self::Pdf => &["pdf"],
+            Self::Epub => &["epub"],
+            Self::Html => &["html", "htm"],
+        }
+    }
+}
+
+/// External programs used instead of the platform default when opening files.
+///
+/// An empty program means "use the system default". These are executable paths
+/// or command names, not shell snippets; the document path is passed as the
+/// only argument.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExternalViewers {
+    /// Program for `.pdf` files.
+    pub pdf: String,
+    /// Program for `.epub` files.
+    pub epub: String,
+    /// Program for `.html`/`.htm` files.
+    pub html: String,
+}
+
+impl ExternalViewers {
+    /// The configured program for one kind.
+    pub fn program(&self, kind: ViewerKind) -> &str {
+        let value = match kind {
+            ViewerKind::Pdf => &self.pdf,
+            ViewerKind::Epub => &self.epub,
+            ViewerKind::Html => &self.html,
+        };
+        value.trim()
+    }
+
+    /// Assign (or clear) the program for one kind.
+    pub fn set(&mut self, kind: ViewerKind, value: String) {
+        let value = value.trim().to_owned();
+        match kind {
+            ViewerKind::Pdf => self.pdf = value,
+            ViewerKind::Epub => self.epub = value,
+            ViewerKind::Html => self.html = value,
+        }
+    }
+
+    /// The program handling `path`, if one is configured.
+    pub fn program_for(&self, path: &Path) -> Option<&str> {
+        let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+        let kind = ViewerKind::ALL
+            .into_iter()
+            .find(|kind| kind.extensions().contains(&extension.as_str()))?;
+        let program = self.program(kind);
+        (!program.is_empty()).then_some(program)
+    }
+}
 
 /// Everything Sciscraper remembers between runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -36,7 +118,7 @@ pub struct PersistedSettings {
     pub max_tokens: usize,
     /// Chat context window in tokens.
     pub context_tokens: usize,
-    /// Custom system prompt; empty uses [`CO_WRITER_PROMPT`].
+    /// Custom system prompt; empty uses [`SCICO_PROMPT`].
     pub system_prompt: String,
     /// Whether answers stream.
     pub stream: bool,
@@ -76,10 +158,12 @@ pub struct PersistedSettings {
     pub show_agent: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the co-writer pane in pixels.
+    /// Width of the SciCo pane in pixels.
     pub agent_width: f32,
     /// Start in raw markdown rather than live preview.
     pub raw_mode: bool,
+    /// External programs for PDF, EPUB, and HTML files.
+    pub viewers: ExternalViewers,
 }
 
 impl Default for PersistedSettings {
@@ -122,6 +206,7 @@ impl Default for PersistedSettings {
             library_width: 340.0,
             agent_width: 430.0,
             raw_mode: false,
+            viewers: ExternalViewers::default(),
         }
     }
 }
@@ -182,7 +267,7 @@ impl PersistedSettings {
         settings.max_tokens = self.max_tokens;
         settings.context_tokens = self.context_tokens;
         settings.system_prompt = if self.system_prompt.trim().is_empty() {
-            CO_WRITER_PROMPT.to_owned()
+            SCICO_PROMPT.to_owned()
         } else {
             self.system_prompt.clone()
         };
@@ -220,7 +305,7 @@ impl PersistedSettings {
         self.temperature = settings.temperature;
         self.max_tokens = settings.max_tokens;
         self.context_tokens = settings.context_tokens;
-        self.system_prompt = if settings.system_prompt.trim() == CO_WRITER_PROMPT.trim() {
+        self.system_prompt = if settings.system_prompt.trim() == SCICO_PROMPT.trim() {
             String::new()
         } else {
             settings.system_prompt.clone()
@@ -259,6 +344,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn external_viewers_match_extensions_and_fall_back_to_the_system() {
+        let mut viewers = ExternalViewers::default();
+        assert!(viewers.program_for(Path::new("paper.pdf")).is_none());
+        viewers.set(ViewerKind::Pdf, "  /usr/bin/zathura ".to_owned());
+        viewers.set(ViewerKind::Html, "firefox".to_owned());
+        assert_eq!(
+            viewers.program_for(Path::new("paper.PDF")),
+            Some("/usr/bin/zathura")
+        );
+        assert_eq!(viewers.program_for(Path::new("page.htm")), Some("firefox"));
+        assert!(viewers.program_for(Path::new("notes.md")).is_none());
+    }
+
+    #[test]
     fn defaults_attach_the_document_but_not_the_library() {
         let settings = PersistedSettings::default();
         assert!(settings.document_attached);
@@ -274,7 +373,7 @@ mod tests {
         let persisted = PersistedSettings::default();
         let mut rag = RagSettings::default();
         persisted.apply_to(&mut rag);
-        assert_eq!(rag.system_prompt.trim(), CO_WRITER_PROMPT.trim());
+        assert_eq!(rag.system_prompt.trim(), SCICO_PROMPT.trim());
         assert!(rag.bibliography.is_empty());
     }
 
@@ -335,6 +434,10 @@ mod tests {
         let settings = PersistedSettings {
             workspace: "/tmp/work".to_owned(),
             top_k: 7,
+            viewers: ExternalViewers {
+                pdf: "zathura".to_owned(),
+                ..ExternalViewers::default()
+            },
             ..PersistedSettings::default()
         };
         settings.save(&path).expect("save");
@@ -342,6 +445,7 @@ mod tests {
         assert!(error.is_none(), "{error:?}");
         assert_eq!(loaded.workspace, "/tmp/work");
         assert_eq!(loaded.top_k, 7);
+        assert_eq!(loaded.viewers.pdf, "zathura");
         let _ = fs::remove_dir_all(dir);
     }
 }
