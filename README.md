@@ -212,6 +212,14 @@ of the controls column and the chosen width is remembered.
 - **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
   and memory. The token budgets are sliders over powers of two (512, 1024,
   2048, …).
+- **Scico prompt** (RAG → Chat) — the compiled-in `Scico.md` is the default; an
+  empty path uses it. **Browse…** selects a Markdown file that overrides it,
+  **Open prompt** shows the effective prompt in the editor (a file, or an
+  untitled `Scico.md` buffer for the built-in), **Export Scico.md** writes the
+  built-in into the workspace, selects it, and opens it, and **Use built-in**
+  drops the override. An existing `Scico.md` is never overwritten; exporting
+  opens it instead. Press **Apply** after editing the prompt file; saving the
+  file in the editor marks the change immediately.
 
 RAG fields that differ from the running configuration are bold violet. Their
 section and page carry a `●` in the sidebar, and the section shows an “Unsaved
@@ -219,9 +227,9 @@ changes” line; the Overview page lists how many fields changed per section.
 
 ## The roundtrip protocol
 
-The Scico prompt is compiled in at
-`assets/prompts/sci-co.md`. Editor contexts use the versioned
-containers the prompt documents:
+The Scico prompt is compiled in from `assets/prompts/Scico.md`. A workspace
+file selected in **Settings → RAG → Chat** overrides it. Editor contexts use
+the versioned containers the prompt documents:
 
 ```markdown
 <sciscraper:v1:context source="creator">
@@ -298,6 +306,10 @@ The following were fixed in `ragrig-gpui` during development:
 - The reference selection bar gained an **Insert** action and always shows
   labelled **Insert**, **Attach**, and **Clear** buttons with visible icon
   placeholders, so the actions do not depend on a hover reveal.
+- `PromptActions` lets a host add **Open prompt** and **Export …** buttons to
+  the generic prompt-file row; `RagSettings` gained `system_prompt_path`,
+  `built_in_prompt`, `prompt_path()`, `effective_prompt()`, and
+  `use_built_in_prompt()`.
 - The editor contract now covers insertion. `EditorSurface::insert_text`
   replaces the selection or inserts at `EditorSurface::caret`, as one undo
   step; `RoundtripHost::insert` and `Roundtrip::insert` expose the same seam to

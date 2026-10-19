@@ -1,9 +1,9 @@
 //! Durable application settings.
 //!
 //! The RAG fields mirror [`RagSettings`] but are stored as plain strings, so a
-//! settings file stays readable and stable across Ragrig upgrades. The
-//! The Scico prompt is compiled in; an empty `system_prompt` means "use the
-//! built-in one".
+//! settings file stays readable and stable across Ragrig upgrades. The Scico
+//! prompt is compiled in as `Scico.md`; an empty `system_prompt_path` means
+//! "use the built-in one".
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,10 @@ use ragrig_gpui::{ChatProvider, MemoryChoice, PdfBackend, RagSettings};
 use serde::{Deserialize, Serialize};
 
 /// The Scico prompt compiled into the binary.
-pub const SCICO_PROMPT: &str = include_str!("../assets/prompts/sci-co.md");
+pub const SCICO_PROMPT: &str = include_str!("../assets/prompts/Scico.md");
+
+/// The file name used when the prompt is exported into a workspace.
+pub const SCICO_PROMPT_FILE: &str = "Scico.md";
 
 /// A file kind with an assignable external viewer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,8 +121,9 @@ pub struct PersistedSettings {
     pub max_tokens: usize,
     /// Chat context window in tokens.
     pub context_tokens: usize,
-    /// Custom system prompt; empty uses [`SCICO_PROMPT`].
-    pub system_prompt: String,
+    /// Markdown prompt file overriding [`SCICO_PROMPT`]; empty uses the
+    /// built-in prompt.
+    pub system_prompt_path: String,
     /// Whether answers stream.
     pub stream: bool,
     /// Embedding model.
@@ -194,7 +198,7 @@ impl Default for PersistedSettings {
             temperature: rag.temperature,
             max_tokens: rag.max_tokens,
             context_tokens: rag.context_tokens,
-            system_prompt: String::new(),
+            system_prompt_path: String::new(),
             stream: true,
             embed_model: rag.embed_model,
             top_k: rag.top_k,
@@ -281,10 +285,14 @@ impl PersistedSettings {
         settings.temperature = self.temperature;
         settings.max_tokens = self.max_tokens;
         settings.context_tokens = self.context_tokens;
-        settings.system_prompt = if self.system_prompt.trim().is_empty() {
-            SCICO_PROMPT.to_owned()
-        } else {
-            self.system_prompt.clone()
+        settings.built_in_prompt = SCICO_PROMPT.to_owned();
+        settings.system_prompt_path = self.system_prompt_path.trim().to_owned();
+        settings.system_prompt = match settings.prompt_path() {
+            Some(path) => fs::read_to_string(&path)
+                .ok()
+                .filter(|text| !text.trim().is_empty())
+                .unwrap_or_else(|| SCICO_PROMPT.to_owned()),
+            None => SCICO_PROMPT.to_owned(),
         };
         settings.stream = self.stream;
         settings.embed_model = self.embed_model.clone();
@@ -320,11 +328,7 @@ impl PersistedSettings {
         self.temperature = settings.temperature;
         self.max_tokens = settings.max_tokens;
         self.context_tokens = settings.context_tokens;
-        self.system_prompt = if settings.system_prompt.trim() == SCICO_PROMPT.trim() {
-            String::new()
-        } else {
-            settings.system_prompt.clone()
-        };
+        self.system_prompt_path = settings.system_prompt_path.clone();
         self.stream = settings.stream;
         self.embed_model = settings.embed_model.clone();
         self.top_k = settings.top_k;
@@ -389,7 +393,40 @@ mod tests {
         let mut rag = RagSettings::default();
         persisted.apply_to(&mut rag);
         assert_eq!(rag.system_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(rag.built_in_prompt.trim(), SCICO_PROMPT.trim());
+        assert!(rag.system_prompt_path.is_empty());
         assert!(rag.bibliography.is_empty());
+    }
+
+    #[test]
+    fn a_custom_prompt_file_replaces_the_builtin_prompt() {
+        let dir = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-prompt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("prompt dir");
+        let path = dir.join("Scico.md");
+        std::fs::write(&path, "Custom Scico prompt").expect("prompt file");
+
+        let persisted = PersistedSettings {
+            system_prompt_path: path.display().to_string(),
+            ..PersistedSettings::default()
+        };
+        let mut rag = RagSettings::default();
+        persisted.apply_to(&mut rag);
+
+        assert_eq!(rag.system_prompt, "Custom Scico prompt");
+        assert_eq!(rag.built_in_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(
+            rag.to_setup().expect("setup").system_prompt.as_deref(),
+            Some("Custom Scico prompt")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -402,13 +439,13 @@ mod tests {
         rag.provider = ChatProvider::DeepSeek;
         rag.top_k = 42;
         rag.memory = MemoryChoice::Transcript;
-        rag.system_prompt = "Custom prompt {context}".to_owned();
+        rag.system_prompt_path = "/tmp/Scico.md".to_owned();
 
         persisted.capture(&rag);
         assert_eq!(persisted.provider, "DeepSeek");
         assert_eq!(persisted.top_k, 42);
         assert_eq!(persisted.memory, "Transcript");
-        assert_eq!(persisted.system_prompt, "Custom prompt {context}");
+        assert_eq!(persisted.system_prompt_path, "/tmp/Scico.md");
 
         let mut restored = RagSettings::default();
         persisted.apply_to(&mut restored);
@@ -417,7 +454,8 @@ mod tests {
         assert_eq!(restored.provider, ChatProvider::DeepSeek);
         assert_eq!(restored.top_k, 42);
         assert_eq!(restored.memory, MemoryChoice::Transcript);
-        assert_eq!(restored.system_prompt, "Custom prompt {context}");
+        assert_eq!(restored.system_prompt_path, "/tmp/Scico.md");
+        assert_eq!(restored.system_prompt.trim(), SCICO_PROMPT.trim());
     }
 
     #[test]

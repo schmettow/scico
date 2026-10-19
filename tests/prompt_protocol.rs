@@ -7,7 +7,7 @@ use ragrig_gpui::editor::missing_markers;
 
 #[test]
 fn the_prompt_knows_every_marker() {
-    let prompt = include_str!("../assets/prompts/sci-co.md");
+    let prompt = include_str!("../assets/prompts/Scico.md");
     assert!(
         missing_markers(prompt).is_empty(),
         "{:?}",

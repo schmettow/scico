@@ -24,7 +24,7 @@ use gpui_kit::{
 };
 
 use crate::agent::{AgentPane, AgentPaneEvent};
-use crate::app_settings::{app_editor_page, app_library_page, app_overview_page};
+use crate::app_settings::{app_editor_page, app_library_page, app_overview_page, prompt_actions};
 use crate::library::{LibraryEvent, LibraryPane};
 use crate::session::SessionState;
 use crate::state::AppState;
@@ -1326,7 +1326,12 @@ impl SciscraperApp {
         .page(app_overview_page(self.state.clone(), &now, cx))
         .page(app_library_page(self.state.clone(), cx))
         .page(app_editor_page(self.state.clone()))
-        .page(ragrig_gpui::rag_model_page(rag, changes, cx));
+        .page(ragrig_gpui::rag_model_page(
+            rag,
+            changes,
+            Some(prompt_actions(self.state.clone())),
+            cx,
+        ));
         let gutter = self.state.read(cx).settings_gutter;
         let resize_state = self.state.clone();
         let layout = h_resizable(ElementId::Name("sciscraper-settings-layout".into()))
@@ -1522,6 +1527,105 @@ mod tests {
                 "@Kano2025"
             );
         });
+    }
+
+    #[gpui_kit::test]
+    fn opening_the_builtin_prompt_shows_it_in_an_untitled_buffer(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.state
+                    .update(cx, |state, cx| state.open_scico_prompt(window, cx))
+                    .expect("open prompt");
+            });
+        });
+
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            let document = state.active_document().expect("prompt document");
+            assert!(document.path.is_none());
+            assert_eq!(
+                document.title.as_ref(),
+                crate::settings::SCICO_PROMPT_FILE,
+                "the buffer is named after the compiled prompt"
+            );
+            assert_eq!(document.text(cx), crate::settings::SCICO_PROMPT);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn exporting_the_prompt_writes_it_and_opens_it(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let workspace = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-prompt-export-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&workspace).expect("workspace");
+
+        let exported = cx
+            .update(|window, cx| {
+                app.update(cx, |app, cx| {
+                    app.state.update(cx, |state, cx| {
+                        state.workspace = Some(workspace.clone());
+                        state.export_scico_prompt(window, cx)
+                    })
+                })
+            })
+            .expect("export prompt");
+
+        let path = workspace.join(crate::settings::SCICO_PROMPT_FILE);
+        assert_eq!(exported, path.display().to_string());
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("exported prompt"),
+            crate::settings::SCICO_PROMPT
+        );
+
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            let document = state.active_document().expect("prompt document");
+            assert_eq!(document.path.as_deref(), Some(path.as_path()));
+            assert_eq!(document.text(cx), crate::settings::SCICO_PROMPT);
+            assert_eq!(state.rag.read(cx).system_prompt_path, exported);
+        });
+
+        let _ = std::fs::remove_dir_all(workspace);
+    }
+
+    #[gpui_kit::test]
+    fn exporting_never_overwrites_an_existing_prompt(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let workspace = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-prompt-existing-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        let path = workspace.join(crate::settings::SCICO_PROMPT_FILE);
+        std::fs::write(&path, "Local prompt").expect("existing prompt");
+
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.state
+                    .update(cx, |state, cx| {
+                        state.workspace = Some(workspace.clone());
+                        state.export_scico_prompt(window, cx)
+                    })
+                    .expect("export prompt");
+            });
+        });
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("prompt"),
+            "Local prompt",
+            "the local file wins"
+        );
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(state.rag.read(cx).system_prompt, "Local prompt");
+        });
+
+        let _ = std::fs::remove_dir_all(workspace);
     }
 
     #[gpui_kit::test]

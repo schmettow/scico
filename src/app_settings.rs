@@ -20,7 +20,7 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
 };
 
-use crate::settings::ViewerKind;
+use crate::settings::{SCICO_PROMPT_FILE, ViewerKind};
 use crate::state::AppState;
 use ragrig_gpui::{
     Changes, RagChanges, RagField, RagSection, SettingRow, dirty_color, dirty_header,
@@ -304,6 +304,33 @@ fn profile_options(state: &Entity<AppState>, cx: &App) -> Vec<(SharedString, Sha
         .filter(|name| !name.is_empty())
         .map(|name| (name.as_str().into(), name.as_str().into()))
         .collect()
+}
+
+/// Host actions for the Scico prompt row in **Settings → RAG → Chat**.
+///
+/// The generic page owns the path field and dirty mark; these closures open the
+/// effective prompt in the editor and export the compiled-in `Scico.md` into the
+/// workspace.
+pub fn prompt_actions(state: Entity<AppState>) -> ragrig_gpui::PromptActions {
+    ragrig_gpui::PromptActions {
+        built_in_name: SCICO_PROMPT_FILE,
+        open: {
+            let state = state.clone();
+            Rc::new(move |_, window, cx| {
+                state.update(cx, |state, cx| {
+                    if let Err(error) = state.open_scico_prompt(window, cx) {
+                        state.set_status(error, cx);
+                    }
+                });
+            })
+        },
+        export: {
+            let state = state.clone();
+            Rc::new(move |window, cx| {
+                state.update(cx, |state, cx| state.export_scico_prompt(window, cx))
+            })
+        },
+    }
 }
 
 /// The Library page: paths, viewers, and library context.

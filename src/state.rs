@@ -1,5 +1,6 @@
 //! Application state: documents, workspace paths, and the RAG controller.
 
+use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -25,7 +26,7 @@ use zorite_editor::EditorEvent;
 
 use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_for};
 use crate::session::{SessionDocument, SessionState};
-use crate::settings::PersistedSettings;
+use crate::settings::{PersistedSettings, SCICO_PROMPT, SCICO_PROMPT_FILE};
 use crate::theme::syntax_style;
 
 /// Shared editor and workspace state.
@@ -357,6 +358,137 @@ impl AppState {
         id
     }
 
+    /// Open text as an untitled buffer, or switch to an existing untitled
+    /// buffer with the same title.
+    ///
+    /// Used to show the compiled-in prompt without writing a file.
+    pub fn open_buffer(
+        &mut self,
+        title: impl Into<SharedString>,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let title = title.into();
+        if let Some(index) = self
+            .documents
+            .iter()
+            .position(|document| document.path.is_none() && document.title == title)
+        {
+            self.active = index;
+            window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
+            self.sync_active_preview(cx);
+            cx.notify();
+            return self.documents[index].id;
+        }
+        let id = self.next_document;
+        self.next_document += 1;
+        let document = Document::new(
+            window,
+            cx,
+            &self.style,
+            crate::document::DocumentInit {
+                id,
+                title,
+                path: None,
+                text,
+                raw: self.raw_mode,
+            },
+        );
+        #[cfg(feature = "gpuikit")]
+        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        #[cfg(feature = "zorite")]
+        self.subscribe_editor(&document.editor, id, cx);
+        self.documents.push(document);
+        self.active = self.documents.len() - 1;
+        window.focus(
+            &self.documents[self.active].editor.read(cx).focus_handle(cx),
+            cx,
+        );
+        self.persist_session(cx);
+        self.sync_active_preview(cx);
+        id
+    }
+
+    /// Open the effective Scico prompt in the editor.
+    ///
+    /// A selected prompt file opens as a normal document. Without one, the
+    /// compiled-in `Scico.md` appears as an untitled buffer.
+    pub fn open_scico_prompt(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        match self.rag.read(cx).prompt_path() {
+            Some(path) => self.open_path(&path, window, cx),
+            None => {
+                self.open_buffer(SCICO_PROMPT_FILE, SCICO_PROMPT.to_owned(), window, cx);
+                Ok(())
+            }
+        }
+    }
+
+    /// Write the compiled-in prompt into the workspace, select it, and open it.
+    ///
+    /// An existing `Scico.md` is never overwritten: it is opened and selected
+    /// as the prompt instead, so local edits survive the action.
+    pub fn export_scico_prompt(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let workspace = self
+            .workspace
+            .clone()
+            .ok_or_else(|| "choose a workspace folder first".to_owned())?;
+        let path = workspace.join(SCICO_PROMPT_FILE);
+        let mut created = false;
+        if !path.exists() {
+            fs::write(&path, SCICO_PROMPT)
+                .map_err(|error| format!("cannot write '{}': {error}", path.display()))?;
+            created = true;
+        }
+        let text = fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read '{}': {error}", path.display()))?;
+        if text.trim().is_empty() {
+            return Err(format!("'{}' is empty", path.display()));
+        }
+
+        self.open_path(&path, window, cx)?;
+        self.rag.update(cx, |rag, cx| {
+            rag.system_prompt_path = path.display().to_string();
+            rag.system_prompt = text;
+            cx.notify();
+        });
+        self.set_status(
+            if created {
+                format!("Exported {SCICO_PROMPT_FILE} to {}", workspace.display())
+            } else {
+                format!("Using existing {SCICO_PROMPT_FILE}")
+            },
+            cx,
+        );
+        Ok(path.display().to_string())
+    }
+
+    /// Keep the prompt text in step when its file is saved in the editor.
+    fn refresh_prompt_from_document(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(document) = self.document(id) else {
+            return;
+        };
+        let Some(path) = document.path.clone() else {
+            return;
+        };
+        if self.rag.read(cx).prompt_path().as_deref() != Some(path.as_path()) {
+            return;
+        }
+        let text = document.text(cx);
+        self.rag.update(cx, |rag, cx| {
+            rag.system_prompt = text;
+            cx.notify();
+        });
+    }
+
     /// Rebuild every tab from a journal snapshot.
     ///
     /// File-backed buffers compare their journal text with the file on disk:
@@ -553,12 +685,16 @@ impl AppState {
 
     /// Save the active document to its existing path.
     pub fn save_active(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
+        let id = self.active_document().map(|document| document.id);
         let result = match self.active_document_mut() {
             Some(document) => document.save(cx),
             None => Err("no document is open".to_owned()),
         };
         match &result {
             Ok(()) => {
+                if let Some(id) = id {
+                    self.refresh_prompt_from_document(id, cx);
+                }
                 let name = self
                     .active_document()
                     .map(|document| document.title.clone())
@@ -578,7 +714,10 @@ impl AppState {
             None => Err("that document is no longer open".to_owned()),
         };
         match &result {
-            Ok(()) => self.persist_session(cx),
+            Ok(()) => {
+                self.refresh_prompt_from_document(id, cx);
+                self.persist_session(cx);
+            }
             Err(error) => self.set_status(error.clone(), cx),
         }
         result
@@ -597,6 +736,7 @@ impl AppState {
         };
         match &result {
             Ok(()) => {
+                self.refresh_prompt_from_document(id, cx);
                 let name = self
                     .document(id)
                     .map(|document| document.title.clone())

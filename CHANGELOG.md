@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scico prompt management**: the full prompt is compiled in from
+  `assets/prompts/Scico.md` and used by default. **Settings → RAG → Chat**
+  shows a prompt-file field with **Browse…**, **Open prompt**, **Export
+  Scico.md**, and **Use built-in**. **Open prompt** shows the selected file in
+  the editor, or the compiled prompt as an untitled `Scico.md` buffer.
+  **Export Scico.md** writes the compiled prompt into the workspace, selects
+  it as the active prompt, and opens it; an existing file is opened instead of
+  overwritten. Saving the prompt file marks the prompt as unsaved so **Apply**
+  rebuilds the agent with the new text.
 - **Insert references from the library**: selecting reference rows and pressing
   **Insert** in the selection bar writes a citation into the active document
   through the roundtrip contract — `@Key` for one reference,
@@ -71,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The system prompt is no longer an inline text field. Settings store a
+  `system_prompt_path` (empty = compiled-in `Scico.md`); the file is read when
+  the agent is rebuilt.
 - The library inserts citations through `ragrig_gpui::Roundtrip` instead of
   calling the document's `insert_at_caret` directly, so reference insertion
   follows the same contract as agent write-back.
@@ -94,6 +106,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Profile Defaults** no longer replaces the Scico persona with Ragrig's
+  generic one-line stub; profile defaults and profiles without a prompt file
+  restore the compiled-in `Scico.md`.
 - Editor scrolling no longer jumps back while the mouse is over the text:
   caret-follow now listens to editor change/selection events instead of every
   repaint, and it applies one stable offset after the layout settles. It also
@@ -105,4 +120,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actions (open, save, close, tab switch, layout) still flush immediately.
 - The `Copy @key` action, the vector-store component, and the chunker component
   rendered blank icons. Copy now uses the `Copy` glyph; the store and chunker
-  use `Layers` and `Columns3`, whose SVGs the rasteriser supports.
+  use `Database` and `Pilcrow`, whose SVGs the rasteriser supports.

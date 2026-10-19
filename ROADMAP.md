@@ -15,6 +15,9 @@ stabilised.
   exotic Markdown next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
+- The Scico prompt is file-based: the full `Scico.md` is compiled in, can be
+  exported into the workspace, edited in the editor, and overridden per
+  profile. Refine the prompt alongside protocol changes.
 
 ## Next
 
