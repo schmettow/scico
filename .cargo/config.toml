@@ -1,0 +1,5 @@
+# The GPUI render/layout call chain needs more than the 1 MB main-thread
+# stack that Windows grants by default. Match the 8 MB Linux default so the
+# debug build renders the library and agent panes without overflowing.
+[target.'cfg(windows)']
+rustflags = ["-C", "link-arg=/STACK:8388608"]
