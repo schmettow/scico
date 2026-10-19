@@ -25,7 +25,9 @@ stabilised.
 - Align the preview parser's block boundaries with comrak for every extension,
   so element sync cannot drift on unusual documents.
 - Deepen reference management: richer viewer routing, corpus maintenance, and
-  citation insertion workflows.
+  citation insertion workflows. Library → Editor insertion now goes through the
+  roundtrip contract (`Roundtrip::insert`); next are citation-key completion and
+  formatting choices confined to the selected references.
 - Exercise the full pipeline against a live GROBID server and larger corpora.
 
 ## Later

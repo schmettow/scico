@@ -669,7 +669,7 @@ impl AppState {
             self.set_status("Open a document first", cx);
             return;
         };
-        document.insert(text, window, cx);
+        document.insert_text(text, window, cx);
         if let Some(document) = self.active_document_mut() {
             document.dirty = true;
         }
@@ -1346,6 +1346,17 @@ impl RoundtripHost for AppStateHost {
                 document: document.snapshot(cx),
                 range,
             })
+        })
+    }
+
+    fn insert(&self, text: &str, window: &mut Window, cx: &mut App) -> bool {
+        self.state.update(cx, |state, cx| {
+            if state.active_document().is_none() {
+                state.set_status("Open a document first", cx);
+                return false;
+            }
+            state.insert_at_caret(text, window, cx);
+            true
         })
     }
 

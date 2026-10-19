@@ -170,13 +170,17 @@ target stays bound to the tab the passage came from.
 - **GROBID** parses the corpus folder without indexing. **Index** runs an
   incremental index update; it turns into **Stop** while running.
 - Click a reference row to insert `@key` at the cursor. `+` selects a row;
-  select several to insert `[@Key1, @Key2]`, copy keys/paths, or attach the PDFs
-  to the next question. The copy-key, copy-path, and open actions stay visible
-  on every row and become fully opaque on hover.
+  select several and use the action bar at the bottom to **Insert**
+  `[@Key1, @Key2]`, **Attach** the PDFs to the next question, **Clear** the
+  selection, or copy keys and paths. Insert goes through the roundtrip editor
+  contract, so it lands at the caret or over the selection as one undo step.
+  The copy-key, copy-path, and open actions stay visible on every row and
+  become fully opaque on hover.
 - The open action uses the viewer assigned in **Settings → Library → External
   viewers** (PDF, EPUB, and HTML), or the platform default when the field is
   empty.
-- The filter field matches keys, authors, years, titles, and venues.
+- The filter field matches keys, authors, years, titles, and venues; its **X**
+  button clears the filter.
 
 ### Scico
 
@@ -288,9 +292,17 @@ The following were fixed in `ragrig-gpui` during development:
 - `RagChanges`, `RagField`, and `RagSection` expose field-level pending edits;
   `SettingRow`, `dirty_color`, and `dirty_header` render the bold-violet marks.
   `RagSettings::reset_to_profile_defaults()` backs the Overview button.
-- The agent bar uses `Layers` for the vector store and `Columns3` for the
+- The agent bar uses `Database` for the vector store and `Pilcrow` for the
   chunker; the previous `Server`/`Hash` SVGs contain `<line>` shapes that the
-  SVG rasteriser drops.
+  SVG rasteriser drops, leaving blank icons.
+- The reference selection bar gained an **Insert** action and always shows
+  labelled **Insert**, **Attach**, and **Clear** buttons with visible icon
+  placeholders, so the actions do not depend on a hover reveal.
+- The editor contract now covers insertion. `EditorSurface::insert_text`
+  replaces the selection or inserts at `EditorSurface::caret`, as one undo
+  step; `RoundtripHost::insert` and `Roundtrip::insert` expose the same seam to
+  the host; `char_index_for_line_column` converts line/column carets to the
+  character indices the contract uses.
 
 ## Checks
 

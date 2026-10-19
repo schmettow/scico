@@ -229,6 +229,18 @@ impl AgentPane {
             .update(cx, |composer, cx| composer.focus(window, cx));
     }
 
+    /// Insert text into the active document at the selection or caret.
+    ///
+    /// This is the Library → Editor direction and travels through the
+    /// roundtrip contract, so the agent never names the editor backend.
+    pub fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let inserted = self.roundtrip.insert(text, window, cx);
+        if inserted {
+            cx.notify();
+        }
+        inserted
+    }
+
     /// Whether an answer is currently streaming.
     pub fn is_streaming(&self) -> bool {
         self.streaming

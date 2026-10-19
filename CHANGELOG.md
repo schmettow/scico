@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Insert references from the library**: selecting reference rows and pressing
+  **Insert** in the selection bar writes a citation into the active document
+  through the roundtrip contract — `@Key` for one reference,
+  `[@Key1, @Key2]` for several. The insertion replaces the editor selection or
+  lands at the caret as a single undo step; clicking a row still inserts that
+  one reference.
+- **Fast Find clear button**: the library filter shows an X while it contains
+  text, restoring the full list in one click.
 - **Editor font settings**: **Settings → Editor** now offers a monospace
   family picker (installed families, filtered to monospace faces) and a font
   size control. The first launch prefers JetBrains Mono, Fira Mono, Hack, or a
@@ -63,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The library inserts citations through `ragrig_gpui::Roundtrip` instead of
+  calling the document's `insert_at_caret` directly, so reference insertion
+  follows the same contract as agent write-back.
+- The reference selection bar is the single place for batch actions; the
+  duplicate in-body **Insert [@keys]** button was removed.
 - The assistant is called **Scico** everywhere (previously “SciCo”).
 - **`gpuikit` is now the default backend.** `cargo run` opens the source editor
   and rendered preview; the live-preview `zorite` backend is opt-in with

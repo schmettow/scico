@@ -1508,6 +1508,23 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn the_library_inserts_through_the_roundtrip_contract(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let agent = cx.update(|_, cx| app.read(cx).agent.clone());
+        let inserted = cx.update(|window, cx| {
+            agent.update(cx, |agent, cx| agent.insert_text("@Kano2025", window, cx))
+        });
+        assert!(inserted, "the active document accepts the citation");
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(
+                state.active_document().expect("a document").text(cx),
+                "@Kano2025"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
     fn a_new_document_starts_clean(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         cx.update(|window, cx| {

@@ -316,9 +316,40 @@ impl LibraryPane {
         } else {
             format!("@{key}")
         };
-        self.state
-            .update(cx, |state, cx| state.insert_at_caret(&text, window, cx));
-        self.set_status(format!("Inserted {text}"), cx);
+        let inserted = self
+            .agent
+            .update(cx, |agent, cx| agent.insert_text(&text, window, cx));
+        if inserted {
+            self.set_status(format!("Inserted {text}"), cx);
+        }
+    }
+
+    /// Insert every selected reference as one citation at the caret.
+    fn insert_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let entries: Vec<ReferenceEntry> = self
+            .selected
+            .entries(&self.entries)
+            .into_iter()
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        let keys = entries
+            .iter()
+            .map(|entry| format!("@{}", entry.key))
+            .collect::<Vec<_>>();
+        let text = if keys.len() == 1 {
+            keys[0].clone()
+        } else {
+            format!("[{}]", keys.join(", "))
+        };
+        let inserted = self
+            .agent
+            .update(cx, |agent, cx| agent.insert_text(&text, window, cx));
+        if inserted {
+            self.set_status(format!("Inserted {text}"), cx);
+        }
     }
 
     fn toggle_selection(&mut self, key: String, cx: &mut Context<Self>) {
@@ -444,7 +475,12 @@ impl Render for LibraryPane {
                     .unwrap_or_else(|| folder.display().to_string()),
             ),
         );
-        body = body.child(Input::new(&self.filter).small().bordered(true));
+        body = body.child(
+            Input::new(&self.filter)
+                .small()
+                .bordered(true)
+                .cleanable(true),
+        );
 
         if let Some(progress) = progress {
             body = body.child(
@@ -479,7 +515,6 @@ impl Render for LibraryPane {
                 .map(|entry| format!("@{}", entry.key))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let first_key = selected_entries[0].key.clone();
             body = body.child(
                 h_flex()
                     .gap_1()
@@ -495,15 +530,6 @@ impl Render for LibraryPane {
                             .text_xs()
                             .text_color(theme.primary)
                             .child(format!("{} selected · {keys}", selected_entries.len())),
-                    )
-                    .child(
-                        Button::new("library-insert-selected")
-                            .label("Insert [@keys]")
-                            .xsmall()
-                            .ghost()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.insert_citation(first_key.clone(), window, cx);
-                            })),
                     ),
             );
         }
@@ -711,7 +737,10 @@ impl Render for LibraryPane {
         } else {
             let this = cx.entity();
             ReferenceSelectionBar::new(selected_entries)
-                .on_action(move |action, entries, _, cx| match action {
+                .on_action(move |action, entries, window, cx| match action {
+                    ReferenceAction::Insert => {
+                        this.update(cx, |this, cx| this.insert_selected(window, cx));
+                    }
                     ReferenceAction::CopyKeys | ReferenceAction::CopyPaths => {
                         this.update(cx, |this, cx| {
                             let count = entries.len();
