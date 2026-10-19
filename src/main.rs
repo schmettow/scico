@@ -5,7 +5,9 @@ use sciscraper_gpui::app;
 
 fn main() {
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        // The complete Lucide catalog: the default `Assets` bundle omits many
+        // icons the UI uses (Store, Chunker, Save, Sparkles, Pencil, X, …).
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(|cx| {
             ragrig_gpui::init(cx);
             #[cfg(feature = "zorite")]

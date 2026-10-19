@@ -292,6 +292,17 @@ impl AgentPane {
         self.selections.len()
     }
 
+    /// Marked passages waiting for the next question as `(tab id, char range)`.
+    ///
+    /// The editor draws its marching-ant frame for the entries of the active
+    /// tab; sending the prompt consumes them.
+    pub fn marked_regions(&self) -> Vec<(u64, std::ops::Range<usize>)> {
+        self.selections
+            .iter()
+            .filter_map(|selection| Some((selection.tab_id, selection.context.range()?)))
+            .collect()
+    }
+
     /// The latest Scico status line.
     pub fn status(&self) -> &SharedString {
         &self.status

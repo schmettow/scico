@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Marching-ant frames** around every passage marked for the next question.
+  The frame follows scrolling and wrapping, uses the editor's own selection
+  geometry, and disappears when the prompt consumes the marked regions.
 - **Enrich selection** (`Ctrl+Shift+R`): like **Edit selection**, but the
   marked passage is prepended to the vector retrieval query, so similarity
   search runs on the passage as well as the instruction. The passage is not
@@ -91,6 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The library inserts citations through `ragrig_gpui::Roundtrip` instead of
   calling the document's `insert_at_caret` directly, so reference insertion
   follows the same contract as agent write-back.
+- The multi-select action bar moved to the top of the library list and
+  merged with the selection summary: it now shows `N selected · @key1, @key2`
+  and the Insert, Attach, Copy keys, Copy paths, and Clear actions in one row.
+  The duplicate in-body summary is gone.
 - The reference selection bar is the single place for batch actions; the
   duplicate in-body **Insert [@keys]** button was removed.
 - The assistant is called **Scico** everywhere (previously “SciCo”).
@@ -123,6 +130,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiplies renders with a ten-step animation.
 - Session journaling: content edits are written within 300 ms, while explicit
   actions (open, save, close, tab switch, layout) still flush immediately.
-- The `Copy @key` action, the vector-store component, and the chunker component
-  rendered blank icons. Copy now uses the `Copy` glyph; the store and chunker
-  use `Database` and `Pilcrow`, whose SVGs the rasteriser supports.
+- Blank icons are fixed at the root: the app registered the default
+  `gpui_kit::assets::Assets` bundle, which contains only 106 of the 1,830
+  icons. Icons such as Store, Chunker, Save, Sparkles, Pencil, X, Paperclip,
+  and CornerDownLeft resolved to names outside that bundle. The app and demos
+  now register `AllAssets`; a rasteriser regression test covers every agent-bar
+  component icon.

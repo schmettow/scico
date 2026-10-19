@@ -510,28 +510,29 @@ impl Render for LibraryPane {
         }
 
         if !selected_entries.is_empty() {
-            let keys = selected_entries
-                .iter()
-                .map(|entry| format!("@{}", entry.key))
-                .collect::<Vec<_>>()
-                .join(", ");
-            body = body.child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .p_2()
-                    .rounded(theme.radius)
-                    .bg(theme.primary.opacity(0.10))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(theme.primary)
-                            .child(format!("{} selected · {keys}", selected_entries.len())),
-                    ),
-            );
+            let this = cx.entity();
+            body = body.child(ReferenceSelectionBar::new(selected_entries).on_action(
+                move |action, entries, window, cx| match action {
+                    ReferenceAction::Insert => {
+                        this.update(cx, |this, cx| this.insert_selected(window, cx));
+                    }
+                    ReferenceAction::CopyKeys | ReferenceAction::CopyPaths => {
+                        this.update(cx, |this, cx| {
+                            let count = entries.len();
+                            this.set_status(format!("Copied {count} reference value(s)"), cx);
+                        });
+                    }
+                    ReferenceAction::Attach => {
+                        this.update(cx, |this, cx| this.attach_selected(cx));
+                    }
+                    ReferenceAction::Clear => {
+                        this.update(cx, |this, cx| {
+                            this.selected.clear();
+                            cx.notify();
+                        });
+                    }
+                },
+            ));
         }
 
         if self.entries.is_empty() {
@@ -728,37 +729,11 @@ impl Render for LibraryPane {
                 .child(self.status.clone()),
         );
 
-        let footer: AnyElement = if selected_entries.is_empty() {
-            div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Click a row to insert @key; + selects for bulk actions.")
-                .into_any_element()
-        } else {
-            let this = cx.entity();
-            ReferenceSelectionBar::new(selected_entries)
-                .on_action(move |action, entries, window, cx| match action {
-                    ReferenceAction::Insert => {
-                        this.update(cx, |this, cx| this.insert_selected(window, cx));
-                    }
-                    ReferenceAction::CopyKeys | ReferenceAction::CopyPaths => {
-                        this.update(cx, |this, cx| {
-                            let count = entries.len();
-                            this.set_status(format!("Copied {count} reference value(s)"), cx);
-                        });
-                    }
-                    ReferenceAction::Attach => {
-                        this.update(cx, |this, cx| this.attach_selected(cx));
-                    }
-                    ReferenceAction::Clear => {
-                        this.update(cx, |this, cx| {
-                            this.selected.clear();
-                            cx.notify();
-                        });
-                    }
-                })
-                .into_any_element()
-        };
+        let footer: AnyElement = div()
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child("Click a row to insert @key; + selects for bulk actions.")
+            .into_any_element();
 
         SidePanel::new("library-panel", "Library")
             .subtitle("References and corpus")

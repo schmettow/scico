@@ -19,6 +19,8 @@ pub mod document;
 #[cfg(feature = "gpuikit")]
 pub mod highlight;
 pub mod library;
+#[cfg(feature = "gpuikit")]
+pub mod marching_ants;
 pub mod session;
 pub mod settings;
 pub mod state;

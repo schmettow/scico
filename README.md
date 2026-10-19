@@ -133,9 +133,10 @@ model.
 ### Mark passages and co-edit
 
 1. Select a passage in the editor and press **Ask about selection**
-   (`Ctrl+Shift+P`). Repeat to attach several passages from the same or different
+   (`Ctrl+Shift+P`). The marked passage gets an animated marching-ant frame in
+   the editor. Repeat to attach several passages from the same or different
    tabs; each appears as its own chip above the composer. Duplicate ranges are
-   ignored.
+   ignored. The frames disappear when the question is sent.
 2. Ask a question. All marked passages ride along as context; a replacement
    block in the answer is offered as **Insert**, never written silently.
 3. For a direct edit, select a passage and press **Edit selection**
@@ -176,10 +177,12 @@ target stays bound to the tab the passage came from.
 - **GROBID** parses the corpus folder without indexing. **Index** runs an
   incremental index update; it turns into **Stop** while running.
 - Click a reference row to insert `@key` at the cursor. `+` selects a row;
-  select several and use the action bar at the bottom to **Insert**
+  select several and use the action bar at the top of the list to **Insert**
   `[@Key1, @Key2]`, **Attach** the PDFs to the next question, **Clear** the
-  selection, or copy keys and paths. Insert goes through the roundtrip editor
-  contract, so it lands at the caret or over the selection as one undo step.
+  selection, or copy keys and paths. The bar merges the selection summary
+  (`N selected · @key1, @key2`) with the actions. Insert goes through the
+  roundtrip editor contract, so it lands at the caret or over the selection as
+  one undo step.
   The copy-key, copy-path, and open actions stay visible on every row and
   become fully opaque on hover.
 - The open action uses the viewer assigned in **Settings → Library → External
@@ -306,9 +309,11 @@ The following were fixed in `ragrig-gpui` during development:
 - `RagChanges`, `RagField`, and `RagSection` expose field-level pending edits;
   `SettingRow`, `dirty_color`, and `dirty_header` render the bold-violet marks.
   `RagSettings::reset_to_profile_defaults()` backs the Overview button.
-- The agent bar uses `Database` for the vector store and `Pilcrow` for the
-  chunker; the previous `Server`/`Hash` SVGs contain `<line>` shapes that the
-  SVG rasteriser drops, leaving blank icons.
+- The app registers `gpui_kit::assets::AllAssets`. The default `Assets`
+  bundle contains only 106 icons and omits many names the UI uses (Store,
+  Chunker, Save, Sparkles, Pencil, X, …), which was the recurring cause of
+  blank buttons. The agent bar uses `Database` for the store and `Pilcrow` for
+  the chunker, and a rasteriser test now guards every component icon.
 - The reference selection bar gained an **Insert** action and always shows
   labelled **Insert**, **Attach**, and **Clear** buttons with visible icon
   placeholders, so the actions do not depend on a hover reveal.
@@ -335,16 +340,16 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 45 unit tests plus the protocol integration test, covering the
-protocol, digest guard, multi-byte ranges, replacement extraction, settings
-persistence, external viewer routing, the atomic session journal, context
-budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow word
-movement, multiple-selection capture, direct-edit mode, undo/dirty tracking,
-preview and settings toggling, pane toggling, the unsaved-changes close guard,
-crash recovery into a second window, selection capture, guarded write-back plus
-undo in a headless GPUI window, incremental Markdown/BibTeX highlighting,
-editor font defaults and Ctrl-wheel zoom, and block-level scroll sync in both
-directions.
+Current suite: 53 unit tests plus the protocol integration test, covering the
+protocol, digest guard, multi-byte ranges, replacement extraction, settings and
+prompt-file persistence, external viewer routing, the atomic session journal,
+context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
+word movement, multiple-selection capture, edit and enrich modes, undo/dirty
+tracking, preview and settings toggling, pane toggling, the unsaved-changes
+close guard, crash recovery into a second window, selection capture, guarded
+write-back plus undo in a headless GPUI window, incremental Markdown/BibTeX
+highlighting, editor font defaults and Ctrl-wheel zoom, block-level scroll sync
+in both directions, and the marching dash geometry.
 
 ## Known limitations
 
