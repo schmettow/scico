@@ -30,6 +30,7 @@ pub enum AgentPaneEvent {
 }
 
 /// A marked passage waiting for the next question.
+#[derive(Clone)]
 struct PendingSelection {
     id: String,
     tab_id: u64,
@@ -74,6 +75,8 @@ pub struct AgentPane {
     selection_counter: u64,
     /// Selection id that the next submitted prompt must edit directly.
     edit_target: Option<String>,
+    /// Selection id whose text also drives retrieval for the next prompt.
+    enrich_target: Option<String>,
     offer: Option<ReplacementOffer>,
     streaming: bool,
     status: SharedString,
@@ -118,6 +121,7 @@ impl AgentPane {
             selections: Vec::new(),
             selection_counter: 0,
             edit_target: None,
+            enrich_target: None,
             offer: None,
             streaming: false,
             status: status.into(),
@@ -157,7 +161,7 @@ impl AgentPane {
                     .sum();
                 self.set_status(
                     format!(
-                        "{count} marked region(s) attached ({chars} chars) — ask, or use Edit selection"
+                        "{count} marked region(s) attached ({chars} chars) — ask, or use Edit/Enrich selection"
                     ),
                     cx,
                 );
@@ -184,8 +188,35 @@ impl AgentPane {
             return;
         };
         self.edit_target = Some(id);
+        self.enrich_target = None;
         self.set_status(
             "Edit mode — describe the change; the answer replaces the marked region",
+            cx,
+        );
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    /// Arm enriched retrieval for the marked selection.
+    ///
+    /// The next prompt still replaces the marked passage, but the passage's
+    /// text is prepended to the retrieval query, so the similarity search
+    /// finds literature about the passage itself. This is the difference from
+    /// [`Self::edit_selection`], which attaches the passage as ordinary
+    /// context and retrieves from the instruction alone.
+    pub fn enrich_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let id = self
+            .capture_selection(window, cx)
+            .map(|(id, _)| id)
+            .or_else(|| self.selections.last().map(|selection| selection.id.clone()));
+        let Some(id) = id else {
+            self.set_status("Mark a passage in the editor first", cx);
+            return;
+        };
+        self.edit_target = Some(id.clone());
+        self.enrich_target = Some(id);
+        self.set_status(
+            "Enrich mode — the marked region is the retrieval query; the answer replaces it",
             cx,
         );
         self.focus_composer(window, cx);
@@ -284,6 +315,12 @@ impl AgentPane {
         self.edit_target.is_some()
     }
 
+    /// Whether enriched retrieval is armed.
+    #[cfg(test)]
+    pub(crate) fn enrich_target_is_set(&self) -> bool {
+        self.enrich_target.is_some()
+    }
+
     /// Queue files as one-shot context for the next question.
     pub fn attach_files(
         &mut self,
@@ -336,13 +373,26 @@ impl AgentPane {
         if self.streaming || prompt.trim().is_empty() {
             return;
         }
-        let (mut attachments, mut notes) = self.build_context(cx);
         let edit_target = self.edit_target.take();
+        let enrich_target = self.enrich_target.take();
         let selections = std::mem::take(&mut self.selections);
-        let target =
-            edit_target.and_then(|id| selections.into_iter().find(|selection| selection.id == id));
+        let target = edit_target
+            .as_ref()
+            .and_then(|id| selections.iter().find(|selection| &selection.id == id));
+        let enriching = enrich_target.is_some() && target.is_some();
+        let exclude = if enriching {
+            edit_target.as_deref()
+        } else {
+            None
+        };
+        let (mut attachments, mut notes) = self.build_context(&selections, exclude, cx);
         if target.is_some() {
             notes.push("Direct edit: the answer will replace the marked region.".to_owned());
+        }
+        if enriching {
+            notes.push(
+                "Enrich mode: the marked region was added to the retrieval query.".to_owned(),
+            );
         }
         attachments.append(&mut self.attachments);
         let attachment_count = attachments.len();
@@ -359,27 +409,41 @@ impl AgentPane {
             });
         }
 
-        let model_prompt = if let Some(target) = &target {
+        let model_prompt = if let Some(target) = target {
             let range = target.context.range().unwrap_or(0..0);
-            format!(
-                "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). Return exactly one sciscraper:v1:replace block for that selection.",
-                range.start,
-                range.end,
-                target.context.digest()
-            )
+            if enriching {
+                format!(
+                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). The marked passage is also the retrieval query, so the corpus context is about it. Enrich the passage with the retrieved evidence and citations, keeping the author's voice. Return exactly one sciscraper:v1:replace block for that selection.",
+                    range.start,
+                    range.end,
+                    target.context.digest()
+                )
+            } else {
+                format!(
+                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). Return exactly one sciscraper:v1:replace block for that selection.",
+                    range.start,
+                    range.end,
+                    target.context.digest()
+                )
+            }
         } else {
             prompt
         };
+        let retrieval = if enriching {
+            target.map(|target| target.context.text().to_owned())
+        } else {
+            None
+        };
         let controller = self.controller(cx);
         match controller.update(cx, |controller, cx| {
-            controller.ask(model_prompt, attachments, cx)
+            controller.ask_with_retrieval(model_prompt, retrieval, attachments, cx)
         }) {
             Ok(request) => {
                 self.pending = Some(PendingTurn {
                     request,
                     message,
                     tokens: 0,
-                    target,
+                    target: target.cloned(),
                 });
                 self.streaming = true;
                 self.chat.update(cx, |chat, cx| chat.scroll_to_end(cx));
@@ -401,7 +465,12 @@ impl AgentPane {
         cx.notify();
     }
 
-    fn build_context(&mut self, cx: &mut Context<Self>) -> (Vec<PendingAttachment>, Vec<String>) {
+    fn build_context(
+        &mut self,
+        selections: &[PendingSelection],
+        exclude: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> (Vec<PendingAttachment>, Vec<String>) {
         // Collect the editor facts first, then release the state borrow: the
         // contexts themselves are built from owned text so a long document
         // never keeps the entity locked while the prompt is assembled.
@@ -421,9 +490,13 @@ impl AgentPane {
             )
         };
 
+        let selected = selections
+            .iter()
+            .filter(|selection| Some(selection.id.as_str()) != exclude)
+            .count();
         let items = usize::from(document_attached && document.is_some())
             + usize::from(library_attached && bibliography.is_some())
-            + self.selections.len();
+            + selected;
         let limit = context_char_limit(context_tokens, items);
 
         let mut attachments = Vec::new();
@@ -453,7 +526,10 @@ impl AgentPane {
             ));
         }
 
-        for selection in &self.selections {
+        for selection in selections
+            .iter()
+            .filter(|selection| Some(selection.id.as_str()) != exclude)
+        {
             let context = selection.context.shortened(limit);
             notes.push(format!(
                 "Marked region attached: {} ({} chars).",
@@ -584,6 +660,7 @@ impl AgentPane {
                 self.attachments.clear();
                 self.selections.clear();
                 self.edit_target = None;
+                self.enrich_target = None;
                 self.offer = None;
                 self.chat.update(cx, |chat, cx| chat.clear(cx));
                 self.composer
@@ -595,6 +672,7 @@ impl AgentPane {
                 self.attachments.clear();
                 self.selections.clear();
                 self.edit_target = None;
+                self.enrich_target = None;
                 self.offer = None;
                 self.chat
                     .update(cx, |chat, cx| chat.replace(loaded_messages(turns), cx));

@@ -18,6 +18,9 @@ stabilised.
 - The Scico prompt is file-based: the full `Scico.md` is compiled in, can be
   exported into the workspace, edited in the editor, and overridden per
   profile. Refine the prompt alongside protocol changes.
+- Enrich selection now runs retrieval on the marked passage itself. Next:
+  compare enriched retrieval quality against ordinary selection context and
+  expose the retrieved sources beside the replacement.
 
 ## Next
 

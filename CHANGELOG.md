@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Enrich selection** (`Ctrl+Shift+R`): like **Edit selection**, but the
+  marked passage is prepended to the vector retrieval query, so similarity
+  search runs on the passage as well as the instruction. The passage is not
+  attached twice, retrieved chunks arrive as corpus context, and the answer's
+  replacement block still targets the marked region.
 - **Scico prompt management**: the full prompt is compiled in from
   `assets/prompts/Scico.md` and used by default. **Settings → RAG → Chat**
   shows a prompt-file field with **Browse…**, **Open prompt**, **Export

@@ -144,7 +144,13 @@ model.
    step, and the transcript reports the character delta. `Ctrl+Z` restores the
    original. If more than one passage is marked, the one captured last is the
    edit target and the others remain context.
-4. If the passage changed while Scico was writing, nothing is written: an
+4. For an evidence-enriched edit, press **Enrich selection** (`Ctrl+Shift+R`).
+   It works like **Edit selection**, but the marked passage is prepended to the
+   retrieval query: the similarity search finds literature about the passage
+   itself, not just about the instruction. The passage is excluded from the
+   ordinary selection attachment (it is already in the query), the retrieved
+   chunks still arrive as corpus context, and the answer replaces the passage.
+5. If the passage changed while Scico was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
 The same flow works if you switch tabs while the answer streams; the edit

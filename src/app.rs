@@ -44,6 +44,7 @@ actions!(
         ToggleSettings,
         FocusSelection,
         EditSelection,
+        EnrichSelection,
         CancelClose,
         EditorPageUp,
         EditorPageDown,
@@ -77,6 +78,8 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("cmd-shift-p", FocusSelection, None),
         KeyBinding::new("ctrl-shift-d", EditSelection, None),
         KeyBinding::new("cmd-shift-d", EditSelection, None),
+        KeyBinding::new("ctrl-shift-r", EnrichSelection, None),
+        KeyBinding::new("cmd-shift-r", EnrichSelection, None),
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("cmd-,", ToggleSettings, None),
         KeyBinding::new("escape", CancelClose, None),
@@ -459,6 +462,16 @@ impl SciscraperApp {
     fn edit_selection(&mut self, _: &EditSelection, window: &mut Window, cx: &mut Context<Self>) {
         self.agent
             .update(cx, |agent, cx| agent.edit_selection(window, cx));
+    }
+
+    fn enrich_selection(
+        &mut self,
+        _: &EnrichSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.agent
+            .update(cx, |agent, cx| agent.enrich_selection(window, cx));
     }
 
     fn cancel_close(&mut self, _: &CancelClose, _: &mut Window, cx: &mut Context<Self>) {
@@ -857,6 +870,19 @@ impl SciscraperApp {
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.edit_selection(&EditSelection, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("toolbar-enrich-selection")
+                    .label("Enrich selection")
+                    .icon(IconName::BookOpen)
+                    .small()
+                    .ghost()
+                    .tooltip(
+                        "Mark a passage; it drives retrieval, and the answer replaces it (Ctrl+Shift+R)",
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.enrich_selection(&EnrichSelection, window, cx);
                     })),
             )
             .child(div().flex_1())
@@ -1419,6 +1445,7 @@ impl Render for SciscraperApp {
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::focus_selection))
             .on_action(cx.listener(Self::edit_selection))
+            .on_action(cx.listener(Self::enrich_selection))
             .on_action(cx.listener(Self::cancel_close))
             .on_action(cx.listener(Self::editor_page_up))
             .on_action(cx.listener(Self::editor_page_down))
@@ -1930,7 +1957,7 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn several_selections_can_be_attached_and_edit_mode_arms(cx: &mut TestAppContext) {
+    fn several_selections_can_be_attached_and_edit_and_enrich_modes_arm(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         type_into_active(cx, &app, "alpha beta gamma");
 
@@ -1951,6 +1978,13 @@ mod tests {
         cx.simulate_keystrokes("ctrl-shift-d");
         cx.update(|_, cx| {
             assert!(agent.read(cx).edit_target_is_set());
+            assert!(!agent.read(cx).enrich_target_is_set());
+        });
+
+        cx.simulate_keystrokes("ctrl-shift-r");
+        cx.update(|_, cx| {
+            assert!(agent.read(cx).edit_target_is_set());
+            assert!(agent.read(cx).enrich_target_is_set());
         });
     }
 
