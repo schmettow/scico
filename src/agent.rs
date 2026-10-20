@@ -143,13 +143,21 @@ impl AgentPane {
         this.chat.update(cx, |chat, cx| {
             chat.set_empty_state(
                 EmptyState {
-                    icon: gpui_kit::assets::IconName::Sparkles,
-                    title: "Ask your library".into(),
+                    icon: ChatIcon::data(include_bytes!("../assets/logo/Scico square.svg")),
+                    title: "Scico knows your library.".into(),
                     description: "Index a corpus in the Library, attach your draft, \
-                                  then ask a question. The document and the marked \
-                                  selections ride along as context."
+                                  then ask a question. Scico answers with the documents \
+                                  it used, and you can send its answer straight back \
+                                  into the marked passage."
                         .into(),
                 },
+                cx,
+            );
+            chat.set_assistant(
+                ChatIdentity::new(
+                    "Scico",
+                    ChatIcon::data(include_bytes!("../assets/logo/Scico icon.svg")),
+                ),
                 cx,
             );
         });
@@ -1363,7 +1371,42 @@ fn citation_note(resolved: &[CitationAttachment], missed: &[String]) -> Option<S
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use gpui_kit::SvgRenderer;
+
     use super::context_char_limit;
+
+    #[test]
+    fn the_scico_marks_render_and_the_window_icon_decodes() {
+        let renderer = SvgRenderer::new(Arc::new(gpui_kit::assets::AllAssets));
+        for (name, bytes) in [
+            (
+                "assistant mark",
+                include_bytes!("../assets/logo/Scico icon.svg").as_slice(),
+            ),
+            (
+                "welcome mark",
+                include_bytes!("../assets/logo/Scico square.svg").as_slice(),
+            ),
+        ] {
+            let parsed = renderer
+                .parse_svg(bytes)
+                .unwrap_or_else(|error| panic!("{name} does not parse: {error}"));
+            let image = renderer
+                .render_parsed(&parsed, 2.0)
+                .unwrap_or_else(|error| panic!("{name} does not render: {error}"));
+            let pixels = image.as_bytes(0).expect("frame");
+            assert!(
+                pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0),
+                "{name} rasterised to a blank image"
+            );
+        }
+
+        let icon = image::load_from_memory(include_bytes!("../assets/logo/Scico-square.png"))
+            .expect("the window icon decodes");
+        assert_eq!((icon.width(), icon.height()), (256, 256));
+    }
 
     #[test]
     fn context_limits_shrink_with_the_model_window_and_share() {

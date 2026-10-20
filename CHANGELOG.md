@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scico identity.** The README opens with the banner from `assets/logo/`.
+  The empty transcript shows the square mark over “Scico knows your library.”,
+  assistant rows are signed with the Scico icon instead of “Ragrig”, and the
+  window receives the square as its desktop icon through the rasterised
+  `Scico-square.png` (generated from `Scico square.svg` with Inkscape).
 - **Workspace model and commands.** A workspace is one directory with the
   paper, `corpus/`, a `.bib`, the project `.ragrig` store/sessions/profiles,
   an optional `Scico.md`, and a `.sciscraper/workspace.toml` descriptor
@@ -150,6 +155,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Chat-memory and hybrid-retrieval switches stay inside their agent-bar
+  popover: the label column may shrink, the switch keeps its width, and the
+  duplicated content padding is gone.
 - **Two-way preview scrolling**: wheel input over the rendered preview and
   scrollbar-thumb drags now drive the source editor, and the 250 ms feedback
   timer that snapped the preview back to an older block is gone. The editor is

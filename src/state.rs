@@ -683,7 +683,7 @@ impl AppState {
     ///
     /// Explicit actions (open, save, close, tab switch, layout) call this
     /// directly so they are durable immediately. Content edits go through
-    /// [`Self::schedule_session_save`], which debounces them by 300 ms. A
+    /// `schedule_session_save`, which debounces them by 300 ms. A
     /// snapshot is skipped when nothing it records has changed, so moving the
     /// caret within one character still costs a comparison rather than a disk
     /// write.

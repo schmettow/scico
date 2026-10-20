@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/Scico%20banner.svg" alt="Scico — scientific writing with your library" width="720">
+</p>
+
 # sciscraper-gpui
 
 A scientific Markdown editor with an integrated RAG assistant, Scico, and a
@@ -11,6 +15,9 @@ original live-preview experience.
 The defining feature is the **roundtrip**: the agent reads the document, the
 bibliography, and a marked passage; its answer can replace the marked passage
 in place, guarded by a digest of the version you marked.
+
+The desktop mark (`assets/logo/Scico square.svg`) is the window icon; the
+rasterised `Scico-square.png` beside it is what GPUI hands to the platform.
 
 ## Editor backends
 
@@ -406,7 +413,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 63 unit tests plus the protocol integration test, covering the
+Current suite: 64 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
@@ -415,8 +422,9 @@ tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, persistent edit decorations
 with the read-only guard, incremental Markdown/BibTeX highlighting, editor font
-defaults and Ctrl-wheel zoom, and two-way block-level scroll sync that stays
-put in both directions, including soft-wrapped paragraphs.
+defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
+both directions (including soft-wrapped paragraphs), and the Scico marks and
+window icon.
 
 ## Known limitations
 

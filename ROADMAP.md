@@ -6,6 +6,8 @@ stabilised.
 
 ## Now
 
+- Scico branding is in place: banner, desktop mark, welcome state, and the
+  assistant mark. Next: ship packaging icons (`.desktop`, `.icns`, `.ico`).
 - Keep the roundtrip experience solid across both editor backends: selection
   capture, guarded write-back, Scico edit mode, and complete crash-safe session
   restore.
