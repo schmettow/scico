@@ -1151,11 +1151,20 @@ impl SciscraperApp {
                     state.show_preview,
                     state.sync_scroll,
                     base,
+                    document.readonly,
                 )
             })
         };
-        let Some((editor, preview, font_family, font_size, show_preview, sync_scroll, base)) =
-            active
+        let Some((
+            editor,
+            preview,
+            font_family,
+            font_size,
+            show_preview,
+            sync_scroll,
+            base,
+            readonly,
+        )) = active
         else {
             return self.empty_editor(cx);
         };
@@ -1185,6 +1194,7 @@ impl SciscraperApp {
             .child(
                 gpui_kit::component::input::Editor::new(&editor)
                     .bordered(false)
+                    .readonly(readonly)
                     .font_family(font_family)
                     .text_size(px(font_size))
                     .h_full(),
@@ -1979,12 +1989,93 @@ mod tests {
         cx.update(|_, cx| {
             assert!(agent.read(cx).edit_target_is_set());
             assert!(!agent.read(cx).enrich_target_is_set());
+            assert!(agent.read(cx).edit_guard_is_set());
         });
 
         cx.simulate_keystrokes("ctrl-shift-r");
         cx.update(|_, cx| {
             assert!(agent.read(cx).edit_target_is_set());
             assert!(agent.read(cx).enrich_target_is_set());
+            assert!(agent.read(cx).edit_guard_is_set());
+        });
+    }
+
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn a_locked_editor_still_accepts_agent_insertions(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        type_into_active(cx, &app, "hello");
+        let editor = cx.update(|_, cx| {
+            app.read(cx)
+                .state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+
+        let state_entity = cx.update(|_, cx| app.read(cx).state.clone());
+        let highlight = cx.update(|_, cx| {
+            let highlight = crate::document::mark_editor_range(
+                &editor,
+                0..5,
+                gpui_kit::red(),
+                gpui_kit::blue(),
+                cx,
+            );
+            let ranges = highlight.ranges(cx);
+            assert!(!ranges.is_empty(), "the passage is marked");
+            assert!(ranges.iter().all(|range| range == &(0..5)));
+            state_entity.update(cx, |state, _| {
+                state
+                    .active_document_mut()
+                    .expect("a document")
+                    .set_readonly(true);
+            });
+            crate::document::set_editor_readonly(&editor, true, cx);
+            assert!(!editor.read(cx).is_editable(), "the user cannot edit");
+            highlight
+        });
+        cx.update(|_, cx| {
+            assert!(
+                !editor.read(cx).is_editable(),
+                "still read-only before typing"
+            );
+        });
+        cx.simulate_input("X");
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.state
+                    .update(cx, |state, cx| state.insert_at_caret(" world", window, cx));
+            });
+        });
+
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(
+                state.active_document().expect("a document").text(cx),
+                "hello world",
+                "programmatic agent writes still land in a read-only editor"
+            );
+            highlight.clear(cx);
+            assert!(highlight.ranges(cx).is_empty(), "the marker can be removed");
+            state_entity.update(cx, |state, _| {
+                state
+                    .active_document_mut()
+                    .expect("a document")
+                    .set_readonly(false);
+            });
+            crate::document::set_editor_readonly(&editor, false, cx);
+        });
+        cx.simulate_input("!");
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(
+                state.active_document().expect("a document").text(cx),
+                "hello world!",
+                "unlocking restores user editing"
+            );
         });
     }
 

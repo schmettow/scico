@@ -150,7 +150,15 @@ model.
    itself, not just about the instruction. The passage is excluded from the
    ordinary selection attachment (it is already in the query), the retrieved
    chunks still arrive as corpus context, and the answer replaces the passage.
-5. If the passage changed while Scico was writing, nothing is written: an
+5. Both edit modes keep the target visible: arming them adds a persistent
+   selection fill and primary frame to the passage, so it stays marked after
+   focus moves to the composer. On submit (`gpuikit`), the target document
+   becomes read-only; user edits are rejected until the replacement is applied
+   or the request fails or is stopped. The agent's own write-back bypasses the
+   lock (`Document::replace` is programmatic), and navigation, selection, and
+   copy still work. The `zorite` backend has no range decoration or read-only
+   mode and only arms the mode.
+6. If the passage changed while Scico was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
 The same flow works if you switch tabs while the answer streams; the edit
@@ -339,16 +347,16 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 51 unit tests plus the protocol integration test, covering the
+Current suite: 52 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
 word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
-write-back plus undo in a headless GPUI window, incremental Markdown/BibTeX
-highlighting, editor font defaults and Ctrl-wheel zoom, and block-level scroll
-sync in both directions.
+write-back plus undo in a headless GPUI window, persistent edit decorations
+with the read-only guard, incremental Markdown/BibTeX highlighting, editor font
+defaults and Ctrl-wheel zoom, and block-level scroll sync in both directions.
 
 ## Known limitations
 

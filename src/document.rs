@@ -15,7 +15,7 @@ use gpui_kit::EntityInputHandler as _;
 #[cfg(any(feature = "zorite", feature = "gpuikit"))]
 use gpui_kit::RenderImage;
 use gpui_kit::{
-    App, AppContext as _, ElementId, Entity, FocusHandle, Focusable as _, ScrollHandle,
+    App, AppContext as _, ElementId, Entity, FocusHandle, Focusable as _, Hsla, ScrollHandle,
     SharedString, Window,
 };
 #[cfg(any(feature = "zorite", feature = "gpuikit"))]
@@ -45,6 +45,8 @@ pub struct Document {
     pub editor: Entity<EditorState>,
     /// Whether the buffer changed since the last save.
     pub dirty: bool,
+    /// Whether the editor rejects user edits; programmatic writes still work.
+    pub readonly: bool,
     /// The text as last written to disk (or first loaded).
     pub saved_text: String,
     /// Cached caret position, refreshed when the editor notifies.
@@ -83,6 +85,79 @@ pub struct DocumentInit {
     pub text: String,
     /// Whether to start in raw-Markdown mode.
     pub raw: bool,
+}
+
+/// A persistent highlight over a marked editor range.
+///
+/// The handle owns one range-decoration collection. Dropping it leaves the
+/// decoration in place; call [`Self::clear`] when the agent edit is done.
+pub struct RangeHighlight {
+    #[cfg(feature = "gpuikit")]
+    collection: gpui_kit::component::input::RangeDecorationCollection,
+}
+
+impl RangeHighlight {
+    /// Remove the highlight from its editor.
+    pub fn clear(&self, cx: &mut App) {
+        #[cfg(feature = "gpuikit")]
+        self.collection.clear(cx);
+        #[cfg(not(feature = "gpuikit"))]
+        let _ = cx;
+    }
+
+    /// The tracked byte ranges, for tests.
+    #[cfg(all(test, feature = "gpuikit"))]
+    pub fn ranges(&self, cx: &App) -> Vec<Range<usize>> {
+        self.collection.get_ranges(cx)
+    }
+}
+
+/// Highlight a UTF-8 byte range until the returned handle is cleared.
+///
+/// The gpuikit backend paints a selection-coloured fill with a primary frame;
+/// the zorite backend has no equivalent and returns an inert handle.
+pub fn mark_editor_range(
+    editor: &Entity<EditorState>,
+    range: Range<usize>,
+    fill: Hsla,
+    frame: Hsla,
+    cx: &mut App,
+) -> RangeHighlight {
+    #[cfg(feature = "gpuikit")]
+    {
+        use gpui_kit::component::input::{RangeDecoration, RangeDecorationStyle};
+
+        let collection = editor.update(cx, |editor, cx| {
+            editor.create_range_decorations_collection(
+                vec![
+                    RangeDecoration::new(range.clone())
+                        .with_style(RangeDecorationStyle::Fill)
+                        .with_color(fill),
+                    RangeDecoration::new(range)
+                        .with_style(RangeDecorationStyle::Frame)
+                        .with_color(frame),
+                ],
+                cx,
+            )
+        });
+        RangeHighlight { collection }
+    }
+    #[cfg(not(feature = "gpuikit"))]
+    {
+        let _ = (editor, range, fill, frame, cx);
+        RangeHighlight {}
+    }
+}
+
+/// Lock or unlock user edits in an editor.
+///
+/// gpuikit keeps programmatic replacements editable while read-only mode only
+/// rejects what the user types, which is exactly what the agent needs.
+pub fn set_editor_readonly(editor: &Entity<EditorState>, readonly: bool, cx: &mut App) {
+    #[cfg(feature = "gpuikit")]
+    editor.update(cx, |editor, cx| editor.set_readonly(readonly, cx));
+    #[cfg(not(feature = "gpuikit"))]
+    let _ = (editor, readonly, cx);
 }
 
 /// One top-level Markdown block and where it starts in the source.
@@ -225,6 +300,7 @@ impl Document {
             title: init.title,
             editor,
             dirty: false,
+            readonly: false,
             saved_text,
             cursor,
             chars,
@@ -353,6 +429,11 @@ impl Document {
     pub fn insert(&self, text: &str, window: &mut Window, cx: &mut App) {
         let range = self.edit_range(window, cx);
         self.replace(range, text, window, cx);
+    }
+
+    /// Set the declarative read-only flag; the next render applies it.
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.readonly = readonly;
     }
 
     /// Save to the existing path.

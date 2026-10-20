@@ -16,6 +16,9 @@ stabilised.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
 
+- Edit and Enrich targets now keep a persistent range decoration, and the
+  target document is read-only while the agent writes (`gpuikit`). Next: add a
+  cancel path for an armed edit and use a per-range guard if gpuikit offers one.
 - The Scico prompt is file-based: the full `Scico.md` is compiled in, can be
   exported into the workspace, edited in the editor, and overridden per
   profile. Refine the prompt alongside protocol changes.

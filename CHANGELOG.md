@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Persistent edit marking and a write guard** (`gpuikit`): arming **Edit
+  selection** or **Enrich selection** adds a gpuikit `RangeDecoration` (a
+  selection-coloured fill and a primary frame) to the target, so the passage
+  stays visibly marked after focus moves to the composer. From submit until the
+  replacement is applied, the request fails, or is stopped, the target document
+  is read-only; programmatic agent write-back still works, and navigation,
+  selection, and copy remain available.
 - **Enrich selection** (`Ctrl+Shift+R`): like **Edit selection**, but the
   marked passage is prepended to the vector retrieval query, so similarity
   search runs on the passage as well as the instruction. The passage is not
