@@ -18,7 +18,7 @@ use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
     SelectionSnapshot, replace_at, verified_bytes,
 };
-use ragrig_gpui::{ChatProvider, RagChanges, RagController, RagSettings};
+use ragrig_gpui::{ChatProvider, MemoryChoice, RagChanges, RagController, RagSettings};
 #[cfg(feature = "zorite")]
 use zorite_editor::EditorEvent;
 
@@ -77,6 +77,8 @@ pub struct AppState {
     pub editor_font: String,
     /// Editor font size in pixels.
     pub editor_font_size: f32,
+    /// Memory strategy restored when the status bar switches Chat memory on.
+    pub last_memory: MemoryChoice,
     /// Cancels older deferred scroll and preview refreshes.
     #[cfg(feature = "gpuikit")]
     preview_sync_generation: u64,
@@ -103,6 +105,16 @@ impl AppState {
     ) -> Self {
         let mut rag_values = RagSettings::default();
         persisted.apply_to(&mut rag_values);
+        // Chat memory may be switched off; keep the strategy that was active
+        // before, so the status-bar switch can restore it.
+        let last_memory = if rag_values.memory != MemoryChoice::Off {
+            rag_values.memory
+        } else {
+            match memory_choice(&persisted.memory_when_on) {
+                Some(choice) if choice != MemoryChoice::Off => choice,
+                _ => MemoryChoice::Rewrite,
+            }
+        };
 
         let workspace = std::env::var_os("SCISCRAPER_WORKSPACE")
             .map(PathBuf::from)
@@ -224,6 +236,7 @@ impl AppState {
             settings_gutter,
             editor_font,
             editor_font_size,
+            last_memory,
             #[cfg(feature = "gpuikit")]
             preview_sync_generation: 0,
             #[cfg(feature = "zorite")]
@@ -1284,6 +1297,55 @@ impl AppState {
         }
     }
 
+    /// Turn Scico's conversation memory on or off and rebuild the agent.
+    ///
+    /// Off clears the transcript and the query rewriter. Switching it back on
+    /// restores the strategy that was active before.
+    pub fn set_memory_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let current = self.rag.read(cx).memory;
+        let (next, last) = toggled_memory(current, self.last_memory, enabled);
+        self.last_memory = last;
+        if next == current {
+            return;
+        }
+        self.rag.update(cx, |settings, cx| {
+            settings.memory = next;
+            cx.notify();
+        });
+        self.apply_rag(cx);
+        self.set_status(
+            if enabled {
+                format!("Chat memory on — {}", next.label())
+            } else {
+                "Chat memory off".to_owned()
+            },
+            cx,
+        );
+    }
+
+    /// Turn hybrid retrieval (embeddings) on or off and rebuild the agent.
+    ///
+    /// Off needs no embedding model and skips vector search; answers still use
+    /// explicit attachments and the bibliographic library.
+    pub fn set_hybrid_retrieval(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.rag.read(cx).hybrid == enabled {
+            return;
+        }
+        self.rag.update(cx, |settings, cx| {
+            settings.hybrid = enabled;
+            cx.notify();
+        });
+        self.apply_rag(cx);
+        self.set_status(
+            if enabled {
+                "Hybrid retrieval on"
+            } else {
+                "Hybrid retrieval off — no embeddings"
+            },
+            cx,
+        );
+    }
+
     /// Rebuild the agent from the current settings.
     pub fn apply_rag(&mut self, cx: &mut Context<Self>) {
         match self.rag.read(cx).to_setup() {
@@ -1291,7 +1353,11 @@ impl AppState {
                 let setup = with_bibliography(setup, self.bibliography.clone());
                 self.controller
                     .update(cx, |controller, cx| controller.apply(setup, cx));
-                self.applied_rag = self.rag.read(cx).clone();
+                let applied = self.rag.read(cx).clone();
+                if applied.memory != MemoryChoice::Off {
+                    self.last_memory = applied.memory;
+                }
+                self.applied_rag = applied;
                 self.persist(cx);
                 self.set_status("RAG agent rebuilt", cx);
             }
@@ -1348,6 +1414,7 @@ impl AppState {
         self.settings.raw_mode = self.raw_mode;
         self.settings.editor_font = self.editor_font.clone();
         self.settings.editor_font_size = self.editor_font_size;
+        self.settings.memory_when_on = self.last_memory.label().to_owned();
         if let Err(error) = self.settings.save(&self.settings_path) {
             self.status = error.into();
         }
@@ -1763,6 +1830,38 @@ fn with_bibliography(
     setup
 }
 
+/// The memory strategy whose short label is `label`.
+fn memory_choice(label: &str) -> Option<MemoryChoice> {
+    MemoryChoice::options()
+        .iter()
+        .map(|(choice, _)| *choice)
+        .find(|choice| choice.label() == label)
+}
+
+/// The strategy after a status-bar switch, plus the strategy to restore next
+/// time it is switched on.
+fn toggled_memory(
+    current: MemoryChoice,
+    last_on: MemoryChoice,
+    enabled: bool,
+) -> (MemoryChoice, MemoryChoice) {
+    if enabled {
+        let next = if current == MemoryChoice::Off {
+            last_on
+        } else {
+            current
+        };
+        (next, next)
+    } else {
+        let last = if current == MemoryChoice::Off {
+            last_on
+        } else {
+            current
+        };
+        (MemoryChoice::Off, last)
+    }
+}
+
 fn non_empty_path(value: &str) -> Option<PathBuf> {
     let value = value.trim();
     (!value.is_empty()).then(|| PathBuf::from(value))
@@ -1931,5 +2030,19 @@ mod tests {
             replacement_block(2..4, "better"),
             "```sciscraper:v1:replace target=\"2..4\"\nbetter\n```"
         );
+    }
+
+    #[test]
+    fn memory_toggle_restores_the_previous_strategy() {
+        let (next, last) = toggled_memory(MemoryChoice::Summary, MemoryChoice::Rewrite, false);
+        assert_eq!(next, MemoryChoice::Off);
+        assert_eq!(last, MemoryChoice::Summary, "the last on-strategy is kept");
+
+        let (next, last) = toggled_memory(MemoryChoice::Off, last, true);
+        assert_eq!(next, MemoryChoice::Summary, "switching on restores it");
+        assert_eq!(last, MemoryChoice::Summary);
+
+        let (next, _) = toggled_memory(MemoryChoice::Transcript, MemoryChoice::Summary, true);
+        assert_eq!(next, MemoryChoice::Transcript, "switching on stays put");
     }
 }

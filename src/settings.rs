@@ -128,6 +128,8 @@ pub struct PersistedSettings {
     pub stream: bool,
     /// Embedding model.
     pub embed_model: String,
+    /// Hybrid retrieval (BM25 + embeddings). Off needs no embedding model.
+    pub hybrid: bool,
     /// Retrieval budget.
     pub top_k: usize,
     /// Cosine pre-filter.
@@ -142,6 +144,8 @@ pub struct PersistedSettings {
     pub sloppy_pdf: bool,
     /// Memory strategy label.
     pub memory: String,
+    /// Strategy restored when Chat memory is switched back on.
+    pub memory_when_on: String,
     /// Memory model.
     pub memory_model: String,
     /// GROBID server URL.
@@ -201,6 +205,7 @@ impl Default for PersistedSettings {
             system_prompt_path: String::new(),
             stream: true,
             embed_model: rag.embed_model,
+            hybrid: rag.hybrid,
             top_k: rag.top_k,
             similarity_threshold: rag.similarity_threshold,
             chunk_size: rag.chunk_size,
@@ -208,6 +213,7 @@ impl Default for PersistedSettings {
             pdf_backend: rag.pdf_backend.label().to_owned(),
             sloppy_pdf: rag.sloppy_pdf,
             memory: rag.memory.label().to_owned(),
+            memory_when_on: rag.memory.label().to_owned(),
             memory_model: rag.memory_model,
             grobid_url: rag.grobid_url,
             rename_pdfs: rag.rename_pdfs,
@@ -296,6 +302,7 @@ impl PersistedSettings {
         };
         settings.stream = self.stream;
         settings.embed_model = self.embed_model.clone();
+        settings.hybrid = self.hybrid;
         settings.top_k = self.top_k;
         settings.similarity_threshold = self.similarity_threshold;
         settings.chunk_size = self.chunk_size;
@@ -331,6 +338,7 @@ impl PersistedSettings {
         self.system_prompt_path = settings.system_prompt_path.clone();
         self.stream = settings.stream;
         self.embed_model = settings.embed_model.clone();
+        self.hybrid = settings.hybrid;
         self.top_k = settings.top_k;
         self.similarity_threshold = settings.similarity_threshold;
         self.chunk_size = settings.chunk_size;
@@ -374,6 +382,27 @@ mod tests {
         );
         assert_eq!(viewers.program_for(Path::new("page.htm")), Some("firefox"));
         assert!(viewers.program_for(Path::new("notes.md")).is_none());
+    }
+
+    #[test]
+    fn retrieval_and_memory_switches_round_trip() {
+        let mut persisted = PersistedSettings::default();
+        assert!(persisted.hybrid);
+
+        let mut settings = RagSettings::default();
+        persisted.apply_to(&mut settings);
+        assert!(settings.hybrid);
+
+        settings.hybrid = false;
+        settings.memory = MemoryChoice::Off;
+        persisted.capture(&settings);
+        assert!(!persisted.hybrid);
+        assert_eq!(persisted.memory, "Off");
+
+        let mut restored = RagSettings::default();
+        persisted.apply_to(&mut restored);
+        assert!(!restored.hybrid);
+        assert_eq!(restored.memory, MemoryChoice::Off);
     }
 
     #[test]

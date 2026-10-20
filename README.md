@@ -210,7 +210,12 @@ target stays bound to the tab the passage came from.
   answer can be retried.
 - The conversation picker creates, loads, and refreshes saved sessions.
 - The status line reports indexing, extraction, and agent errors.
-- The component bar opens the settings page for the pipeline components.
+- The component bar opens each component's menu. **Chat memory** and
+  **Hybrid retrieval** carry an **Enabled** switch there: memory off forgets
+  the transcript and query rewriting, and hybrid retrieval off drops the
+  embedding model and vector search (attached documents and the library still
+  reach the prompt). The status dots and the saved settings follow the
+  switches, and switching memory back on restores the previous strategy.
 
 ### Settings
 
@@ -231,8 +236,9 @@ of the controls column and the chosen width is remembered.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
   preview (zorite); editor font family and size; Scico visibility; and the
   default document attachment.
-- **RAG** — provider, models, generation, prompt, retrieval, parsing/chunking,
-  and memory. The token budgets are sliders over powers of two (512, 1024,
+- **RAG** — provider, models, generation, prompt, retrieval (including the
+  **Hybrid retrieval** switch), parsing/chunking, and memory. The token budgets
+  are sliders over powers of two (512, 1024,
   2048, …).
 - **Scico prompt** (RAG → Chat) — the compiled-in `Scico.md` is the default; an
   empty path uses it. **Browse…** selects a Markdown file that overrides it,
@@ -353,7 +359,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 53 unit tests plus the protocol integration test, covering the
+Current suite: 55 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow

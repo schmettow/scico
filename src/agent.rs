@@ -1228,11 +1228,19 @@ impl Render for AgentPane {
 
         let agent_bar = AgentBar::new("sciscraper-agent-bar", components).on_event({
             let this = cx.entity();
-            move |event, _, cx| {
-                if matches!(
-                    event,
-                    AgentBarEvent::Configure(_) | AgentBarEvent::OpenSettings
-                ) {
+            move |event, _, cx| match event {
+                AgentBarEvent::Toggle {
+                    toggle, enabled, ..
+                } => {
+                    this.update(cx, |this, cx| {
+                        this.state.update(cx, |state, cx| match toggle.as_str() {
+                            "memory" => state.set_memory_enabled(enabled, cx),
+                            "hybrid" => state.set_hybrid_retrieval(enabled, cx),
+                            _ => {}
+                        });
+                    });
+                }
+                AgentBarEvent::Configure(_) | AgentBarEvent::OpenSettings => {
                     this.update(cx, |_, cx| cx.emit(AgentPaneEvent::OpenSettings));
                 }
             }

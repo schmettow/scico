@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Status-bar switches for Scico.** The **Chat memory** and **Hybrid
+  retrieval** components in the Scico bar now carry an **Enabled** switch in
+  their menu. Memory off selects `MemoryChoice::Off` and restores the previous
+  strategy when switched back on. Hybrid retrieval off rebuilds the worker
+  with `EmbedderSpec::None`: no embedding model is required and vector search
+  is skipped, while document attachments and the bibliographic library still
+  reach the prompt. Both choices are persisted in `settings.json`, mirrored by
+  the component dots, and also available in **Settings → RAG → Retrieval**.
 - **Persistent edit marking and a write guard** (`gpuikit`): arming **Edit
   selection** or **Enrich selection** adds a gpuikit `RangeDecoration` (a
   selection-coloured fill and a primary frame) to the target, so the passage

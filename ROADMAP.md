@@ -25,6 +25,10 @@ stabilised.
 - Enrich selection now runs retrieval on the marked passage itself. Next:
   compare enriched retrieval quality against ordinary selection context and
   expose the retrieved sources beside the replacement.
+- The Scico status bar switches Chat memory and hybrid retrieval from the
+  component menu. Next: surface the running memory strategy and retrieval
+  mode in the transcript meta so saved sessions explain how an answer was
+  produced.
 
 ## Next
 
