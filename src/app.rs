@@ -33,8 +33,9 @@ actions!(
     sciscraper,
     [
         NewDocument,
+        NewWorkspace,
         OpenFile,
-        OpenFolder,
+        OpenWorkspace,
         SaveFile,
         SaveFileAs,
         CloseTab,
@@ -58,10 +59,12 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
     cx.bind_keys([
         KeyBinding::new("ctrl-n", NewDocument, None),
         KeyBinding::new("cmd-n", NewDocument, None),
+        KeyBinding::new("ctrl-shift-n", NewWorkspace, None),
+        KeyBinding::new("cmd-shift-n", NewWorkspace, None),
         KeyBinding::new("ctrl-o", OpenFile, None),
         KeyBinding::new("cmd-o", OpenFile, None),
-        KeyBinding::new("ctrl-shift-o", OpenFolder, None),
-        KeyBinding::new("cmd-shift-o", OpenFolder, None),
+        KeyBinding::new("ctrl-shift-o", OpenWorkspace, None),
+        KeyBinding::new("cmd-shift-o", OpenWorkspace, None),
         KeyBinding::new("ctrl-s", SaveFile, None),
         KeyBinding::new("cmd-s", SaveFile, None),
         KeyBinding::new("ctrl-shift-s", SaveFileAs, None),
@@ -264,14 +267,15 @@ impl SciscraperApp {
         .detach();
     }
 
-    fn open_folder(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_workspace(&mut self, _: &OpenWorkspace, window: &mut Window, cx: &mut Context<Self>) {
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Open a workspace folder".into()),
+            prompt: Some("Open a Sciscraper workspace".into()),
         });
         let state = self.state.clone();
+        let agent = self.agent.clone();
         cx.spawn_in(window, async move |_, cx| {
             let Ok(Ok(Some(paths))) = receiver.await else {
                 return;
@@ -279,9 +283,48 @@ impl SciscraperApp {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
-            let _ = state.update_in(cx, |state, _window, cx| {
-                state.set_workspace(path, cx);
-            });
+            match state.update_in(cx, |state, window, cx| {
+                state.open_workspace(path, window, cx)
+            }) {
+                Ok(Ok(status)) => {
+                    agent.update(cx, |agent, cx| agent.announce(status, cx));
+                }
+                Ok(Err(error)) => {
+                    state.update(cx, |state, cx| state.set_status(error, cx));
+                }
+                Err(_) => {}
+            }
+        })
+        .detach();
+    }
+
+    fn new_workspace(&mut self, _: &NewWorkspace, window: &mut Window, cx: &mut Context<Self>) {
+        let directory = self
+            .state
+            .read(cx)
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.parent().map(std::path::Path::to_path_buf))
+            .or_else(dirs::home_dir)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some("my-paper"));
+        let state = self.state.clone();
+        let agent = self.agent.clone();
+        cx.spawn_in(window, async move |_, cx| {
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+            match state.update_in(cx, |state, window, cx| {
+                state.new_workspace(path, window, cx)
+            }) {
+                Ok(Ok(status)) => {
+                    agent.update(cx, |agent, cx| agent.announce(status, cx));
+                }
+                Ok(Err(error)) => {
+                    state.update(cx, |state, cx| state.set_status(error, cx));
+                }
+                Err(_) => {}
+            }
         })
         .detach();
     }
@@ -800,13 +843,23 @@ impl SciscraperApp {
                     })),
             )
             .child(
+                Button::new("toolbar-new-workspace")
+                    .icon(IconName::FolderPlus)
+                    .small()
+                    .ghost()
+                    .tooltip("New workspace (Ctrl+Shift+N)")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.new_workspace(&NewWorkspace, window, cx);
+                    })),
+            )
+            .child(
                 Button::new("toolbar-folder")
                     .icon(IconName::Folder)
                     .small()
                     .ghost()
-                    .tooltip("Open workspace folder (Ctrl+Shift+O)")
+                    .tooltip("Open workspace (Ctrl+Shift+O)")
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_folder(&OpenFolder, window, cx);
+                        this.open_workspace(&OpenWorkspace, window, cx);
                     })),
             )
             .child(
@@ -1444,8 +1497,9 @@ impl Render for SciscraperApp {
             .size_full()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::new_document))
+            .on_action(cx.listener(Self::new_workspace))
             .on_action(cx.listener(Self::open_file))
-            .on_action(cx.listener(Self::open_folder))
+            .on_action(cx.listener(Self::open_workspace))
             .on_action(cx.listener(Self::save_file))
             .on_action(cx.listener(Self::save_file_as))
             .on_action(cx.listener(Self::close_tab))
@@ -1692,8 +1746,72 @@ mod tests {
                         .active_document()
                         .is_some_and(|document| !document.dirty)
                 );
+                assert!(
+                    state
+                        .active_document()
+                        .is_some_and(|document| document.title.as_ref().ends_with(".md")),
+                    "untitled buffers carry the .md default name"
+                );
             });
         });
+    }
+
+    #[gpui_kit::test]
+    fn the_implicit_cwd_is_not_persisted_as_a_workspace(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| state.set_panel_widths(350.0, 430.0, cx));
+        });
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            let (saved, error) = crate::settings::PersistedSettings::load(&state.settings_path);
+            assert!(error.is_none());
+            assert!(
+                saved.workspace.is_empty(),
+                "the cwd fallback must not become a stored workspace"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_configured_workspace_opens_its_homepage(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        let root = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-workspace-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            bibliography: String::new(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings_path).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings_path, session_path);
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            let document = state.active_document().expect("a document");
+            assert_eq!(
+                document.path.as_deref(),
+                Some(report.homepage.as_path()),
+                "the workspace homepage is open"
+            );
+            assert_eq!(
+                state.bibliography.as_deref(),
+                Some(report.bibliography.as_path())
+            );
+            assert_eq!(
+                state.corpus.as_deref(),
+                Some(report.root.join("corpus").as_path())
+            );
+            assert_eq!(state.ragrig_dir, report.root.join(".ragrig"));
+        });
+
+        let _ = std::fs::remove_dir_all(report.root);
     }
 
     #[gpui_kit::test]

@@ -199,7 +199,10 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
                     .text_color(gpui_kit::white())
             })
             .on_click(move |_, _, cx| {
-                state.update(cx, |state, cx| state.apply_rag(cx));
+                state.update(cx, |state, cx| {
+                    state.apply_rag(cx);
+                    state.persist_workspace_switches(cx);
+                });
             })
     };
     let defaults = {
@@ -370,7 +373,7 @@ pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
         },
     );
     let workspace_row = SettingRow::new("Workspace folder", workspace)
-        .description("Documents, .ragrig store, and sessions.")
+        .description("Paper, corpus/, bibliography, .ragrig, and .sciscraper descriptor.")
         .dirty({
             let state = state.clone();
             move |cx| state.read(cx).rag_changes(cx).contains(RagField::Workspace)
@@ -406,7 +409,7 @@ pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
         },
     );
     let corpus_row = SettingRow::new("Corpus folder", corpus)
-        .description("Indexed papers; Add PDFs and GROBID use this folder.");
+        .description("Source documents; workspaces default to <workspace>/corpus.");
 
     let bibliography = path_control(
         "app-bibliography",

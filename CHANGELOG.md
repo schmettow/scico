@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Workspace model and commands.** A workspace is one directory with the
+  paper, `corpus/`, a `.bib`, the project `.ragrig` store/sessions/profiles,
+  an optional `Scico.md`, and a `.sciscraper/workspace.toml` descriptor
+  (`bibtex`, `document`, `ragrig`, `homepage`). **New workspace**
+  (`Ctrl+Shift+N`) scaffolds a new folder; **Open workspace**
+  (`Ctrl+Shift+O`) adds missing pieces to an existing directory. Both report
+  what was created and end with “Add PDFs to the library and chat about them.”
+  The Scico header repeats the list so it stays readable.
+- **Layered Ragrig configuration.** `~/.ragrig/config.json` (or
+  `RAGRIG_HOME/config.json`) and `<workspace>/.ragrig/config.json` are merged
+  per setting over the built-in defaults, workspace last. Profiles are listed
+  and resolved from both locations, with workspace profiles shadowing global
+  ones. The vector store moves to `<workspace>/.ragrig/.ragrig_store`, with
+  an automatic migration from the old root-level `.ragrig_store`.
 - **Status-bar switches for Scico.** The **Chat memory** and **Hybrid
   retrieval** components in the Scico bar now carry an **Enabled** switch in
   their menu. Memory off selects `MemoryChoice::Off` and restores the previous

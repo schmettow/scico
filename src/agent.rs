@@ -518,6 +518,14 @@ impl AgentPane {
         self.send_prompt(prompt.into(), true, cx);
     }
 
+    /// Show a host notice under the Scico title.
+    ///
+    /// Used for workspace feedback that is too long for the one-line window
+    /// status bar; the notice wraps in the Scico header and remains readable.
+    pub fn announce(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.set_status(message, cx);
+    }
+
     fn set_status(&mut self, status: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.status = status.into();
         cx.emit(AgentPaneEvent::Status(self.status.clone()));

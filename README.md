@@ -79,6 +79,7 @@ Useful environment variables:
 | `SCISCRAPER_ASK` | Ask this question once the window opens |
 | `SCISCRAPER_SETTINGS` | Settings file (defaults to the platform config dir) |
 | `SCISCRAPER_SESSION` | Session journal (defaults to `session.json` beside the settings file) |
+| `RAGRIG_HOME` | Global Ragrig profile/config directory (default `~/.ragrig`) |
 
 For a first roundtrip without a corpus:
 
@@ -89,8 +90,52 @@ SCISCRAPER_WORKSPACE=$PWD \
 cargo run
 ```
 
+The first launch scaffolds that workspace (`corpus/`, `.ragrig/`, a `.bib`,
+and `.sciscraper/`) and opens `paper.md`.
+
 Chat still works with an empty index; Ragrig then answers as a plain chat
 model.
+
+## Workspaces
+
+A Sciscraper workspace is one directory:
+
+```text
+my-paper/
+  Untitled-1.md        the paper
+  corpus/              source documents added through the Library
+  my-paper.bib         bibliography (created when none exists)
+  Scico.md             optional project-specific prompt
+  .ragrig/             .ragrig_store, sessions/, profiles/
+  .sciscraper/
+    workspace.toml     descriptor: bibtex, document, ragrig, homepage
+```
+
+- **New workspace** (`Ctrl+Shift+N`, folder-plus button) asks for a new folder
+  and creates the full scaffold. A non-empty target is refused rather than
+  overwritten.
+- **Open workspace** (`Ctrl+Shift+O`, folder button) adopts an existing
+  directory and adds only what is missing: `corpus/`, `.ragrig/` with
+  `profiles/` and `sessions/`, a `.bib` when the workspace has none, and
+  `Untitled-1.md` when it has no document. A legacy `.ragrig_store` at the
+  workspace root is moved into `.ragrig/` on the first open.
+- Both commands list everything they created and end with
+  **Add PDFs to the library and chat about them.** The Scico header repeats the
+  message so the full list stays readable when the status bar truncates.
+- `.sciscraper/workspace.toml` records the discovered `bibtex` and `document`
+  lists, the `ragrig = "./.ragrig"` data folder, and the `homepage`. It is
+  rewritten on each open when the directory contents changed.
+- Opening a workspace always leaves a document open: the descriptor's
+  `homepage`, otherwise the first Markdown/Quarto file, otherwise
+  `Untitled-1.md`.
+- Configuration is layered per setting: built-in defaults, then
+  `~/.ragrig/config.json`, then `<workspace>/.ragrig/config.json` (or the
+  `RAGRIG_HOME` directory instead of `~/.ragrig`). Both config files are
+  partial `RagrigConfig` JSON: missing keys keep the lower layer. The
+  status-bar **Chat memory** and **Hybrid retrieval** switches write their
+  choice into the workspace layer, so it survives a reset of the app settings.
+  Profiles are read from both locations; a workspace profile shadows a global
+  one with the same name, and **Update Profile** writes to the workspace.
 
 ## What to try
 
@@ -232,7 +277,8 @@ of the controls column and the chosen width is remembered.
 - **Library** — workspace, corpus folder, bibliography, pane visibility,
   external viewers for PDF/EPUB/HTML, the default library attachment, and
   reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
-  field has a **Browse…** button.
+  field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
+  and creates the corpus folder when it is opened.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
   preview (zorite); editor font family and size; Scico visibility; and the
   default document attachment.
@@ -294,6 +340,7 @@ sciscraper-gpui
   highlight.rs    incremental Syntect highlighter and Markdown/BibTeX grammars
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
+  workspace.rs    workspace scaffold, descriptor, defaults
   app_settings.rs Overview, Library, and Editor settings pages
   settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
@@ -359,7 +406,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 55 unit tests plus the protocol integration test, covering the
+Current suite: 63 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow

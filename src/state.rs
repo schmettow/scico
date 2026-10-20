@@ -26,6 +26,7 @@ use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_f
 use crate::session::{SessionDocument, SessionState};
 use crate::settings::{PersistedSettings, SCICO_PROMPT, SCICO_PROMPT_FILE};
 use crate::theme::syntax_style;
+use crate::workspace::{self, WorkspaceReport};
 
 /// Shared editor and workspace state.
 pub struct AppState {
@@ -51,8 +52,13 @@ pub struct AppState {
     next_document: u64,
     /// The editor workspace.
     pub workspace: Option<PathBuf>,
+    /// Whether [`Self::workspace`] was chosen explicitly (env, settings, or a
+    /// workspace command) rather than falling back to the current directory.
+    pub workspace_explicit: bool,
     /// The corpus folder indexed by the agent.
     pub corpus: Option<PathBuf>,
+    /// The project-specific Ragrig data folder (store, sessions, profiles).
+    pub ragrig_dir: PathBuf,
     /// The bibliography shown by the library.
     pub bibliography: Option<PathBuf>,
     /// Attach the active document to each question.
@@ -105,6 +111,97 @@ impl AppState {
     ) -> Self {
         let mut rag_values = RagSettings::default();
         persisted.apply_to(&mut rag_values);
+
+        // A workspace is only scaffolded when it was actually configured; an
+        // implicit current-directory fallback must not sprout files.
+        let configured_workspace = std::env::var_os("SCISCRAPER_WORKSPACE")
+            .map(PathBuf::from)
+            .or_else(|| non_empty_path(&persisted.workspace))
+            .or_else(|| std::env::var_os("RAGRIG_WORKSPACE").map(PathBuf::from));
+        let workspace_explicit = configured_workspace.is_some();
+        let mut workspace_error = None;
+        let workspace_report = configured_workspace
+            .as_deref()
+            .filter(|path| path.is_dir())
+            .and_then(|path| match workspace::prepare(path, false) {
+                Ok(report) => Some(report),
+                Err(error) => {
+                    workspace_error = Some(error);
+                    None
+                }
+            });
+        let workspace = workspace_report
+            .as_ref()
+            .map(|report| report.root.clone())
+            .or(configured_workspace)
+            .or_else(|| non_empty_path(&rag_values.workspace))
+            .or_else(|| std::env::current_dir().ok());
+
+        let corpus = std::env::var_os("SCISCRAPER_CORPUS")
+            .map(PathBuf::from)
+            .or_else(|| {
+                workspace_report
+                    .as_ref()
+                    .map(|report| report.root.join(workspace::CORPUS_DIR))
+            })
+            .or_else(|| non_empty_path(&persisted.corpus))
+            .or_else(|| {
+                workspace
+                    .as_ref()
+                    .map(|workspace| workspace.join(workspace::CORPUS_DIR))
+            })
+            .or_else(|| workspace.clone());
+        let bibliography = std::env::var_os("SCISCRAPER_BIB")
+            .map(PathBuf::from)
+            .or_else(|| {
+                workspace_report
+                    .as_ref()
+                    .map(|report| report.bibliography.clone())
+            })
+            .or_else(|| non_empty_path(&persisted.bibliography))
+            .or_else(|| non_empty_path(&rag_values.bibliography))
+            .or_else(|| {
+                workspace
+                    .as_ref()
+                    .map(|workspace| workspace.join(".ragrig/references.bib"))
+            });
+        let ragrig_dir = workspace_report
+            .as_ref()
+            .map(|report| report.ragrig_dir.clone())
+            .or_else(|| {
+                workspace
+                    .as_ref()
+                    .map(|workspace| workspace.join(workspace::RAGRIG_DIR))
+            })
+            .unwrap_or_else(|| PathBuf::from(workspace::RAGRIG_DIR));
+
+        // Rules: built-in < ~/.ragrig/config.json < <workspace>/.ragrig/config.json.
+        // A workspace layer replaces the RAG fields wholesale; host-only fields
+        // are restored below.
+        if let Some(report) = &workspace_report
+            && let Some(mut layered) = RagSettings::from_layers_over(&report.root, &rag_values)
+        {
+            layered.built_in_prompt = SCICO_PROMPT.to_owned();
+            rag_values = layered;
+        }
+        if let Some(workspace) = &workspace {
+            rag_values.workspace = workspace.display().to_string();
+        }
+        if let Some(report) = &workspace_report {
+            apply_workspace_prompt(&mut rag_values, report);
+        }
+        if let Some(bibliography) = &bibliography {
+            rag_values.bibliography = bibliography.display().to_string();
+        }
+        if let Some(corpus) = &corpus {
+            rag_values
+                .corpus_dirs
+                .retain(|entry| !entry.starts_with(&format!("{}=", workspace::CORPUS_DIR)));
+            rag_values
+                .corpus_dirs
+                .push(format!("{}={}", workspace::CORPUS_DIR, corpus.display()));
+        }
+
         // Chat memory may be switched off; keep the strategy that was active
         // before, so the status-bar switch can restore it.
         let last_memory = if rag_values.memory != MemoryChoice::Off {
@@ -116,38 +213,10 @@ impl AppState {
             }
         };
 
-        let workspace = std::env::var_os("SCISCRAPER_WORKSPACE")
-            .map(PathBuf::from)
-            .or_else(|| non_empty_path(&persisted.workspace))
-            .or_else(|| non_empty_path(&rag_values.workspace))
-            .or_else(|| std::env::current_dir().ok());
-        let corpus = std::env::var_os("SCISCRAPER_CORPUS")
-            .map(PathBuf::from)
-            .or_else(|| non_empty_path(&persisted.corpus))
-            .or_else(|| {
-                workspace
-                    .as_ref()
-                    .map(|workspace| workspace.join(".ragrig/library"))
-            })
-            .or_else(|| workspace.clone());
-        let bibliography = std::env::var_os("SCISCRAPER_BIB")
-            .map(PathBuf::from)
-            .or_else(|| non_empty_path(&persisted.bibliography))
-            .or_else(|| non_empty_path(&rag_values.bibliography))
-            .or_else(|| {
-                workspace
-                    .as_ref()
-                    .map(|workspace| workspace.join(".ragrig/references.bib"))
-            });
-
-        if let Some(workspace) = &workspace {
-            rag_values.workspace = workspace.display().to_string();
-        }
-        if let Some(bibliography) = &bibliography {
-            rag_values.bibliography = bibliography.display().to_string();
-        }
-
         let mut status = SharedString::from("Ready");
+        if let Some(error) = &workspace_error {
+            status = format!("Workspace: {error}").into();
+        }
         let setup = match rag_values.to_setup() {
             Ok(setup) => setup,
             Err(error) => {
@@ -223,7 +292,9 @@ impl AppState {
             active: 0,
             next_document: 1,
             workspace,
+            workspace_explicit,
             corpus,
+            ragrig_dir,
             bibliography,
             document_attached,
             library_attached,
@@ -250,13 +321,27 @@ impl AppState {
         let restore = std::env::var_os("SCISCRAPER_FILE")
             .map(PathBuf::from)
             .filter(|path| path.is_file());
+        let mut opened = false;
         if let Some(path) = restore {
-            if let Err(error) = state.open_path(&path, window, cx) {
-                state.set_status(error, cx);
+            match state.open_path(&path, window, cx) {
+                Ok(()) => opened = true,
+                Err(error) => state.set_status(error, cx),
             }
         } else if let Some(session) = restored_session {
             state.restore_session(session, window, cx);
-        } else {
+            opened = !state.documents.is_empty();
+        }
+        if !opened
+            && let Some(homepage) = workspace_report
+                .as_ref()
+                .map(|report| report.homepage.clone())
+        {
+            match state.open_path(&homepage, window, cx) {
+                Ok(()) => opened = true,
+                Err(error) => state.set_status(error, cx),
+            }
+        }
+        if !opened {
             state.new_document(window, cx);
         }
         if let Some(error) = session_error {
@@ -325,7 +410,7 @@ impl AppState {
     pub fn new_document(&mut self, window: &mut Window, cx: &mut Context<Self>) -> u64 {
         let id = self.next_document;
         self.next_document += 1;
-        let mut title = format!("Untitled-{id}");
+        let mut title = format!("Untitled-{id}.md");
         let mut suffix = 1u64;
         while self
             .documents
@@ -333,7 +418,7 @@ impl AppState {
             .any(|document| document.title.as_ref() == title.as_str())
         {
             suffix += 1;
-            title = format!("Untitled-{id}-{suffix}");
+            title = format!("Untitled-{id}-{suffix}.md");
         }
         let document = Document::new(
             window,
@@ -516,7 +601,7 @@ impl AppState {
                 }
                 None => (
                     SharedString::from(if snapshot.title.trim().is_empty() {
-                        format!("Untitled-{id}")
+                        format!("Untitled-{id}.md")
                     } else {
                         snapshot.title
                     }),
@@ -643,7 +728,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         if path.is_dir() {
-            self.set_workspace(path.to_path_buf(), cx);
+            self.open_workspace(path.to_path_buf(), window, cx)?;
             return Ok(());
         }
         if let Some(index) = self
@@ -1265,35 +1350,96 @@ impl AppState {
     #[cfg(feature = "zorite")]
     fn sync_active_preview(&mut self, _cx: &mut Context<Self>) {}
 
+    /// Adopt a prepared workspace: paths, layered RAG settings, and prompt.
+    pub fn adopt_workspace(&mut self, report: WorkspaceReport, cx: &mut Context<Self>) {
+        self.workspace = Some(report.root.clone());
+        self.workspace_explicit = true;
+        self.corpus = Some(report.root.join(workspace::CORPUS_DIR));
+        self.bibliography = Some(report.bibliography.clone());
+        self.ragrig_dir = report.ragrig_dir.clone();
+
+        let layered = RagSettings::from_layers_over(&report.root, &self.rag.read(cx).clone());
+        self.rag.update(cx, |settings, cx| {
+            if let Some(mut layered) = layered {
+                layered.built_in_prompt = SCICO_PROMPT.to_owned();
+                *settings = layered;
+            }
+            settings.workspace = report.root.display().to_string();
+            settings.bibliography = report.bibliography.display().to_string();
+            settings.built_in_prompt = SCICO_PROMPT.to_owned();
+            settings
+                .corpus_dirs
+                .retain(|entry| !entry.starts_with(&format!("{}=", workspace::CORPUS_DIR)));
+            settings.corpus_dirs.push(format!(
+                "{}={}",
+                workspace::CORPUS_DIR,
+                report.root.join(workspace::CORPUS_DIR).display()
+            ));
+            apply_workspace_prompt(settings, &report);
+            cx.notify();
+        });
+        self.apply_rag(cx);
+    }
+
+    fn adopt_and_open(
+        &mut self,
+        report: WorkspaceReport,
+        created: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> String {
+        let status = report.status(created);
+        let homepage = report.homepage.clone();
+        self.adopt_workspace(report, cx);
+        if let Err(error) = self.open_path(&homepage, window, cx) {
+            self.set_status(error, cx);
+        }
+        self.set_status(status.clone(), cx);
+        status
+    }
+
+    /// Create a new workspace directory with the full scaffold and open it.
+    pub fn new_workspace(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let report = workspace::prepare(&path, true)?;
+        Ok(self.adopt_and_open(report, true, window, cx))
+    }
+
+    /// Open an existing directory as a workspace, adding missing pieces.
+    pub fn open_workspace(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let report = workspace::prepare(&path, false)?;
+        Ok(self.adopt_and_open(report, false, window, cx))
+    }
+
     /// Make `path` the editor and RAG workspace.
     ///
-    /// The path is stored even while it does not exist yet, so the settings
-    /// input can be typed freely; derived folders and the agent rebuild wait
-    /// until it is a real directory.
+    /// This is the path-field entry point: it scaffolds the directory but does
+    /// not force a document tab, so typing a path in Settings stays cheap.
     pub fn set_workspace(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let is_dir = path.is_dir();
-        self.workspace = Some(path.clone());
-        if is_dir {
-            self.corpus = Some(path.join(".ragrig/library"));
-            self.bibliography = Some(path.join(".ragrig/references.bib"));
-        }
-        let bibliography = self
-            .bibliography
-            .as_ref()
-            .map(|bibliography| bibliography.display().to_string());
-        let workspace = path.display().to_string();
-        self.rag.update(cx, |settings, _| {
-            settings.workspace = workspace;
-            if let Some(bibliography) = &bibliography {
-                settings.bibliography = bibliography.clone();
+        match workspace::prepare(&path, false) {
+            Ok(report) => {
+                let status = report.status(false);
+                self.adopt_workspace(report, cx);
+                self.set_status(status, cx);
             }
-        });
-        if is_dir {
-            self.apply_rag(cx);
-            self.set_status(format!("Workspace {}", path.display()), cx);
-        } else {
-            self.persist(cx);
-            self.set_status(format!("'{}' is not a folder yet", path.display()), cx);
+            Err(error) => {
+                self.workspace = Some(path.clone());
+                self.workspace_explicit = true;
+                self.rag.update(cx, |settings, _| {
+                    settings.workspace = path.display().to_string();
+                });
+                self.persist(cx);
+                self.set_status(error, cx);
+            }
         }
     }
 
@@ -1313,6 +1459,7 @@ impl AppState {
             cx.notify();
         });
         self.apply_rag(cx);
+        self.persist_workspace_switches(cx);
         self.set_status(
             if enabled {
                 format!("Chat memory on — {}", next.label())
@@ -1336,6 +1483,7 @@ impl AppState {
             cx.notify();
         });
         self.apply_rag(cx);
+        self.persist_workspace_switches(cx);
         self.set_status(
             if enabled {
                 "Hybrid retrieval on"
@@ -1346,11 +1494,29 @@ impl AppState {
         );
     }
 
+    /// Record the two status-bar switches in the workspace layer.
+    ///
+    /// This keeps them effective when `settings.json` is reset or another
+    /// machine opens the workspace, without copying the whole applied
+    /// configuration into `.ragrig/config.json`.
+    pub(crate) fn persist_workspace_switches(&self, cx: &App) {
+        let Some(workspace) = &self.workspace else {
+            return;
+        };
+        let rag = self.rag.read(cx);
+        let overlay = serde_json::json!({
+            "memory": {"strategy": rag.memory.label().to_ascii_lowercase()},
+            "hybrid": rag.hybrid,
+        });
+        let _ = workspace::write_ragrig_layer(workspace, overlay);
+    }
+
     /// Rebuild the agent from the current settings.
     pub fn apply_rag(&mut self, cx: &mut Context<Self>) {
         match self.rag.read(cx).to_setup() {
             Ok(setup) => {
-                let setup = with_bibliography(setup, self.bibliography.clone());
+                let mut setup = with_bibliography(setup, self.bibliography.clone());
+                setup.data_dir = Some(self.ragrig_dir.clone());
                 self.controller
                     .update(cx, |controller, cx| controller.apply(setup, cx));
                 let applied = self.rag.read(cx).clone();
@@ -1414,6 +1580,11 @@ impl AppState {
         self.settings.raw_mode = self.raw_mode;
         self.settings.editor_font = self.editor_font.clone();
         self.settings.editor_font_size = self.editor_font_size;
+        if !self.workspace_explicit {
+            // The cwd fallback is not a workspace choice; persisting it would
+            // scaffold that directory on the next launch.
+            self.settings.workspace.clear();
+        }
         self.settings.memory_when_on = self.last_memory.label().to_owned();
         if let Err(error) = self.settings.save(&self.settings_path) {
             self.status = error.into();
@@ -1859,6 +2030,23 @@ fn toggled_memory(
             current
         };
         (MemoryChoice::Off, last)
+    }
+}
+
+/// Give a workspace `Scico.md` precedence. Without one, keep a prompt chosen
+/// by a config layer, or fall back to the compiled-in prompt.
+fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) {
+    if let Some(prompt) = &report.prompt {
+        settings.system_prompt_path = workspace::PROMPT_FILE.to_owned();
+        settings.system_prompt =
+            fs::read_to_string(prompt).unwrap_or_else(|_| SCICO_PROMPT.to_owned());
+    } else {
+        let missing = settings.system_prompt_path.trim().is_empty()
+            || settings.prompt_path().is_none_or(|path| !path.is_file());
+        if missing {
+            settings.system_prompt_path.clear();
+            settings.system_prompt = SCICO_PROMPT.to_owned();
+        }
     }
 }
 
