@@ -33,6 +33,31 @@ pub use zorite_editor::{EditorState, SyntaxStyle};
 #[derive(Clone, Debug, Default)]
 pub struct SyntaxStyle;
 
+/// A preview-driven editor scroll that is converging on a source block.
+///
+/// The editor exposes only a pixel offset, so the target line is found by
+/// bracketing the monotonic offset-to-block mapping: `low` is a scroll
+/// magnitude known to be above the block, `high` one known to be at or below
+/// it. Each editor layout narrows the bracket.
+#[cfg(feature = "gpuikit")]
+#[derive(Clone, Copy, Debug)]
+pub struct PreviewScrollTarget {
+    /// The preview block that must end up at the viewport top.
+    pub block: usize,
+    /// A scroll magnitude whose top block is before `block`.
+    pub low: f32,
+    /// A scroll magnitude whose top block is at or after `block`.
+    pub high: Option<f32>,
+    /// Layouts spent on this target, so a pathological document cannot loop.
+    pub attempts: u8,
+    /// The offset currently requested from the editor.
+    pub requested: f32,
+    /// The last offset whose top block was evaluated.
+    pub observed: Option<f32>,
+    /// Frames spent waiting for a request to be laid out.
+    pub waited: u8,
+}
+
 /// One open Markdown document.
 pub struct Document {
     /// Stable identity used by pending editor edits.
@@ -71,6 +96,19 @@ pub struct Document {
     /// The editor scroll offset the preview was last synced from.
     #[cfg(feature = "gpuikit")]
     pub preview_source_offset: f32,
+    /// A preview-driven editor scroll is in flight; its first applied offset
+    /// must not be fed back into the preview.
+    #[cfg(feature = "gpuikit")]
+    pub pending_editor_scroll: bool,
+    /// The block a preview-driven scroll is converging on, if any.
+    #[cfg(feature = "gpuikit")]
+    pub preview_scroll_target: Option<PreviewScrollTarget>,
+    /// Measured display rows per source line, learned from successful syncs.
+    #[cfg(feature = "gpuikit")]
+    pub preview_rows_per_line: f32,
+    /// The preview's scrollbar was being dragged on the previous notification.
+    #[cfg(feature = "gpuikit")]
+    pub preview_dragging: bool,
 }
 
 /// The data needed to create a document.
@@ -325,6 +363,14 @@ impl Document {
             preview_top: 0,
             #[cfg(feature = "gpuikit")]
             preview_source_offset: 0.0,
+            #[cfg(feature = "gpuikit")]
+            pending_editor_scroll: false,
+            #[cfg(feature = "gpuikit")]
+            preview_scroll_target: None,
+            #[cfg(feature = "gpuikit")]
+            preview_rows_per_line: 1.0,
+            #[cfg(feature = "gpuikit")]
+            preview_dragging: false,
         }
     }
 

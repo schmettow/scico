@@ -1537,6 +1537,19 @@ mod tests {
         cx.simulate_input(text);
     }
 
+    /// Run deferred work and lay the window out repeatedly, as a real event
+    /// loop does while a multi-layout scroll correction converges.
+    #[cfg(feature = "gpuikit")]
+    fn pump_frames(cx: &mut VisualTestContext, frames: usize) {
+        for _ in 0..frames {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+    }
+
     #[gpui_kit::test]
     fn the_shell_mounts_with_an_editor_and_both_panes(cx: &mut TestAppContext) {
         let (app, _cx) = mount(cx);
@@ -2339,9 +2352,6 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-        cx.update(|_, cx| {
-            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
-        });
 
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
@@ -2393,9 +2403,6 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-        cx.update(|_, cx| {
-            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
-        });
 
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
@@ -2424,7 +2431,61 @@ mod tests {
 
     #[cfg(feature = "gpuikit")]
     #[gpui_kit::test]
-    fn scroll_sync_moves_the_editor_with_the_preview(cx: &mut TestAppContext) {
+    fn preview_sync_survives_soft_wrapping(cx: &mut TestAppContext) {
+        use gpui_kit::InputEvent as _;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let (editor, preview) = cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            (document.editor.clone(), document.preview.clone())
+        });
+        let body = "word ".repeat(120);
+        let text = (0..80)
+            .map(|index| format!("Paragraph {index}. {body}\n\n"))
+            .collect::<String>();
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_value(text, window, cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+
+        let count = cx.update(|_, cx| preview.read(cx).list_state().item_count());
+        assert!(count > 50, "the preview must have parsed its blocks");
+        let position = cx.update(|_, cx| preview.read(cx).list_state().viewport_bounds().center());
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-4_000.))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        pump_frames(cx, 40);
+
+        let top = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
+        assert!(top > 0, "the wheel must scroll the preview");
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(
+                crate::state::source_top_block(document, cx),
+                Some(top),
+                "wrapped paragraphs must still map to the same top block"
+            );
+        });
+    }
+
+    #[cfg(feature = "gpuikit")]
+    #[gpui_kit::test]
+    fn scrolling_the_preview_moves_the_editor_without_jumping_back(cx: &mut TestAppContext) {
+        use gpui_kit::InputEvent as _;
+
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
         let (editor, preview) = cx.update(|_, cx| {
@@ -2441,31 +2502,75 @@ mod tests {
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-        cx.update(|_, cx| {
-            state.update(cx, |state, _| state.preview_sync_suppressed_until = None);
-        });
 
         let count = cx.update(|_, cx| preview.read(cx).list_state().item_count());
         assert!(count > 50, "the preview must have parsed its blocks");
-        preview.update(cx, |preview, cx| {
-            preview.list_state().scroll_to(gpui_kit::ListOffset {
-                item_ix: 50,
-                offset_in_item: px(0.),
-            });
-            cx.notify();
+        let position = cx.update(|_, cx| preview.read(cx).list_state().viewport_bounds().center());
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_500.))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
         });
+        cx.run_until_parked();
+        pump_frames(cx, 30);
+
+        let top = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
+        assert!(top > 0, "the wheel must scroll the preview");
+        cx.update(|_, cx| {
+            assert!(
+                editor.read(cx).scroll_offset().y < px(0.),
+                "the editor must follow the preview, got {:?}",
+                editor.read(cx).scroll_offset()
+            );
+        });
+
+        // Let every deferred correction and release expire; the preview must
+        // stay exactly where the user scrolled it.
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(500));
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-
+        let settled = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
+        assert_eq!(
+            settled, top,
+            "the preview must not jump back after the editor follows"
+        );
         cx.update(|_, cx| {
-            let editor = editor.read(cx);
-            assert!(
-                editor.scroll_offset().y < px(0.),
-                "the editor must follow a scrolled preview, got {:?}",
-                editor.scroll_offset()
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(
+                crate::state::source_top_block(document, cx),
+                Some(top),
+                "the editor must put the preview's top block at its viewport top"
             );
         });
+
+        // The link must still run in the other direction once the
+        // preview-driven move has landed.
+        let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
+        cx.update(|window, cx| {
+            window.dispatch_event(
+                gpui_kit::ScrollWheelEvent {
+                    position,
+                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_200.))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        });
+        pump_frames(cx, 6);
+        let forward = cx.update(|_, cx| preview.read(cx).list_state().logical_scroll_top().item_ix);
+        assert!(
+            forward > settled,
+            "the editor must still drive the preview after a preview-driven move"
+        );
     }
 
     #[gpui_kit::test]

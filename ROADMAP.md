@@ -9,10 +9,10 @@ stabilised.
 - Keep the roundtrip experience solid across both editor backends: selection
   capture, guarded write-back, Scico edit mode, and complete crash-safe session
   restore.
-- Polish the `gpuikit` writing surface: collapsible preview, block-level
-  synchronized scrolling, theme-following syntax highlighting, and persisted
-  font family/size with Ctrl+wheel zoom are in place. Refine parser parity for
-  exotic Markdown next.
+- Polish the `gpuikit` writing surface: collapsible preview, two-way
+  block-level synchronized scrolling, theme-following syntax highlighting, and
+  persisted font family/size with Ctrl+wheel zoom are in place. Refine parser
+  parity for exotic Markdown next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
 

@@ -108,8 +108,10 @@ model.
   **scroll-sync** toggle. When sync is on, the preview follows the Markdown
   block at the top of the source viewport; a paragraph or heading leaves the
   preview when it leaves the code window, rather than the two panes drifting
-  by pixel fraction. Scrolling the preview likewise moves the source to the
-  matching block.
+  by pixel fraction. Scrolling the preview with the wheel or by dragging its
+  scrollbar drives the source editor too: the matching source line is placed
+  at the top of the code window, including through soft-wrapped paragraphs,
+  and the preview stays exactly where you left it.
 - The `zorite` backend keeps its **Preview / Raw** behaviour on the same
   shortcut: it switches every tab between live preview and raw Markdown.
 - Images referenced as `![](figure.png)` render inline relative to the
@@ -351,7 +353,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 52 unit tests plus the protocol integration test, covering the
+Current suite: 53 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
@@ -360,7 +362,8 @@ tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, persistent edit decorations
 with the read-only guard, incremental Markdown/BibTeX highlighting, editor font
-defaults and Ctrl-wheel zoom, and block-level scroll sync in both directions.
+defaults and Ctrl-wheel zoom, and two-way block-level scroll sync that stays
+put in both directions, including soft-wrapped paragraphs.
 
 ## Known limitations
 
@@ -377,7 +380,9 @@ defaults and Ctrl-wheel zoom, and block-level scroll sync in both directions.
 - The `gpuikit` backend shows inline images and tables in the rendered preview,
   not as atomic objects inside the source editor. Scroll sync maps top-level
   Markdown blocks; the preview parser and comrak can disagree on exotic
-  constructs, in which case the two panes can be one block apart.
+  constructs, in which case the two panes can be one block apart. Aligning a
+  preview jump to a distant source line costs a few frames while the offset
+  search converges; it never moves the preview itself.
 - The Syntect grammars are packaged with the binary; themes still come from
   the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the

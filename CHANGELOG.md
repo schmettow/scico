@@ -128,6 +128,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two-way preview scrolling**: wheel input over the rendered preview and
+  scrollbar-thumb drags now drive the source editor, and the 250 ms feedback
+  timer that snapped the preview back to an older block is gone. The editor is
+  aligned to the preview's top source line with a bracketing search driven by
+  its own layouts, so soft-wrapped paragraphs land on the same block; the
+  resulting programmatic editor offset is consumed once and never re-scrolls
+  the preview. Regression tests cover the wheel path without a jump back and
+  soft-wrapped paragraphs mapping to the same block.
 - **Profile Defaults** no longer replaces the Scico persona with Ragrig's
   generic one-line stub; profile defaults and profiles without a prompt file
   restore the compiled-in `Scico.md`.
