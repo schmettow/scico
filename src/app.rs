@@ -1,7 +1,5 @@
 //! The application shell: toolbar, tabs, editor, panes, and status bar.
 
-#[cfg(feature = "gpuikit")]
-use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -28,8 +26,6 @@ use gpui_kit::{
 use crate::agent::{AgentPane, AgentPaneEvent};
 use crate::app_settings::{app_editor_page, app_library_page, app_overview_page, prompt_actions};
 use crate::library::{LibraryEvent, LibraryPane};
-#[cfg(feature = "gpuikit")]
-use crate::marching_ants::marked_section_overlay;
 use crate::session::SessionState;
 use crate::state::AppState;
 
@@ -1155,39 +1151,19 @@ impl SciscraperApp {
                     state.show_preview,
                     state.sync_scroll,
                     base,
-                    document.id,
-                    document.text(cx),
                 )
             })
         };
-        let Some((
-            editor,
-            preview,
-            font_family,
-            font_size,
-            show_preview,
-            sync_scroll,
-            base,
-            document_id,
-            text,
-        )) = active
+        let Some((editor, preview, font_family, font_size, show_preview, sync_scroll, base)) =
+            active
         else {
             return self.empty_editor(cx);
         };
-        let marked: Vec<Range<usize>> = self
-            .agent
-            .read(cx)
-            .marked_regions()
-            .into_iter()
-            .filter(|(tab_id, _)| *tab_id == document_id)
-            .map(|(_, range)| ragrig_gpui::editor::char_range_to_bytes(&text, range))
-            .collect();
         let source = div()
             .id("editor-source")
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .relative()
             .on_scroll_wheel(
                 cx.listener(|this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
                     if !event.modifiers.control && !event.modifiers.platform {
@@ -1212,14 +1188,7 @@ impl SciscraperApp {
                     .font_family(font_family)
                     .text_size(px(font_size))
                     .h_full(),
-            )
-            .when(!marked.is_empty(), |source| {
-                source.child(marked_section_overlay(
-                    editor.clone(),
-                    marked,
-                    theme.primary,
-                ))
-            });
+            );
         let body = if !show_preview {
             source.into_any_element()
         } else {
@@ -2004,9 +1973,6 @@ mod tests {
         cx.update(|_, cx| {
             assert_eq!(agent.read(cx).pending_selection_count(), 2);
             assert_eq!(agent.read(cx).pending_selection_chars(), Some(9));
-            let regions = agent.read(cx).marked_regions();
-            assert_eq!(regions.len(), 2);
-            assert!(regions.iter().all(|(_, range)| range.start < range.end));
         });
 
         cx.simulate_keystrokes("ctrl-shift-d");

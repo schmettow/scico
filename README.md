@@ -133,10 +133,9 @@ model.
 ### Mark passages and co-edit
 
 1. Select a passage in the editor and press **Ask about selection**
-   (`Ctrl+Shift+P`). The marked passage gets an animated marching-ant frame in
-   the editor. Repeat to attach several passages from the same or different
-   tabs; each appears as its own chip above the composer. Duplicate ranges are
-   ignored. The frames disappear when the question is sent.
+   (`Ctrl+Shift+P`). Repeat to attach several passages from the same or
+   different tabs; each appears as its own chip above the composer. Duplicate
+   ranges are ignored.
 2. Ask a question. All marked passages ride along as context; a replacement
    block in the answer is offered as **Insert**, never written silently.
 3. For a direct edit, select a passage and press **Edit selection**
@@ -340,7 +339,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 53 unit tests plus the protocol integration test, covering the
+Current suite: 51 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
@@ -348,8 +347,8 @@ word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, incremental Markdown/BibTeX
-highlighting, editor font defaults and Ctrl-wheel zoom, block-level scroll sync
-in both directions, and the marching dash geometry.
+highlighting, editor font defaults and Ctrl-wheel zoom, and block-level scroll
+sync in both directions.
 
 ## Known limitations
 

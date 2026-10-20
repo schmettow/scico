@@ -9,9 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Marching-ant frames** around every passage marked for the next question.
-  The frame follows scrolling and wrapping, uses the editor's own selection
-  geometry, and disappears when the prompt consumes the marked regions.
 - **Enrich selection** (`Ctrl+Shift+R`): like **Edit selection**, but the
   marked passage is prepended to the vector retrieval query, so similarity
   search runs on the passage as well as the instruction. The passage is not

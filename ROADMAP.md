@@ -15,9 +15,7 @@ stabilised.
   exotic Markdown next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
-- Visual feedback for the roundtrip: marked passages carry marching-ant frames
-  and the library's multi-select actions sit with their summary at the top of
-  the list. Refine the frame for very long and multi-column selections.
+
 - The Scico prompt is file-based: the full `Scico.md` is compiled in, can be
   exported into the workspace, edited in the editor, and overridden per
   profile. Refine the prompt alongside protocol changes.
