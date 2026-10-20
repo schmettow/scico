@@ -318,6 +318,45 @@ impl AgentPane {
         }
     }
 
+    /// Cancel an armed Edit/Enrich: drop its target, clear the highlight,
+    /// unlock the document, and collapse the native selection.
+    pub(crate) fn cancel_edit(&mut self, cx: &mut Context<Self>) {
+        let target = self.edit_target.take();
+        self.enrich_target = None;
+        if let Some(id) = target.as_deref()
+            && let Some(selection) = self
+                .selections
+                .iter()
+                .find(|selection| selection.id == id)
+                .cloned()
+        {
+            self.selections.retain(|selection| selection.id != id);
+            if let Some(range) = selection.context.range() {
+                self.collapse_editor_selection(selection.tab_id, range, cx);
+            }
+        }
+        self.release_edit_guard(cx);
+        cx.notify();
+    }
+
+    /// Collapse the editor's native selection to the start of a marked range.
+    fn collapse_editor_selection(
+        &mut self,
+        tab_id: u64,
+        range: std::ops::Range<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let (editor, text) = {
+            let state = self.state.read(cx);
+            let Some(document) = state.document(tab_id) else {
+                return;
+            };
+            (document.editor.clone(), document.text(cx))
+        };
+        let start = char_range_to_bytes(&text, range).start;
+        crate::document::set_editor_cursor(&editor, start, cx);
+    }
+
     /// Keep the declarative editor lock in step with the guard.
     fn set_document_readonly(&mut self, id: u64, readonly: bool, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
@@ -430,6 +469,15 @@ impl AgentPane {
     #[cfg(test)]
     pub(crate) fn edit_guard_is_set(&self) -> bool {
         self.edit_guard.is_some()
+    }
+
+    /// Attachment chip ids, for tests.
+    #[cfg(test)]
+    pub(crate) fn chip_ids(&self, cx: &gpui_kit::App) -> Vec<String> {
+        self.chips(cx)
+            .into_iter()
+            .map(|attachment| attachment.id)
+            .collect()
     }
 
     /// Queue files as one-shot context for the next question.
@@ -987,7 +1035,7 @@ impl AgentPane {
             .is_some_and(|pending| pending.request == request)
     }
 
-    fn chips(&self, cx: &Context<Self>) -> Vec<Attachment> {
+    fn chips(&self, cx: &gpui_kit::App) -> Vec<Attachment> {
         let state = self.state.read(cx);
         let mut chips = Vec::new();
         let document_label = self
@@ -1018,18 +1066,33 @@ impl AgentPane {
                 .iter()
                 .find(|selection| &selection.id == target_id)
         {
+            let hint = if self.enrich_target.is_some() {
+                format!(
+                    "The next answer replaces {} and retrieval is enriched with the passage",
+                    selection.context.attachment_label()
+                )
+            } else {
+                format!(
+                    "The next answer replaces {}",
+                    selection.context.attachment_label()
+                )
+            };
             chips.push(
                 Attachment::pending(
                     "edit-mode",
                     format!("Direct edit → {} chars", selection.context.chars()),
                 )
-                .hint(format!(
-                    "The next answer replaces {}",
-                    selection.context.attachment_label()
-                )),
+                .hint(hint),
             );
         }
-        for (index, selection) in self.selections.iter().enumerate() {
+        // The edit target is the Direct edit chip above; repeating it as a
+        // Marked region would be redundant.
+        for (index, selection) in self
+            .selections
+            .iter()
+            .filter(|selection| self.edit_target.as_deref() != Some(selection.id.as_str()))
+            .enumerate()
+        {
             chips.push(
                 Attachment::pending(
                     selection.id.clone(),
@@ -1088,16 +1151,17 @@ impl AgentPane {
                 });
             }
             AttachmentEvent::Dropped(id) if id == "edit-mode" => {
-                self.edit_target = None;
+                self.cancel_edit(cx);
                 self.set_status("Direct edit cancelled", cx);
             }
             AttachmentEvent::Dropped(id) if id.starts_with("selection-") => {
-                let was_target = self.edit_target.as_deref() == Some(id.as_str());
-                self.selections.retain(|selection| selection.id != id);
-                if was_target {
-                    self.edit_target = None;
+                if self.edit_target.as_deref() == Some(id.as_str()) {
+                    self.cancel_edit(cx);
+                    self.set_status("Direct edit cancelled", cx);
+                } else {
+                    self.selections.retain(|selection| selection.id != id);
+                    self.set_status("Marked region dropped", cx);
                 }
-                self.set_status("Marked region dropped", cx);
             }
             AttachmentEvent::Dropped(id) if id == "replacement-offer" => {
                 self.offer = None;

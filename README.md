@@ -152,12 +152,16 @@ model.
    chunks still arrive as corpus context, and the answer replaces the passage.
 5. Both edit modes keep the target visible: arming them adds a persistent
    selection fill and primary frame to the passage, so it stays marked after
-   focus moves to the composer. On submit (`gpuikit`), the target document
-   becomes read-only; user edits are rejected until the replacement is applied
-   or the request fails or is stopped. The agent's own write-back bypasses the
-   lock (`Document::replace` is programmatic), and navigation, selection, and
-   copy still work. The `zorite` backend has no range decoration or read-only
-   mode and only arms the mode.
+   focus moves to the composer. The target appears above the composer as a
+   single **Direct edit** chip; its **Marked region** chip is suppressed because
+   it would repeat the same passage. Closing the **Direct edit** chip cancels
+   the mode, removes the editor marker, collapses the native selection, and
+   drops the target (other marked regions stay). On submit (`gpuikit`), the
+   target document becomes read-only; user edits are rejected until the
+   replacement is applied or the request fails or is stopped. The agent's own
+   write-back bypasses the lock (`Document::replace` is programmatic), and
+   navigation, selection, and copy still work. The `zorite` backend has no
+   range decoration or read-only mode and only arms the mode.
 6. If the passage changed while Scico was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 

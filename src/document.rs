@@ -149,6 +149,16 @@ pub fn mark_editor_range(
     }
 }
 
+/// Collapse the editor's native selection to a byte offset.
+pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut App) {
+    #[cfg(feature = "gpuikit")]
+    editor.update(cx, |editor, cx| {
+        editor.set_selected_range(offset..offset, cx)
+    });
+    #[cfg(feature = "zorite")]
+    editor.update(cx, |editor, cx| editor.set_cursor(offset, cx));
+}
+
 /// Lock or unlock user edits in an editor.
 ///
 /// gpuikit keeps programmatic replacements editable while read-only mode only

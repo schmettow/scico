@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replacement is applied, the request fails, or is stopped, the target document
   is read-only; programmatic agent write-back still works, and navigation,
   selection, and copy remain available.
+- **One chip for inline editing**: while an Edit or Enrich target is armed,
+  Scico shows a single **Direct edit** chip and suppresses the redundant
+  **Marked region** chip for the same passage. Closing the Direct edit chip
+  cancels the mode, clears the range decoration, unlocks the document, drops
+  the target, and collapses the native editor selection; other marked regions
+  remain as context.
 - **Enrich selection** (`Ctrl+Shift+R`): like **Edit selection**, but the
   marked passage is prepended to the vector retrieval query, so similarity
   search runs on the passage as well as the instruction. The passage is not

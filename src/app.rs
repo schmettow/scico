@@ -1997,6 +1997,50 @@ mod tests {
             assert!(agent.read(cx).edit_target_is_set());
             assert!(agent.read(cx).enrich_target_is_set());
             assert!(agent.read(cx).edit_guard_is_set());
+            let chips = agent.read(cx).chip_ids(cx);
+            assert!(chips.iter().any(|id| id == "edit-mode"));
+            assert_eq!(
+                chips
+                    .iter()
+                    .filter(|id| id.starts_with("selection-"))
+                    .count(),
+                1,
+                "the edit target is shown only as Direct edit"
+            );
+        });
+
+        #[cfg(feature = "gpuikit")]
+        let editor = cx.update(|_, cx| {
+            app.read(cx)
+                .state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        cx.update(|_, cx| {
+            agent.update(cx, |agent, cx| agent.cancel_edit(cx));
+        });
+        cx.update(|_, cx| {
+            assert!(!agent.read(cx).edit_guard_is_set());
+            assert!(!agent.read(cx).edit_target_is_set());
+            assert!(!agent.read(cx).enrich_target_is_set());
+            assert_eq!(agent.read(cx).pending_selection_count(), 1);
+            let chips = agent.read(cx).chip_ids(cx);
+            assert!(!chips.iter().any(|id| id == "edit-mode"));
+            assert_eq!(
+                chips
+                    .iter()
+                    .filter(|id| id.starts_with("selection-"))
+                    .count(),
+                1
+            );
+            #[cfg(feature = "gpuikit")]
+            assert!(
+                editor.read(cx).selected_range().is_empty(),
+                "cancelling collapses the native selection"
+            );
         });
     }
 
