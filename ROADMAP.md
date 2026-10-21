@@ -7,7 +7,11 @@ stabilised.
 ## Now
 
 - Scico branding is in place: banner, desktop mark, welcome state, and the
-  assistant mark. Next: ship packaging icons (`.desktop`, `.icns`, `.ico`).
+  assistant/chat/send marks. Next: ship packaging icons (`.desktop`, `.icns`,
+  `.ico`).
+- Documentation is split: `README.md` speaks to writers and students,
+  `DEVELOPER_NOTES.md` keeps the architecture and protocol notes, and
+  `UPSTREAM.md` tracks requests to Ragrig.
 - Keep the roundtrip experience solid across both editor backends: selection
   capture, guarded write-back, Scico edit mode, and complete crash-safe session
   restore.

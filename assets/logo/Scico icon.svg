@@ -1,81 +1,25 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+<!--
+  Scico mark for buttons and message headers.
 
+  GPUI paints every SVG icon as a monochrome alpha mask, so this variant uses
+  transparent gaps between the rings instead of overlapping filled discs.
+  The full-colour original is kept as "Scico icon colour.svg".
+-->
 <svg
    version="1.1"
-   id="svg62"
-   width="67.355957"
-   height="67.355927"
-   viewBox="0 0 67.355957 67.355927"
-   sodipodi:docname="Sico.svg"
-   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <defs
-     id="defs66" />
-  <sodipodi:namedview
-     id="namedview64"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     showgrid="false"
-     inkscape:zoom="3.0903185"
-     inkscape:cx="412.09344"
-     inkscape:cy="334.43155"
-     inkscape:window-width="2560"
-     inkscape:window-height="1494"
-     inkscape:window-x="0"
-     inkscape:window-y="662"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="layer3" />
-  <g
-     inkscape:groupmode="layer"
-     id="layer2"
-     inkscape:label="Hypno Patch"
-     style="display:inline"
-     transform="translate(-554.83049,-382.53392)">
-    <g
-       id="g68159">
-      <circle
-         style="display:inline;fill:#ffffff;fill-opacity:1;stroke:#000000;stroke-opacity:1"
-         id="path20843"
-         cx="588.50848"
-         cy="416.21188"
-         r="33.177967" />
-      <circle
-         style="display:inline;fill:#000000;fill-opacity:1"
-         id="path18041"
-         cx="592.74573"
-         cy="415.98303"
-         r="29.402542" />
-      <circle
-         style="display:inline;fill:#ffffff;fill-opacity:1;stroke-width:1.22152"
-         id="path18132"
-         cx="596.23291"
-         cy="415.06781"
-         r="22.080507" />
-      <circle
-         style="display:inline;fill:#000000;fill-opacity:1;stroke-width:1.24176"
-         id="path18966"
-         cx="596.75"
-         cy="415.12286"
-         r="12.927966" />
-      <ellipse
-         style="fill:#b5b3d6;fill-opacity:1;stroke-width:1.41421"
-         id="path46396"
-         cx="447.61505"
-         cy="564.45325"
-         rx="3.0741167"
-         ry="1.6179562"
-         transform="rotate(-17.174252)"
-         inkscape:transform-center-x="-2.1737288"
-         inkscape:transform-center-y="-0.80084746" />
-    </g>
-  </g>
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   xmlns="http://www.w3.org/2000/svg">
+  <circle cx="32" cy="32" r="28.5" fill="none" stroke="currentColor" stroke-width="5" />
+  <circle cx="32" cy="32" r="19" fill="none" stroke="currentColor" stroke-width="4" />
+  <circle cx="32" cy="32" r="9" fill="currentColor" />
+  <ellipse
+     cx="45"
+     cy="17"
+     rx="3"
+     ry="1.7"
+     transform="rotate(-17 45 17)"
+     fill="currentColor" />
 </svg>

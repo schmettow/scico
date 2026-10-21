@@ -21,6 +21,11 @@ use ragrig_gpui::prelude::*;
 use crate::document::{RangeHighlight, mark_editor_range, set_editor_readonly};
 use crate::state::{AppState, AppStateHost};
 
+/// The monochrome Scico mark used in buttons and message headers.
+const SCICO_ICON: &[u8] = include_bytes!("../assets/logo/Scico icon.svg");
+/// The full-colour square used on the welcome screen.
+const SCICO_SQUARE: &[u8] = include_bytes!("../assets/logo/Scico-square.png");
+
 /// What the Scico pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentPaneEvent {
@@ -77,6 +82,7 @@ pub struct AgentPane {
     pending_write: Option<PendingWrite>,
     chat: Entity<ChatView>,
     composer: Entity<Composer>,
+    chat_icon: ChatIcon,
     pending: Option<PendingTurn>,
     attachments: Vec<PendingAttachment>,
     attachment_counter: u64,
@@ -100,6 +106,10 @@ impl AgentPane {
     pub fn new(window: &mut Window, cx: &mut Context<Self>, state: Entity<AppState>) -> Self {
         let chat = cx.new(ChatView::new);
         let composer = cx.new(|cx| Composer::new(window, cx));
+        let chat_icon = ChatIcon::data(SCICO_ICON);
+        composer.update(cx, |composer, cx| {
+            composer.set_send_icon(chat_icon.clone(), cx);
+        });
         let mut subscriptions = Vec::new();
 
         subscriptions.push(
@@ -126,6 +136,7 @@ impl AgentPane {
             pending_write: None,
             chat,
             composer,
+            chat_icon,
             pending: None,
             attachments: Vec::new(),
             attachment_counter: 0,
@@ -143,7 +154,7 @@ impl AgentPane {
         this.chat.update(cx, |chat, cx| {
             chat.set_empty_state(
                 EmptyState {
-                    icon: ChatIcon::data(include_bytes!("../assets/logo/Scico square.svg")),
+                    icon: ChatIcon::png(SCICO_SQUARE),
                     title: "Scico knows your library.".into(),
                     description: "Index a corpus in the Library, attach your draft, \
                                   then ask a question. Scico answers with the documents \
@@ -153,13 +164,7 @@ impl AgentPane {
                 },
                 cx,
             );
-            chat.set_assistant(
-                ChatIdentity::new(
-                    "Scico",
-                    ChatIcon::data(include_bytes!("../assets/logo/Scico icon.svg")),
-                ),
-                cx,
-            );
+            chat.set_assistant(ChatIdentity::new("Scico", ChatIcon::data(SCICO_ICON)), cx);
         });
         this
     }
@@ -1206,7 +1211,7 @@ impl Render for AgentPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_write(window, cx);
         let controller = self.controller(cx);
-        let (sessions, current, busy, components, status) = {
+        let (sessions, current, busy, mut components, status) = {
             let controller = controller.read(cx);
             (
                 controller.sessions().to_vec(),
@@ -1216,6 +1221,12 @@ impl Render for AgentPane {
                 controller.status_line(),
             )
         };
+        if let Some(chat) = components
+            .iter_mut()
+            .find(|component| component.id == "chat")
+        {
+            chat.icon = Some(self.chat_icon.clone());
+        }
         let picker = SessionPicker::new("sciscraper-sessions", sessions)
             .busy(busy)
             .current(current.unwrap_or_default())
@@ -1378,7 +1389,7 @@ mod tests {
     use super::context_char_limit;
 
     #[test]
-    fn the_scico_marks_render_and_the_window_icon_decodes() {
+    fn the_scico_marks_render_and_keep_their_colours() {
         let renderer = SvgRenderer::new(Arc::new(gpui_kit::assets::AllAssets));
         for (name, bytes) in [
             (
@@ -1386,7 +1397,7 @@ mod tests {
                 include_bytes!("../assets/logo/Scico icon.svg").as_slice(),
             ),
             (
-                "welcome mark",
+                "square master",
                 include_bytes!("../assets/logo/Scico square.svg").as_slice(),
             ),
         ] {
@@ -1401,11 +1412,27 @@ mod tests {
                 pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0),
                 "{name} rasterised to a blank image"
             );
+
+            if name == "assistant mark" {
+                // GPUI paints SVGs as an alpha mask. Rings drawn as filled
+                // discs would collapse into one solid dot; keep the gap.
+                let width = image.size(0).width.0 as usize;
+                let center = width / 2;
+                let gap = center + (width as f32 * 23.5 / 64.0).round() as usize;
+                let alpha = pixels.as_chunks::<4>().0[center * width + gap][3];
+                assert_eq!(alpha, 0, "the mark must keep transparent ring gaps");
+            }
         }
 
         let icon = image::load_from_memory(include_bytes!("../assets/logo/Scico-square.png"))
-            .expect("the window icon decodes");
+            .expect("the welcome and window icon decodes");
         assert_eq!((icon.width(), icon.height()), (256, 256));
+        let rgba = icon.to_rgba8();
+        assert!(
+            rgba.pixels()
+                .any(|pixel| u16::from(pixel[2]) > u16::from(pixel[1]) + 20),
+            "the square keeps its lavender, not just black"
+        );
     }
 
     #[test]

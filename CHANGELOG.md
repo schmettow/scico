@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Writer-facing README.** The README is now a guide for researchers and
+  students: quick start, the edit/enrich roundtrip, library and citations,
+  workspaces, shortcuts, privacy, and troubleshooting. The technical material
+  moved to `DEVELOPER_NOTES.md`.
+- **Scico chrome marks.** The chat component, its component bar, and the send
+  button use the Scico mark; **Chat memory** sits next to the chat model. The
+  welcome screen shows the full-colour square, and the assistant rows use the
+  monochrome mark.
+- **`UPSTREAM.md`.** Tracks requests to the upstream crates; US001 asks Ragrig
+  to publish bounds/step/default with each bounded parameter.
 - **Scico identity.** The README opens with the banner from `assets/logo/`.
   The empty transcript shows the square mark over “Scico knows your library.”,
   assistant rows are signed with the Scico icon instead of “Ragrig”, and the
@@ -155,6 +165,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The welcome square keeps its colours. GPUI paints `svg()` elements as a
+  monochrome alpha mask, so the mark is now rendered from the rasterised PNG
+  through `img` instead of the SVG. `Scico icon.svg` was redrawn as a
+  monochrome target with transparent gaps for button use; the original
+  multi-colour version is kept as `Scico icon colour.svg`.
+- Decimal settings such as the similarity threshold accept complete drafts.
+  Typing `0.03` is committed on Enter or blur; an invalid value restores the
+  previous value and explains the accepted range under the field.
 - Chat-memory and hybrid-retrieval switches stay inside their agent-bar
   popover: the label column may shrink, the switch keeps its width, and the
   duplicated content padding is gone.
