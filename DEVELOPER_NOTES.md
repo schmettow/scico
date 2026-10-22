@@ -266,9 +266,11 @@ target stays bound to the tab the passage came from.
   one undo step.
   The copy-key, copy-path, and open actions stay visible on every row and
   become fully opaque on hover.
-- The pencil action opens the bibliography at the entry for that key
-  (`open_bibliography_entry` → `bibtex_entry_offset`) and focuses it when it is
-  already open. Saving or closing the bibliography bumps
+- The pencil action goes through the roundtrip contract:
+  `AgentPane::edit_reference` → `Roundtrip::edit_reference` →
+  `AppStateHost::edit_reference` → `AppState::open_bibliography_entry`. The key
+  lookup lives in `ragrig_gpui::editor::bibtex_entry_offset`; the editor side is
+  `EditorSurface::reveal`. Saving or closing the bibliography bumps
   `references_revision`; the Library observes it and calls
   `refresh_references`, so the rows reflect the edited `.bib`.
 - The open action uses the viewer assigned in **Settings → Library → External
@@ -429,6 +431,13 @@ The following were fixed in `ragrig-gpui` during development:
   step; `RoundtripHost::insert` and `Roundtrip::insert` expose the same seam to
   the host; `char_index_for_line_column` converts line/column carets to the
   character indices the contract uses.
+- The editor contract now covers the bibliography. `EditorSurface::reveal`
+  places the caret at a character offset and scrolls it into view;
+  `RoundtripHost::{bibliography, open_at, edit_reference}` own the file side,
+  and `editor::bibtex_entry_offset` locates a key on disk. `ReferenceRow`
+  gained the optional `on_edit` action, so the pencil is part of the shared
+  reference UI rather than this app. `AppStateHost` overrides `edit_reference`
+  to use the open buffer, because an unsaved `.bib` must not be read from disk.
 
 ## Checks
 
@@ -445,7 +454,8 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 73 unit tests plus the protocol integration test, covering the
+Current suite: 70 unit tests with the `gpuikit` backend and 58 with `zorite`,
+plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, command-line workspace adoption and

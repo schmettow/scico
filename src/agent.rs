@@ -169,6 +169,16 @@ impl AgentPane {
         this
     }
 
+    /// Open the bibliography at `key` through the roundtrip host.
+    pub fn edit_reference(
+        &self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.roundtrip.edit_reference(key, window, cx)
+    }
+
     /// Mark the active editor selection as context for the next question.
     ///
     /// Repeated marks accumulate, so one question can carry several passages.

@@ -16,7 +16,7 @@ use gpui_kit::{point, px};
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
-    SelectionSnapshot, replace_at, verified_bytes,
+    SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
 };
 use ragrig_gpui::{ChatProvider, MemoryChoice, RagChanges, RagController, RagSettings};
 #[cfg(editor_zorite)]
@@ -844,9 +844,8 @@ impl AppState {
             return Err(format!("Entry @{key} is not in {}", path.display()));
         };
         let id = self.documents[index].id;
-        self.documents[index].set_cursor(offset, cx);
+        self.documents[index].reveal(offset, window, cx);
         self.active = index;
-        window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
         self.follow_caret(id, cx);
         self.sync_active_preview(cx);
         self.persist_session(cx);
@@ -2116,6 +2115,39 @@ impl RoundtripHost for AppStateHost {
         })
     }
 
+    fn bibliography(&self, cx: &App) -> Option<PathBuf> {
+        self.state.read(cx).bibliography.clone()
+    }
+
+    fn open_at(&self, path: &Path, offset: usize, window: &mut Window, cx: &mut App) -> bool {
+        self.state.update(cx, |state, cx| {
+            if state.open_path(path, window, cx).is_err() {
+                return false;
+            }
+            let Some(index) = state
+                .documents
+                .iter()
+                .position(|document| document.path.as_deref() == Some(path))
+            else {
+                return false;
+            };
+            let id = state.documents[index].id;
+            state.documents[index].reveal(offset, window, cx);
+            state.active = index;
+            state.follow_caret(id, cx);
+            state.sync_active_preview(cx);
+            state.persist_session(cx);
+            cx.notify();
+            true
+        })
+    }
+
+    fn edit_reference(&self, key: &str, window: &mut Window, cx: &mut App) -> Result<(), String> {
+        self.state.update(cx, |state, cx| {
+            state.open_bibliography_entry(key, window, cx)
+        })
+    }
+
     fn apply_replacement(
         &self,
         target: ReplacementTarget,
@@ -2207,49 +2239,6 @@ fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) 
 fn is_bibliography_path(path: Option<&Path>, bibliography: Option<&Path>) -> bool {
     path.zip(bibliography)
         .is_some_and(|(path, bibliography)| path == bibliography)
-}
-
-/// Byte offset of the BibTeX entry whose key matches `key`.
-///
-/// Entries start with `@type{key,` or `@type(key,`; the scan tolerates
-/// whitespace after the opening delimiter and ignores `@` signs inside field
-/// values. Keys compare case-insensitively, as BibTeX citations do.
-fn bibtex_entry_offset(text: &str, key: &str) -> Option<usize> {
-    let mut search = 0;
-    while let Some(relative) = text[search..].find('@') {
-        let at = search + relative;
-        search = at + 1;
-        let line_start = text[..at].rfind('\n').map_or(0, |index| index + 1);
-        if !text[line_start..at].trim().is_empty() {
-            continue;
-        }
-        let rest = &text[at + 1..];
-        let Some(open) = rest.find(['{', '(']) else {
-            break;
-        };
-        let entry_type = rest[..open].trim();
-        if entry_type.is_empty()
-            || !entry_type
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '-')
-        {
-            continue;
-        }
-        let entry_key: String = rest[open + 1..]
-            .trim_start()
-            .chars()
-            .take_while(|character| {
-                *character != ','
-                    && *character != '}'
-                    && *character != ')'
-                    && !character.is_whitespace()
-            })
-            .collect();
-        if entry_key.eq_ignore_ascii_case(key) {
-            return Some(at);
-        }
-    }
-    None
 }
 
 fn with_kept_tabs(status: String, kept: usize) -> String {
@@ -2419,34 +2408,6 @@ mod tests {
         ));
         assert!(!is_bibliography_path(None, Some(bibliography)));
         assert!(!is_bibliography_path(Some(bibliography), None));
-    }
-
-    #[test]
-    fn bibtex_entries_are_found_by_key() {
-        let text =
-            "@article{Kano2025,\n  title = {Gaze},\n}\n\n@book{Mila2023,\n  title = {Sclera},\n}\n";
-        assert_eq!(bibtex_entry_offset(text, "Kano2025"), Some(0));
-        assert_eq!(
-            bibtex_entry_offset(text, "mila2023"),
-            Some(text.find("@book").expect("second entry"))
-        );
-        assert_eq!(bibtex_entry_offset(text, "Kano"), None);
-        assert_eq!(bibtex_entry_offset(text, "Kano2025b"), None);
-    }
-
-    #[test]
-    fn bibtex_entries_allow_whitespace_and_parentheses() {
-        let text = "  @book (\n    Key2024 ,\n  title = {Title},\n)\n";
-        assert_eq!(bibtex_entry_offset(text, "Key2024"), Some(2));
-    }
-
-    #[test]
-    fn an_at_sign_inside_a_field_is_not_an_entry() {
-        let text = "@article{A,\n  note = {mail me @ home},\n}\n@article{B,\n}\n";
-        assert_eq!(
-            bibtex_entry_offset(text, "B"),
-            Some(text.find("@article{B").expect("second entry"))
-        );
     }
 
     #[test]

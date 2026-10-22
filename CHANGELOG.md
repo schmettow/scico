@@ -11,8 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Edit in BibTeX.** Every Library row has a pencil action. It opens the
   workspace bibliography (or focuses it when already open) and places the
-  caret on that key's entry. Saving or closing the bibliography bumps
-  `AppState::references_revision`, which makes the Library reload its rows.
+  caret on that key's entry. The action is the shared
+  `ragrig_gpui::editor` roundtrip (`ReferenceRow::on_edit`,
+  `RoundtripHost::edit_reference`, `EditorSurface::reveal`), so Sciscraper only
+  implements the tab and caret handling. Saving or closing the bibliography
+  bumps `AppState::references_revision`, which makes the Library reload its
+  rows.
 - **Workspace entry resets the view.** Creating or opening a workspace (New
   workspace, Open workspace, or a directory on the command line) closes every
   tab outside the new root, then opens the paper and the workspace

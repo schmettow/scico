@@ -20,7 +20,7 @@ use gpui_kit::{
 };
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use image::Frame;
-use ragrig_gpui::editor::{EditorSurface, byte_to_char_index};
+use ragrig_gpui::editor::{EditorSurface, byte_to_char_index, char_range_to_bytes};
 
 #[cfg(editor_gpuikit)]
 use gpui_kit::base::text::TextViewState;
@@ -551,6 +551,39 @@ impl EditorSurface for Document {
     fn focus(&self, window: &mut Window, cx: &mut App) {
         let handle = self.editor.read(cx).focus_handle(cx);
         window.focus(&handle, cx);
+    }
+
+    fn reveal(&self, offset: usize, window: &mut Window, cx: &mut App) {
+        let content = self.text(cx);
+        let byte = char_range_to_bytes(&content, offset..offset).start;
+        self.set_cursor(byte, cx);
+
+        // Zorite leaves scrolling to the host. The caret bounds come from the
+        // last paint and stay valid for a caret move that does not edit text.
+        #[cfg(editor_zorite)]
+        {
+            let editor = self.editor.read(cx);
+            if let Some(caret) = editor.caret_screen_bounds() {
+                let scroll = self.scroll.borrow();
+                let viewport = scroll.bounds();
+                if viewport.size.height > gpui_kit::px(0.) {
+                    let margin = gpui_kit::px(64.);
+                    let mut target = f32::from(scroll.offset().y);
+                    if caret.top() < viewport.top() + margin {
+                        target += f32::from(viewport.top() + margin - caret.top());
+                    } else if caret.bottom() > viewport.bottom() - margin {
+                        target -= f32::from(caret.bottom() - (viewport.bottom() - margin));
+                    }
+                    let max = f32::from(scroll.max_offset().y);
+                    scroll.set_offset(gpui_kit::point(
+                        gpui_kit::px(0.),
+                        gpui_kit::px(target.clamp(-max, 0.0)),
+                    ));
+                }
+            }
+        }
+
+        window.focus(&self.editor.read(cx).focus_handle(cx), cx);
     }
 }
 

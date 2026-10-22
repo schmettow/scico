@@ -401,12 +401,10 @@ impl LibraryPane {
 }
 
 impl LibraryPane {
-    /// Open the bibliography at this key, or focus it where already open.
+    /// Open the bibliography at this key through the roundtrip host.
     fn edit_in_bibtex(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
-        let state = self.state.clone();
-        let result = state.update(cx, |state, cx| {
-            state.open_bibliography_entry(&key, window, cx)
-        });
+        let agent = self.agent.clone();
+        let result = agent.update(cx, |agent, cx| agent.edit_reference(&key, window, cx));
         match result {
             Ok(()) => self.set_status(format!("Editing @{key} in the bibliography"), cx),
             Err(error) => self.set_status(error, cx),
