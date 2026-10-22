@@ -129,25 +129,60 @@ pub struct SciscraperApp {
 
 impl SciscraperApp {
     /// Build the state and both panes for a new window.
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    ///
+    /// `initial_workspace` is the directory named on the command line, if any.
+    /// It outranks the environment and the saved settings and is initialized
+    /// like **Open workspace**.
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        initial_workspace: Option<PathBuf>,
+    ) -> Self {
         let settings_path = std::env::var_os("SCISCRAPER_SETTINGS")
             .map(PathBuf::from)
             .unwrap_or_else(crate::settings::PersistedSettings::default_path);
         let session_path = std::env::var_os("SCISCRAPER_SESSION")
             .map(PathBuf::from)
             .unwrap_or_else(|| SessionState::path_for_settings(&settings_path));
-        Self::new_with_paths(window, cx, settings_path, session_path)
+        Self::new_with_paths_and_workspace(
+            window,
+            cx,
+            settings_path,
+            session_path,
+            initial_workspace,
+        )
     }
 
     /// Build a window with explicit persistence paths (used by tests).
+    #[cfg(test)]
     pub(crate) fn new_with_paths(
         window: &mut Window,
         cx: &mut Context<Self>,
         settings_path: PathBuf,
         session_path: PathBuf,
     ) -> Self {
+        Self::new_with_paths_and_workspace(window, cx, settings_path, session_path, None)
+    }
+
+    /// Build a window with explicit persistence paths and an initial workspace.
+    pub(crate) fn new_with_paths_and_workspace(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        settings_path: PathBuf,
+        session_path: PathBuf,
+        initial_workspace: Option<PathBuf>,
+    ) -> Self {
         let (persisted, load_error) = crate::settings::PersistedSettings::load(&settings_path);
-        let state = cx.new(|cx| AppState::new(window, cx, persisted, settings_path, session_path));
+        let state = cx.new(|cx| {
+            AppState::new(
+                window,
+                cx,
+                persisted,
+                settings_path,
+                session_path,
+                initial_workspace,
+            )
+        });
         if let Some(error) = load_error {
             state.update(cx, |state, cx| state.set_status(error, cx));
         }
@@ -1812,6 +1847,55 @@ mod tests {
         });
 
         let _ = std::fs::remove_dir_all(report.root);
+    }
+
+    #[gpui_kit::test]
+    fn a_command_line_workspace_is_initialized_and_opened(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        let root = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-cli-workspace-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).expect("empty workspace directory");
+        cx.update(|cx| {
+            ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
+            zorite_editor::bind_keys(cx);
+            bind_keys(cx);
+        });
+
+        let workspace = root.clone();
+        let (app, cx) = cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths_and_workspace(
+                window,
+                cx,
+                settings_path,
+                session_path,
+                Some(workspace),
+            )
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert_eq!(state.workspace.as_deref(), Some(root.as_path()));
+            assert!(root.join(".sciscraper/workspace.toml").is_file());
+            assert!(root.join("corpus").is_dir());
+            assert!(root.join(".ragrig").is_dir());
+            assert!(root.join("Untitled-1.md").is_file());
+            let document = state.active_document().expect("the homepage is open");
+            assert_eq!(
+                document.path.as_deref(),
+                Some(root.join("Untitled-1.md").as_path())
+            );
+
+            let (saved, error) = crate::settings::PersistedSettings::load(&state.settings_path);
+            assert!(error.is_none());
+            assert_eq!(saved.workspace, root.display().to_string());
+        });
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[gpui_kit::test]

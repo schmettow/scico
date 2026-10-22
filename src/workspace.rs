@@ -18,6 +18,7 @@
 //! records the discovered bibliography, documents, homepage, and the Ragrig
 //! data folder so later opens do not have to rediscover them.
 
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,6 +38,16 @@ pub const PROMPT_FILE: &str = "Scico.md";
 pub const DEFAULT_DOCUMENT: &str = "Untitled-1.md";
 /// What to tell the user after a workspace is ready.
 pub const INSTRUCTION: &str = "Add PDFs to the library and chat about them.";
+
+/// The first command-line argument when it names an existing directory.
+///
+/// `args` includes the program name, as `std::env::args_os()` does. A missing
+/// argument or a path that is not a directory yields `None`, so a plain
+/// launch behaves as before.
+pub fn directory_argument(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
+    let path = PathBuf::from(args.into_iter().nth(1)?);
+    path.is_dir().then_some(path)
+}
 
 /// The workspace descriptor stored in `.sciscraper/workspace.toml`.
 ///
@@ -426,6 +437,29 @@ mod tests {
             "sciscraper-workspace-{name}-{}-{unique}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn the_first_argument_is_a_workspace_only_when_it_is_a_directory() {
+        let root = scratch("arg");
+        fs::create_dir_all(&root).expect("root");
+        let program = OsString::from("sciscraper-gpui");
+
+        assert_eq!(
+            directory_argument([program.clone(), root.clone().into_os_string()]),
+            Some(root.clone())
+        );
+        assert_eq!(directory_argument([program.clone()]), None);
+
+        let file = root.join("paper.md");
+        fs::write(&file, "# Paper").expect("file");
+        assert_eq!(
+            directory_argument([program, file.into_os_string()]),
+            None,
+            "a file argument is not a workspace"
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

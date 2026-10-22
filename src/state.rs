@@ -108,14 +108,19 @@ impl AppState {
         persisted: PersistedSettings,
         settings_path: PathBuf,
         session_path: PathBuf,
+        initial_workspace: Option<PathBuf>,
     ) -> Self {
         let mut rag_values = RagSettings::default();
         persisted.apply_to(&mut rag_values);
 
         // A workspace is only scaffolded when it was actually configured; an
-        // implicit current-directory fallback must not sprout files.
-        let configured_workspace = std::env::var_os("SCISCRAPER_WORKSPACE")
-            .map(PathBuf::from)
+        // implicit current-directory fallback must not sprout files. An
+        // explicit workspace argument outranks the environment and the saved
+        // settings, because the user just named it on the command line.
+        let cli_workspace = initial_workspace.filter(|path| path.is_dir());
+        let requested_by_cli = cli_workspace.is_some();
+        let configured_workspace = cli_workspace
+            .or_else(|| std::env::var_os("SCISCRAPER_WORKSPACE").map(PathBuf::from))
             .or_else(|| non_empty_path(&persisted.workspace))
             .or_else(|| std::env::var_os("RAGRIG_WORKSPACE").map(PathBuf::from));
         let workspace_explicit = configured_workspace.is_some();
@@ -130,6 +135,11 @@ impl AppState {
                     None
                 }
             });
+        let workspace_status = if requested_by_cli {
+            workspace_report.as_ref().map(|report| report.status(false))
+        } else {
+            None
+        };
         let workspace = workspace_report
             .as_ref()
             .map(|report| report.root.clone())
@@ -346,10 +356,19 @@ impl AppState {
         }
         if let Some(error) = session_error {
             state.set_status(error, cx);
-        } else if startup_status.starts_with("RAG settings") {
+        } else if startup_status.starts_with("RAG settings")
+            || startup_status.starts_with("Workspace:")
+        {
             state.set_status(startup_status, cx);
+        } else if let Some(status) = workspace_status {
+            state.set_status(status, cx);
         }
         state.persist_session(cx);
+        if requested_by_cli {
+            // Remember the directory named on the command line, so the next
+            // plain launch reopens the same workspace.
+            state.persist(cx);
+        }
 
         // Persist Ragrig edits even before the user presses Apply, and keep the
         // app's bibliography/workspace in step with the settings page.

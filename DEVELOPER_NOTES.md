@@ -125,6 +125,11 @@ my-paper/
 - **New workspace** (`Ctrl+Shift+N`, folder-plus button) asks for a new folder
   and creates the full scaffold. A non-empty target is refused rather than
   overwritten.
+- **Command line.** If the first argument is a directory
+  (`sciscraper-gpui ~/my-paper`), it is adopted like **Open workspace** and
+  initialized on demand. It outranks `SCISCRAPER_WORKSPACE` and the saved
+  settings, and the choice is written back to the settings file. A file or a
+  missing path is ignored.
 - **Open workspace** (`Ctrl+Shift+O`, folder button) adopts an existing
   directory and adds only what is missing: `corpus/`, `.ragrig/` with
   `profiles/` and `sessions/`, a `.bib` when the workspace has none, and
@@ -426,10 +431,11 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 64 unit tests plus the protocol integration test, covering the
+Current suite: 66 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
-context budgeting, PDF ingestion naming, window mounting, typing, Ctrl+Arrow
+context budgeting, PDF ingestion naming, command-line workspace adoption and
+scaffolding, window mounting, typing, Ctrl+Arrow
 word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded

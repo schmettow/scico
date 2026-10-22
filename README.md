@@ -165,6 +165,8 @@ my-paper/
 - **New workspace** creates the whole set in an empty folder.
 - **Open workspace** adopts an existing folder and adds only what is missing.
   A folder that already contains a paper and a `.bib` is adopted as it is.
+- **From a terminal**, `sciscraper-gpui ~/my-paper` opens that folder as a
+  workspace, creating the missing pieces on the first visit.
 - **Nothing is hidden in a cloud account.** Copy the folder to a backup drive,
   a shared project space, or an archive when the paper is done.
 - Settings are layered: your global preferences first, then the workspace's

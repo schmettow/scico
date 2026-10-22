@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use gpui_kit::{AppContext as _, WindowBounds, WindowOptions, px, size};
-use sciscraper_gpui::app;
+use sciscraper_gpui::{app, workspace};
 
 /// The desktop mark rasterised from `assets/logo/Scico square.svg`.
 ///
@@ -21,6 +21,10 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 }
 
 fn main() {
+    // `sciscraper-gpui ~/my-paper` opens that directory as a workspace and
+    // scaffolds anything it is missing. Other arguments are left alone.
+    let initial_workspace = workspace::directory_argument(std::env::args_os());
+
     gpui_kit::application()
         // The complete Lucide catalog: the default `Assets` bundle omits many
         // icons the UI uses (Store, Chunker, Save, Sparkles, Pencil, X, …).
@@ -42,8 +46,8 @@ fn main() {
                 ..Default::default()
             };
 
-            if let Err(error) = gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| app::SciscraperApp::new(window, cx))
+            if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
+                cx.new(move |cx| app::SciscraperApp::new(window, cx, initial_workspace.clone()))
             }) {
                 eprintln!("failed to open the Sciscraper window: {error:#}");
             }

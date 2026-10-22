@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Command-line workspace.** `sciscraper-gpui <directory>` adopts an existing
+  directory exactly like **Open workspace**: missing `corpus/`, `.ragrig/`,
+  `.sciscraper/`, bibliography, and `Untitled-1.md` are created, the homepage
+  opens, and the choice is remembered for the next launch. The argument
+  outranks `SCISCRAPER_WORKSPACE` and the persisted workspace; a file or a
+  non-existent path is ignored.
 - **Writer-facing README.** The README is now a guide for researchers and
   students: quick start, the edit/enrich roundtrip, library and citations,
   workspaces, shortcuts, privacy, and troubleshooting. The technical material
