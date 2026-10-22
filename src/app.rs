@@ -2072,6 +2072,66 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn editing_a_reference_opens_and_jumps_to_its_entry(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        cx.update(|cx| {
+            ragrig_gpui::init(cx);
+            #[cfg(editor_zorite)]
+            zorite_editor::bind_keys(cx);
+            bind_keys(cx);
+        });
+
+        let root = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-bib-edit-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).expect("workspace directory");
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        std::fs::write(
+            &report.bibliography,
+            "@article{First2020,\n  title = {First},\n}\n\n@book{Kano2025,\n  title = {Second},\n}\n",
+        )
+        .expect("bibliography");
+
+        let workspace = report.root.clone();
+        let (app, cx) = cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths_and_workspace(
+                window,
+                cx,
+                settings_path,
+                session_path,
+                Some(workspace),
+            )
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let result = cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.open_bibliography_entry("Kano2025", window, cx)
+            })
+        });
+        assert!(result.is_ok(), "the entry opens: {result:?}");
+
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            let document = state.active_document().expect("bibliography is active");
+            assert_eq!(
+                document.path.as_deref(),
+                Some(report.bibliography.as_path())
+            );
+            assert_eq!(
+                document.cursor_position(cx).0,
+                4,
+                "the caret is on the @book line"
+            );
+        });
+
+        let _ = std::fs::remove_dir_all(report.root);
+    }
+
+    #[gpui_kit::test]
     fn typing_reaches_the_editor_and_marks_it_dirty(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let editor = cx.update(|_, cx| {

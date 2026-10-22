@@ -266,6 +266,11 @@ target stays bound to the tab the passage came from.
   one undo step.
   The copy-key, copy-path, and open actions stay visible on every row and
   become fully opaque on hover.
+- The pencil action opens the bibliography at the entry for that key
+  (`open_bibliography_entry` → `bibtex_entry_offset`) and focuses it when it is
+  already open. Saving or closing the bibliography bumps
+  `references_revision`; the Library observes it and calls
+  `refresh_references`, so the rows reflect the edited `.bib`.
 - The open action uses the viewer assigned in **Settings → Library → External
   viewers** (PDF, EPUB, and HTML), or the platform default when the field is
   empty.
@@ -440,7 +445,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 68 unit tests plus the protocol integration test, covering the
+Current suite: 73 unit tests plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, command-line workspace adoption and
@@ -450,7 +455,8 @@ word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, persistent edit decorations
-with the read-only guard, incremental Markdown/BibTeX highlighting, editor font
+with the read-only guard, the Library's BibTeX jump and bibliography file
+lookup, incremental Markdown/BibTeX highlighting, editor font
 defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
 both directions (including soft-wrapped paragraphs), and the Scico marks,
 their colour retention, and the window icon.

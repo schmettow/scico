@@ -61,6 +61,9 @@ pub struct AppState {
     pub ragrig_dir: PathBuf,
     /// The bibliography shown by the library.
     pub bibliography: Option<PathBuf>,
+    /// Bumped when the bibliography document is saved or closed, so the
+    /// Library pane reloads its rows.
+    pub references_revision: u64,
     /// Attach the active document to each question.
     pub document_attached: bool,
     /// Attach the bibliography to each question.
@@ -306,6 +309,7 @@ impl AppState {
             corpus,
             ragrig_dir,
             bibliography,
+            references_revision: 0,
             document_attached,
             library_attached,
             show_library,
@@ -798,6 +802,58 @@ impl AppState {
         Ok(())
     }
 
+    /// Ask the Library pane to reload the bibliography rows.
+    fn references_changed(&mut self, cx: &mut Context<Self>) {
+        self.references_revision = self.references_revision.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// Bump the bibliography revision when `id` is the bibliography document.
+    fn note_saved_document(&mut self, id: u64, cx: &mut Context<Self>) {
+        let path = self
+            .document(id)
+            .and_then(|document| document.path.as_deref());
+        if is_bibliography_path(path, self.bibliography.as_deref()) {
+            self.references_changed(cx);
+        }
+    }
+
+    /// Open the bibliography and place the caret on the entry for `key`.
+    ///
+    /// The file is focused where it already is open. A missing entry still
+    /// opens the bibliography, then reports why it cannot jump.
+    pub fn open_bibliography_entry(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Some(path) = self.bibliography.clone() else {
+            return Err("No bibliography configured".to_owned());
+        };
+        self.open_path(&path, window, cx)?;
+        let Some(index) = self
+            .documents
+            .iter()
+            .position(|document| document.path.as_deref() == Some(path.as_path()))
+        else {
+            return Err(format!("{} is not open", path.display()));
+        };
+        let text = self.documents[index].text(cx);
+        let Some(offset) = bibtex_entry_offset(&text, key) else {
+            return Err(format!("Entry @{key} is not in {}", path.display()));
+        };
+        let id = self.documents[index].id;
+        self.documents[index].set_cursor(offset, cx);
+        self.active = index;
+        window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
+        self.follow_caret(id, cx);
+        self.sync_active_preview(cx);
+        self.persist_session(cx);
+        cx.notify();
+        Ok(())
+    }
+
     /// Save the active document to its existing path.
     pub fn save_active(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
         let id = self.active_document().map(|document| document.id);
@@ -809,6 +865,7 @@ impl AppState {
             Ok(()) => {
                 if let Some(id) = id {
                     self.refresh_prompt_from_document(id, cx);
+                    self.note_saved_document(id, cx);
                 }
                 let name = self
                     .active_document()
@@ -831,6 +888,7 @@ impl AppState {
         match &result {
             Ok(()) => {
                 self.refresh_prompt_from_document(id, cx);
+                self.note_saved_document(id, cx);
                 self.persist_session(cx);
             }
             Err(error) => self.set_status(error.clone(), cx),
@@ -852,6 +910,7 @@ impl AppState {
         match &result {
             Ok(()) => {
                 self.refresh_prompt_from_document(id, cx);
+                self.note_saved_document(id, cx);
                 let name = self
                     .document(id)
                     .map(|document| document.title.clone())
@@ -885,7 +944,12 @@ impl AppState {
             );
             return;
         }
+        let closed_bibliography =
+            is_bibliography_path(document.path.as_deref(), self.bibliography.as_deref());
         self.documents.remove(self.active);
+        if closed_bibliography {
+            self.references_changed(cx);
+        }
         if self.documents.is_empty() {
             self.active = 0;
             // The caller supplies the window in the normal path; a closed last
@@ -2139,6 +2203,55 @@ fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) 
     }
 }
 
+/// Whether `path` is the workspace bibliography.
+fn is_bibliography_path(path: Option<&Path>, bibliography: Option<&Path>) -> bool {
+    path.zip(bibliography)
+        .is_some_and(|(path, bibliography)| path == bibliography)
+}
+
+/// Byte offset of the BibTeX entry whose key matches `key`.
+///
+/// Entries start with `@type{key,` or `@type(key,`; the scan tolerates
+/// whitespace after the opening delimiter and ignores `@` signs inside field
+/// values. Keys compare case-insensitively, as BibTeX citations do.
+fn bibtex_entry_offset(text: &str, key: &str) -> Option<usize> {
+    let mut search = 0;
+    while let Some(relative) = text[search..].find('@') {
+        let at = search + relative;
+        search = at + 1;
+        let line_start = text[..at].rfind('\n').map_or(0, |index| index + 1);
+        if !text[line_start..at].trim().is_empty() {
+            continue;
+        }
+        let rest = &text[at + 1..];
+        let Some(open) = rest.find(['{', '(']) else {
+            break;
+        };
+        let entry_type = rest[..open].trim();
+        if entry_type.is_empty()
+            || !entry_type
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        {
+            continue;
+        }
+        let entry_key: String = rest[open + 1..]
+            .trim_start()
+            .chars()
+            .take_while(|character| {
+                *character != ','
+                    && *character != '}'
+                    && *character != ')'
+                    && !character.is_whitespace()
+            })
+            .collect();
+        if entry_key.eq_ignore_ascii_case(key) {
+            return Some(at);
+        }
+    }
+    None
+}
+
 fn with_kept_tabs(status: String, kept: usize) -> String {
     if kept == 0 {
         status
@@ -2295,6 +2408,46 @@ pub fn replacement_from_answer(answer: &str) -> Option<(String, Vec<Replacement>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_bibliography_path_is_recognised() {
+        let bibliography = Path::new("/tmp/refs.bib");
+        assert!(is_bibliography_path(Some(bibliography), Some(bibliography)));
+        assert!(!is_bibliography_path(
+            Some(Path::new("/tmp/paper.md")),
+            Some(bibliography)
+        ));
+        assert!(!is_bibliography_path(None, Some(bibliography)));
+        assert!(!is_bibliography_path(Some(bibliography), None));
+    }
+
+    #[test]
+    fn bibtex_entries_are_found_by_key() {
+        let text =
+            "@article{Kano2025,\n  title = {Gaze},\n}\n\n@book{Mila2023,\n  title = {Sclera},\n}\n";
+        assert_eq!(bibtex_entry_offset(text, "Kano2025"), Some(0));
+        assert_eq!(
+            bibtex_entry_offset(text, "mila2023"),
+            Some(text.find("@book").expect("second entry"))
+        );
+        assert_eq!(bibtex_entry_offset(text, "Kano"), None);
+        assert_eq!(bibtex_entry_offset(text, "Kano2025b"), None);
+    }
+
+    #[test]
+    fn bibtex_entries_allow_whitespace_and_parentheses() {
+        let text = "  @book (\n    Key2024 ,\n  title = {Title},\n)\n";
+        assert_eq!(bibtex_entry_offset(text, "Key2024"), Some(2));
+    }
+
+    #[test]
+    fn an_at_sign_inside_a_field_is_not_an_entry() {
+        let text = "@article{A,\n  note = {mail me @ home},\n}\n@article{B,\n}\n";
+        assert_eq!(
+            bibtex_entry_offset(text, "B"),
+            Some(text.find("@article{B").expect("second entry"))
+        );
+    }
 
     #[test]
     fn replacement_blocks_round_trip() {

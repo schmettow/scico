@@ -139,6 +139,8 @@ instead, so nothing is lost.
 - **Click a reference** to insert its `@key` at the caret. Select several rows
   with **+** to insert a citation group such as `[@Kano2025, @Mila2023]`,
   attach the PDFs to your next question, or copy keys and file paths.
+- The **pencil** action opens the workspace bibliography at that entry. Save
+  or close the `.bib` file and the Library reloads the changed metadata.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
 - **GROBID** (optional) reads PDF headers and fills in authors, title, year,
   and DOI. Running the GROBID container locally is enough; Scico will use it

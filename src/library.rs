@@ -43,6 +43,7 @@ pub struct LibraryPane {
     status: SharedString,
     index_after_references: bool,
     last_paths: (Option<PathBuf>, Option<PathBuf>),
+    references_revision: u64,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -66,14 +67,25 @@ impl LibraryPane {
         subscriptions.push(cx.subscribe(&controller, |this, _, event: &RagEvent, cx| {
             this.on_rag_event(event.clone(), cx);
         }));
-        subscriptions.push(cx.observe(&state, |this, _, cx| {
-            this.sync_paths(cx);
+        subscriptions.push(cx.observe(&state, |this, state, cx| {
+            let revision = state.read(cx).references_revision;
+            let paths_changed = this.sync_paths(cx);
+            if revision != this.references_revision {
+                this.references_revision = revision;
+                if !paths_changed {
+                    this.refresh_references(cx);
+                }
+            }
             cx.notify();
         }));
 
-        let (corpus, bibliography) = {
+        let (corpus, bibliography, references_revision) = {
             let state = state.read(cx);
-            (state.corpus.clone(), state.bibliography.clone())
+            (
+                state.corpus.clone(),
+                state.bibliography.clone(),
+                state.references_revision,
+            )
         };
         let last_paths = (corpus.clone(), bibliography.clone());
         let mut this = Self {
@@ -87,6 +99,7 @@ impl LibraryPane {
             status: "Choose a corpus folder, then Index.".into(),
             index_after_references: false,
             last_paths,
+            references_revision,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -108,7 +121,7 @@ impl LibraryPane {
         cx.notify();
     }
 
-    fn sync_paths(&mut self, cx: &mut Context<Self>) {
+    fn sync_paths(&mut self, cx: &mut Context<Self>) -> bool {
         let (corpus, bibliography) = {
             let state = self.state.read(cx);
             (state.corpus.clone(), state.bibliography.clone())
@@ -118,7 +131,9 @@ impl LibraryPane {
             self.last_paths = next.clone();
             self.bibliography = next.1;
             self.refresh_references(cx);
+            return true;
         }
+        false
     }
 
     fn refresh_references(&mut self, cx: &mut Context<Self>) {
@@ -385,6 +400,20 @@ impl LibraryPane {
     }
 }
 
+impl LibraryPane {
+    /// Open the bibliography at this key, or focus it where already open.
+    fn edit_in_bibtex(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let result = state.update(cx, |state, cx| {
+            state.open_bibliography_entry(&key, window, cx)
+        });
+        match result {
+            Ok(()) => self.set_status(format!("Editing @{key} in the bibliography"), cx),
+            Err(error) => self.set_status(error, cx),
+        }
+    }
+}
+
 impl Render for LibraryPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -560,6 +589,7 @@ impl Render for LibraryPane {
                 shown += 1;
                 let key = entry.key.clone();
                 let row_key = key.clone();
+                let edit_key = key.clone();
                 let is_selected = self.selected.contains(&key);
                 let path = entry.path.clone();
                 let title = entry.display_title().to_owned();
@@ -628,6 +658,16 @@ impl Render for LibraryPane {
                         .disabled(true)
                         .tooltip("No PDF path"),
                 };
+                let edit_bib =
+                    Button::new(ElementId::Name(format!("library-edit-bib-{index}").into()))
+                        .icon(IconName::Pencil)
+                        .xsmall()
+                        .ghost()
+                        .tooltip("Edit in BibTeX")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.edit_in_bibtex(edit_key.clone(), window, cx);
+                        }));
                 let select = Button::new(ElementId::Name(format!("library-select-{index}").into()))
                     .icon(if is_selected {
                         IconName::Check
@@ -703,6 +743,7 @@ impl Render for LibraryPane {
                             .gap_1()
                             .opacity(0.45)
                             .group_hover("library-row", |row| row.opacity(1.0))
+                            .child(edit_bib)
                             .child(copy_key)
                             .child(copy_path)
                             .child(open_paper),
