@@ -184,6 +184,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A malformed workspace bibliography now reports
+  `cannot parse '<path>' at line 5 (@Broken): expected =` in the Library status
+  instead of a raw byte span. The loader locates the entry with the shared
+  `editor::bibtex_entry_location`; a file that cannot be read names the
+  reference being looked up.
 - Zorite builds again with the default feature set. Cargo features are
   additive, so `--features zorite` and `--all-features` used to compile both
   editor backends and collide in `EditorSurface` and the editor state

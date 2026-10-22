@@ -438,6 +438,10 @@ The following were fixed in `ragrig-gpui` during development:
   gained the optional `on_edit` action, so the pencil is part of the shared
   reference UI rather than this app. `AppStateHost` overrides `edit_reference`
   to use the open buffer, because an unsaved `.bib` must not be read from disk.
+- A malformed bibliography now reaches the Library status as
+  `cannot parse '<path>' at line N (@Key): <reason>` instead of a byte span;
+  `editor::bibtex_entry_location` maps the parser span to the line and the
+  nearest entry header.
 
 ## Checks
 
