@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use gpui_kit::ScrollHandle;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
@@ -91,7 +91,7 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
     // The gpui-kit editor owns its keymap, including word jumps and page
     // movement. The zorite backend needs the conventional Linux bindings and
     // the host-side page actions because it does not install them itself.
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     cx.bind_keys([
         KeyBinding::new("ctrl-left", zorite_editor::WordLeft, Some("Editor")),
         KeyBinding::new("ctrl-right", zorite_editor::WordRight, Some("Editor")),
@@ -452,7 +452,7 @@ impl SciscraperApp {
 
     /// Move or extend the caret by one viewport using the editor's own
     /// goal-column movement. The gpuikit editor binds page movement itself.
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     fn editor_page(&mut self, up: bool, select: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some((editor, scroll)) = self
             .state
@@ -487,7 +487,7 @@ impl SciscraperApp {
         }
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn editor_page(
         &mut self,
         _up: bool,
@@ -516,11 +516,11 @@ impl SciscraperApp {
     }
 
     fn toggle_preview(&mut self, _: &TogglePreview, _: &mut Window, cx: &mut Context<Self>) {
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.state.update(cx, |state, cx| {
             state.set_show_preview(!state.show_preview, cx);
         });
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         self.state.update(cx, |state, cx| {
             let raw = !state.raw_mode;
             state.set_raw_mode(raw, cx);
@@ -815,16 +815,16 @@ impl SciscraperApp {
     fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (preview_on, show_library, show_agent) = {
             let state = self.state.read(cx);
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             let preview_on = state.show_preview;
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             let preview_on = !state.raw_mode;
             (preview_on, state.show_library, state.show_agent)
         };
         let theme = cx.theme();
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let preview_label = if preview_on { "Preview" } else { "Preview off" };
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         let preview_label = if preview_on { "Preview" } else { "Raw" };
 
         h_flex()
@@ -914,14 +914,14 @@ impl SciscraperApp {
                     .small()
                     .selected(preview_on)
                     .ghost()
-                    .when(cfg!(feature = "gpuikit"), |button| {
+                    .when(cfg!(editor_gpuikit), |button| {
                         button.icon(if preview_on {
                             IconName::PanelRightClose
                         } else {
                             IconName::PanelRightOpen
                         })
                     })
-                    .tooltip(if cfg!(feature = "gpuikit") {
+                    .tooltip(if cfg!(editor_gpuikit) {
                         if preview_on {
                             "Hide the rendered preview (Ctrl+Shift+E)"
                         } else {
@@ -1094,11 +1094,11 @@ impl SciscraperApp {
     }
 
     fn editor(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         {
             self.editor_zorite(window, cx)
         }
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         {
             let _ = window;
             self.editor_gpuikit(cx)
@@ -1138,7 +1138,7 @@ impl SciscraperApp {
             .into_any_element()
     }
 
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     fn editor_zorite(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let editor = {
@@ -1218,7 +1218,7 @@ impl SciscraperApp {
             .into_any_element()
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn editor_gpuikit(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let active = {
@@ -1585,7 +1585,7 @@ mod tests {
     fn mount(cx: &mut TestAppContext) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -1602,7 +1602,7 @@ mod tests {
     ) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -1628,7 +1628,7 @@ mod tests {
 
     /// Run deferred work and lay the window out repeatedly, as a real event
     /// loop does while a multi-layout scroll correction converges.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn pump_frames(cx: &mut VisualTestContext, frames: usize) {
         for _ in 0..frames {
             cx.executor()
@@ -1860,7 +1860,7 @@ mod tests {
         std::fs::create_dir_all(&root).expect("empty workspace directory");
         cx.update(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -1939,7 +1939,7 @@ mod tests {
         let (settings_path, session_path) = scratch_paths();
         cx.update(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -2008,7 +2008,7 @@ mod tests {
         let (settings_path, session_path) = scratch_paths();
         cx.update(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             bind_keys(cx);
         });
@@ -2126,16 +2126,16 @@ mod tests {
         let (app, cx) = mount(cx);
         cx.simulate_keystrokes("ctrl-shift-e");
         cx.update(|_, cx| {
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             assert!(!app.read(cx).state.read(cx).show_preview);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             assert!(app.read(cx).state.read(cx).raw_mode);
         });
         cx.simulate_keystrokes("ctrl-shift-e");
         cx.update(|_, cx| {
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             assert!(app.read(cx).state.read(cx).show_preview);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             assert!(!app.read(cx).state.read(cx).raw_mode);
         });
     }
@@ -2302,7 +2302,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     #[gpui_kit::test]
     fn page_keys_move_by_a_viewport(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -2397,7 +2397,7 @@ mod tests {
             );
         });
 
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let editor = cx.update(|_, cx| {
             app.read(cx)
                 .state
@@ -2424,7 +2424,7 @@ mod tests {
                     .count(),
                 1
             );
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             assert!(
                 editor.read(cx).selected_range().is_empty(),
                 "cancelling collapses the native selection"
@@ -2432,7 +2432,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn a_locked_editor_still_accepts_agent_insertions(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -2525,8 +2525,8 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "gpuikit")]
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn ctrl_wheel_zooms_the_editor_font(cx: &mut TestAppContext) {
         use gpui_kit::InputEvent as _;
@@ -2609,7 +2609,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn documents_choose_a_language_from_their_path(cx: &mut TestAppContext) {
         let (settings, session) = scratch_paths();
@@ -2706,7 +2706,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn scroll_sync_follows_the_editor(cx: &mut TestAppContext) {
         use gpui_kit::InputEvent as _;
@@ -2756,7 +2756,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn block_sync_survives_soft_wrapping(cx: &mut TestAppContext) {
         use gpui_kit::InputEvent as _;
@@ -2804,7 +2804,7 @@ mod tests {
         assert!(top > 0, "wrapped paragraphs must still advance the preview");
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn preview_sync_survives_soft_wrapping(cx: &mut TestAppContext) {
         use gpui_kit::InputEvent as _;
@@ -2856,7 +2856,7 @@ mod tests {
         });
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn scrolling_the_preview_moves_the_editor_without_jumping_back(cx: &mut TestAppContext) {
         use gpui_kit::InputEvent as _;

@@ -597,7 +597,7 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
 
     let editor_group = {
         let group = SettingGroup::new().title("Editor");
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let group = {
             let show_preview = state_switch(
                 state.clone(),
@@ -622,7 +622,7 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
                         .description("Keep the source and the preview on the same Markdown block."),
                 )
         };
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         let group = {
             let live_preview = state_switch(
                 state.clone(),

@@ -1,14 +1,18 @@
 //! Sciscraper GPUI entry point.
 
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use std::sync::Arc;
 
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{AppContext as _, WindowBounds, WindowOptions, px, size};
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use sciscraper_gpui::{app, workspace};
 
 /// The desktop mark rasterised from `assets/logo/Scico square.svg`.
 ///
 /// GPUI's window icon takes RGBA pixels, so the vector master is rendered once
 /// to a 256 px PNG next to it. Re-render the PNG when the SVG changes.
+#[cfg(any(editor_zorite, editor_gpuikit))]
 fn window_icon() -> Option<Arc<image::RgbaImage>> {
     let bytes = include_bytes!("../assets/logo/Scico-square.png");
     match image::load_from_memory(bytes) {
@@ -20,6 +24,7 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
     }
 }
 
+#[cfg(any(editor_zorite, editor_gpuikit))]
 fn main() {
     // `sciscraper-gpui ~/my-paper` opens that directory as a workspace and
     // scaffolds anything it is missing. Other arguments are left alone.
@@ -31,7 +36,7 @@ fn main() {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(|cx| {
             ragrig_gpui::init(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             app::bind_keys(cx);
 
@@ -53,3 +58,8 @@ fn main() {
             }
         });
 }
+
+/// The library reports which backend to enable; the binary target still needs
+/// a `main` so that report is the only configuration error.
+#[cfg(not(any(editor_zorite, editor_gpuikit)))]
+fn main() {}

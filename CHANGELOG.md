@@ -176,6 +176,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Zorite builds again with the default feature set. Cargo features are
+  additive, so `--features zorite` and `--all-features` used to compile both
+  editor backends and collide in `EditorSurface` and the editor state
+  (33 cascading errors). `build.rs` now resolves one backend: zorite when it
+  is enabled, gpuikit otherwise. Both were already aligned with the
+  `ragrig-gpui` roundtrip traits; the failure was feature coexistence.
 - The welcome square keeps its colours. GPUI paints `svg()` elements as a
   monochrome alpha mask, so the mark is now rendered from the rasterised PNG
   through `img` instead of the SVG. `Scico icon.svg` was redrawn as a

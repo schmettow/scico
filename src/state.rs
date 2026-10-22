@@ -5,13 +5,13 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 use gpui_kit::base::input::RopeExt as _;
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 use gpui_kit::base::text::TextViewState;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
-#[cfg(any(feature = "zorite", feature = "gpuikit"))]
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{point, px};
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
@@ -19,7 +19,7 @@ use ragrig_gpui::editor::{
     SelectionSnapshot, replace_at, verified_bytes,
 };
 use ragrig_gpui::{ChatProvider, MemoryChoice, RagChanges, RagController, RagSettings};
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use zorite_editor::EditorEvent;
 
 use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_for};
@@ -86,10 +86,10 @@ pub struct AppState {
     /// Memory strategy restored when the status bar switches Chat memory on.
     pub last_memory: MemoryChoice,
     /// Cancels older deferred scroll and preview refreshes.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     preview_sync_generation: u64,
     /// Monotonic token that cancels an older caret-follow animation.
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     scroll_generation: u64,
     /// Monotonic token that keeps only the newest debounced session write.
     session_generation: u64,
@@ -318,9 +318,9 @@ impl AppState {
             editor_font,
             editor_font_size,
             last_memory,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_sync_generation: 0,
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             scroll_generation: 0,
             session_generation: 0,
             raw_mode,
@@ -457,9 +457,9 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.subscribe_editor(&document.editor, &document.preview, id, cx);
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -510,9 +510,9 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.subscribe_editor(&document.editor, &document.preview, id, cx);
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -646,9 +646,9 @@ impl AppState {
                     raw: self.raw_mode,
                 },
             );
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             self.subscribe_editor(&document.editor, &document.preview, id, cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             self.subscribe_editor(&document.editor, id, cx);
             document.set_cursor(snapshot.cursor, cx);
             let mut document = document;
@@ -782,9 +782,9 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.subscribe_editor(&document.editor, &document.preview, id, cx);
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -938,7 +938,7 @@ impl AppState {
             return;
         }
         self.raw_mode = raw;
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         {
             let style = self.style.clone();
             for document in &self.documents {
@@ -1045,7 +1045,7 @@ impl AppState {
     /// while a preview-driven editor scroll is still being applied, otherwise
     /// the approximate line-to-pixel mapping could pull the preview back to a
     /// different block than the one the user chose.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn sync_preview_to_editor(&mut self, id: u64, cx: &mut Context<Self>) {
         if !self.sync_scroll || !self.show_preview {
             return;
@@ -1084,7 +1084,7 @@ impl AppState {
 
     /// Schedule a source follow-up once the editor has laid out a new scroll
     /// position; `range_to_bounds` reads the previous frame.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn schedule_source_sync(&mut self, id: u64, cx: &mut Context<Self>) {
         self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
         let generation = self.preview_sync_generation;
@@ -1102,7 +1102,7 @@ impl AppState {
     }
 
     /// Re-align once the preview has parsed the text an edit produced.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn schedule_preview_realign(&mut self, id: u64, cx: &mut Context<Self>) {
         self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
         let generation = self.preview_sync_generation;
@@ -1127,7 +1127,7 @@ impl AppState {
     /// ratio). [`Self::probe_preview_sync`] then brackets the exact offset from
     /// the editor's layouts, which also covers wrapped text where the estimate
     /// is far off.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn preview_scrolled(
         &mut self,
         id: u64,
@@ -1217,7 +1217,7 @@ impl AppState {
     }
 
     /// Schedule the next look at the editor's laid-out viewport.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn schedule_preview_probe(&mut self, id: u64, cx: &mut Context<Self>) {
         let generation = self.preview_sync_generation;
         cx.spawn(async move |this, cx| {
@@ -1240,7 +1240,7 @@ impl AppState {
     /// to read the *new* layout. The mapping from scroll offset to top block is
     /// monotonic, so bisection converges even when soft wrap makes the initial
     /// pixel estimate useless.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn probe_preview_sync(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(document) = self.document(id) else {
             return;
@@ -1365,14 +1365,14 @@ impl AppState {
         self.schedule_preview_probe(id, cx);
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn sync_active_preview(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.active_document().map(|document| document.id) {
             self.sync_preview_to_editor(id, cx);
         }
     }
 
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     fn sync_active_preview(&mut self, _cx: &mut Context<Self>) {}
 
     /// Adopt a prepared workspace: paths, layered RAG settings, and prompt.
@@ -1777,7 +1777,7 @@ impl AppState {
     /// scrolling: abort instead of fighting the gesture. Each call bumps a
     /// generation, so key repeat retargets the follow rather than stacking
     /// scroll tasks.
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     fn follow_caret(&mut self, id: u64, cx: &mut Context<Self>) {
         if self.active_document().map(|document| document.id) != Some(id) {
             return;
@@ -1855,17 +1855,17 @@ impl AppState {
         .detach();
     }
 
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     fn follow_caret(&mut self, _id: u64, _cx: &mut Context<Self>) {}
 
     fn subscribe_editor(
         &mut self,
         editor: &Entity<EditorState>,
-        #[cfg(feature = "gpuikit")] preview: &Entity<TextViewState>,
+        #[cfg(editor_gpuikit)] preview: &Entity<TextViewState>,
         id: u64,
         cx: &mut Context<Self>,
     ) {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         cx.subscribe(
             editor,
             move |this, _, event: &EditorEvent, cx| match event {
@@ -1922,7 +1922,7 @@ impl AppState {
             // next edit, save, or close journal them. Writing (and fsyncing) the
             // whole session on every arrow key is what made key repeat stutter.
             if content_changed {
-                #[cfg(feature = "gpuikit")]
+                #[cfg(editor_gpuikit)]
                 {
                     if let Some(document) = this.document_mut(id) {
                         document.refresh_preview(&text, cx);
@@ -1938,7 +1938,7 @@ impl AppState {
             if content_changed || cursor_moved || dirty_changed {
                 cx.notify();
             }
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             {
                 let offset = this
                     .document(id)
@@ -1973,7 +1973,7 @@ impl AppState {
         })
         .detach();
 
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         {
             // The list does not notify its entity on wheel scrolls; this is
             // the reliable signal that the user drives the preview.
@@ -2240,7 +2240,7 @@ pub fn is_monospace_font(name: &str) -> bool {
 /// editor's display map. The estimate and the walk are both in wrapped display
 /// rows, which is exactly what makes the preview jump with paragraphs instead
 /// of drifting proportionally.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 fn source_top_line(editor: &EditorState) -> Option<usize> {
     let line_height = f32::from(editor.line_height()?);
     if line_height <= 0.0 {
@@ -2275,7 +2275,7 @@ fn source_top_line(editor: &EditorState) -> Option<usize> {
 }
 
 /// The block at the top of the editor's viewport.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 pub(crate) fn source_top_block(document: &Document, cx: &App) -> Option<usize> {
     if document.blocks.is_empty() {
         return None;

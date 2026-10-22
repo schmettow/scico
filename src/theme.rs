@@ -1,13 +1,13 @@
 //! Theme glue for the Markdown editor.
 
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 use gpui_kit::App;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use gpui_kit::{App, component::ActiveTheme as _, font};
 
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 use crate::document::SyntaxStyle;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use zorite_editor::SyntaxStyle;
 
 /// Build the live-preview palette from the active GPUI Kit theme.
@@ -18,7 +18,7 @@ use zorite_editor::SyntaxStyle;
 /// The gpuikit editor follows the active component theme directly, so its
 /// placeholder style stays empty.
 pub fn syntax_style(cx: &App) -> SyntaxStyle {
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     {
         let theme = cx.theme();
         SyntaxStyle {
@@ -49,7 +49,7 @@ pub fn syntax_style(cx: &App) -> SyntaxStyle {
             property_icon: None,
         }
     }
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     {
         let _ = cx;
         SyntaxStyle

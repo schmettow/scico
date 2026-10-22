@@ -1,34 +1,34 @@
 //! Documents, tabs, and file operations.
 
 use std::cell::RefCell;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use std::collections::HashMap;
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use std::sync::Arc;
 
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 use gpui_kit::EntityInputHandler as _;
-#[cfg(any(feature = "zorite", feature = "gpuikit"))]
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::RenderImage;
 use gpui_kit::{
     App, AppContext as _, ElementId, Entity, FocusHandle, Focusable as _, Hsla, ScrollHandle,
     SharedString, Window,
 };
-#[cfg(any(feature = "zorite", feature = "gpuikit"))]
+#[cfg(any(editor_zorite, editor_gpuikit))]
 use image::Frame;
 use ragrig_gpui::editor::{EditorSurface, byte_to_char_index};
 
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 use gpui_kit::base::text::TextViewState;
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 pub use gpui_kit::component::input::EditorState;
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 pub use zorite_editor::{EditorState, SyntaxStyle};
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 /// Placeholder for zorite's theme type; the gpuikit editor follows the app theme.
 #[derive(Clone, Debug, Default)]
 pub struct SyntaxStyle;
@@ -39,7 +39,7 @@ pub struct SyntaxStyle;
 /// bracketing the monotonic offset-to-block mapping: `low` is a scroll
 /// magnitude known to be above the block, `high` one known to be at or below
 /// it. Each editor layout narrows the bracket.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 #[derive(Clone, Copy, Debug)]
 pub struct PreviewScrollTarget {
     /// The preview block that must end up at the viewport top.
@@ -85,29 +85,29 @@ pub struct Document {
     /// Digest of the last journaled buffer, so cursor-only changes stay cheap.
     pub content_digest: [u8; 32],
     /// The preview view rendered beside the source editor.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview: Entity<TextViewState>,
     /// Top-level Markdown blocks and their source positions.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub blocks: Vec<SourceBlock>,
     /// The preview's current top block, to avoid feedback loops.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview_top: usize,
     /// The editor scroll offset the preview was last synced from.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview_source_offset: f32,
     /// A preview-driven editor scroll is in flight; its first applied offset
     /// must not be fed back into the preview.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub pending_editor_scroll: bool,
     /// The block a preview-driven scroll is converging on, if any.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview_scroll_target: Option<PreviewScrollTarget>,
     /// Measured display rows per source line, learned from successful syncs.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview_rows_per_line: f32,
     /// The preview's scrollbar was being dragged on the previous notification.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub preview_dragging: bool,
 }
 
@@ -130,21 +130,21 @@ pub struct DocumentInit {
 /// The handle owns one range-decoration collection. Dropping it leaves the
 /// decoration in place; call [`Self::clear`] when the agent edit is done.
 pub struct RangeHighlight {
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     collection: gpui_kit::component::input::RangeDecorationCollection,
 }
 
 impl RangeHighlight {
     /// Remove the highlight from its editor.
     pub fn clear(&self, cx: &mut App) {
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.collection.clear(cx);
-        #[cfg(not(feature = "gpuikit"))]
+        #[cfg(not(editor_gpuikit))]
         let _ = cx;
     }
 
     /// The tracked byte ranges, for tests.
-    #[cfg(all(test, feature = "gpuikit"))]
+    #[cfg(all(test, editor_gpuikit))]
     pub fn ranges(&self, cx: &App) -> Vec<Range<usize>> {
         self.collection.get_ranges(cx)
     }
@@ -161,7 +161,7 @@ pub fn mark_editor_range(
     frame: Hsla,
     cx: &mut App,
 ) -> RangeHighlight {
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     {
         use gpui_kit::component::input::{RangeDecoration, RangeDecorationStyle};
 
@@ -180,7 +180,7 @@ pub fn mark_editor_range(
         });
         RangeHighlight { collection }
     }
-    #[cfg(not(feature = "gpuikit"))]
+    #[cfg(not(editor_gpuikit))]
     {
         let _ = (editor, range, fill, frame, cx);
         RangeHighlight {}
@@ -189,11 +189,11 @@ pub fn mark_editor_range(
 
 /// Collapse the editor's native selection to a byte offset.
 pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut App) {
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     editor.update(cx, |editor, cx| {
         editor.set_selected_range(offset..offset, cx)
     });
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     editor.update(cx, |editor, cx| editor.set_cursor(offset, cx));
 }
 
@@ -202,14 +202,14 @@ pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut A
 /// gpuikit keeps programmatic replacements editable while read-only mode only
 /// rejects what the user types, which is exactly what the agent needs.
 pub fn set_editor_readonly(editor: &Entity<EditorState>, readonly: bool, cx: &mut App) {
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     editor.update(cx, |editor, cx| editor.set_readonly(readonly, cx));
-    #[cfg(not(feature = "gpuikit"))]
+    #[cfg(not(editor_gpuikit))]
     let _ = (editor, readonly, cx);
 }
 
 /// One top-level Markdown block and where it starts in the source.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceBlock {
     /// Zero-based source line.
@@ -222,7 +222,7 @@ pub struct SourceBlock {
 ///
 /// The preview parser and comrak disagree only in rare edge cases; both treat
 /// a heading, paragraph, list, table, and fenced block as one top-level block.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 pub fn source_blocks(text: &str) -> Vec<SourceBlock> {
     let mut options = comrak::Options::default();
     options.extension.table = true;
@@ -257,10 +257,10 @@ impl Document {
     pub fn new(window: &mut Window, cx: &mut App, style: &SyntaxStyle, init: DocumentInit) -> Self {
         let content_digest = *blake3::hash(init.text.as_bytes()).as_bytes();
         let scroll_id = ElementId::Name(format!("editor-scroll-{}", init.id).into());
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let preview_text = init.text.clone();
 
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         let editor = {
             let base = init
                 .path
@@ -310,7 +310,7 @@ impl Document {
             })
         };
 
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let editor = {
             let _ = (style, init.raw);
             let language = crate::highlight::language_for_path(init.path.as_deref());
@@ -330,17 +330,17 @@ impl Document {
 
         let (saved_text, cursor, chars) = {
             let editor = editor.read(cx);
-            #[cfg(feature = "zorite")]
+            #[cfg(editor_zorite)]
             let text = editor.text().to_owned();
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             let text = editor.value().to_string();
             let cursor = line_column(&text, editor.cursor());
             let chars = text.chars().count();
             (text, cursor, chars)
         };
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let preview = cx.new(|cx| TextViewState::markdown(&preview_text, cx));
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         let blocks = source_blocks(&preview_text);
         Self {
             id: init.id,
@@ -355,39 +355,39 @@ impl Document {
             scroll: Rc::new(RefCell::new(ScrollHandle::new())),
             scroll_id,
             content_digest,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             blocks,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_top: 0,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_source_offset: 0.0,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             pending_editor_scroll: false,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_scroll_target: None,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_rows_per_line: 1.0,
-            #[cfg(feature = "gpuikit")]
+            #[cfg(editor_gpuikit)]
             preview_dragging: false,
         }
     }
 
     /// The current source.
     pub fn text(&self, cx: &App) -> String {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         {
             self.editor.read(cx).text().to_owned()
         }
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         {
             self.editor.read(cx).value().to_string()
         }
     }
 
     /// Send new source to the preview and rebuild the block map.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub fn refresh_preview(&mut self, text: &str, cx: &mut App) {
         self.blocks = source_blocks(text);
         self.preview
@@ -395,7 +395,7 @@ impl Document {
     }
 
     /// The top-level block that contains `byte`, clamped to the block list.
-    #[cfg(feature = "gpuikit")]
+    #[cfg(editor_gpuikit)]
     pub fn block_for_byte(&self, byte: usize) -> usize {
         self.blocks
             .partition_point(|block| block.start_byte <= byte)
@@ -405,7 +405,7 @@ impl Document {
 
     /// The active selection as a byte range, or `None` when it is collapsed.
     fn selection_bytes(&self, window: &mut Window, cx: &mut App) -> Option<Range<usize>> {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         {
             let text = self.editor.read(cx).text().to_owned();
             self.editor
@@ -419,7 +419,7 @@ impl Document {
                 })
                 .filter(|range| !range.is_empty())
         }
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         {
             let _ = window;
             let range = self.editor.read(cx).selected_range();
@@ -455,10 +455,10 @@ impl Document {
 
     /// Move the caret to a byte offset.
     pub fn set_cursor(&self, offset: usize, cx: &mut App) {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         self.editor
             .update(cx, |editor, cx| editor.set_cursor(offset, cx));
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         self.editor.update(cx, |editor, cx| {
             editor.set_selected_range(offset..offset, cx)
         });
@@ -466,13 +466,13 @@ impl Document {
 
     /// Replace one byte range as a single undo step.
     pub fn replace(&self, range: Range<usize>, text: &str, window: &mut Window, cx: &mut App) {
-        #[cfg(feature = "zorite")]
+        #[cfg(editor_zorite)]
         {
             let _ = window;
             self.editor
                 .update(cx, |editor, cx| editor.replace_range(range, text, cx));
         }
-        #[cfg(feature = "gpuikit")]
+        #[cfg(editor_gpuikit)]
         {
             self.editor.update(cx, |editor, cx| {
                 editor.set_selected_range(range, cx);
@@ -571,7 +571,7 @@ pub fn read_document(path: &Path) -> Result<String, String> {
 ///
 /// The editor asks on every paint, so both hits and misses are cached; an
 /// unreadable or remote source falls back to its raw Markdown line.
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 fn image_provider(base: PathBuf) -> impl Fn(&str) -> Option<Arc<RenderImage>> + 'static {
     let cache: RefCell<HashMap<PathBuf, Option<Arc<RenderImage>>>> = RefCell::new(HashMap::new());
     move |src| {
@@ -599,7 +599,7 @@ fn image_provider(base: PathBuf) -> impl Fn(&str) -> Option<Arc<RenderImage>> + 
 ///
 /// `TextView`'s default handling is URI-based; this resolver keeps local
 /// Markdown images working and caches both hits and misses.
-#[cfg(feature = "gpuikit")]
+#[cfg(editor_gpuikit)]
 pub fn preview_image_source(
     base: PathBuf,
 ) -> impl Fn(&gpui_kit::SharedUri) -> gpui_kit::ImageSource + Send + Sync + 'static {
@@ -651,7 +651,7 @@ pub fn line_column(text: &str, cursor: usize) -> (usize, usize) {
 }
 
 /// Convert a UTF-16 offset to a byte offset, clamped to a char boundary.
-#[cfg(feature = "zorite")]
+#[cfg(editor_zorite)]
 pub fn utf16_to_byte(text: &str, offset: usize) -> usize {
     let mut units = 0usize;
     for (byte, character) in text.char_indices() {
@@ -667,7 +667,7 @@ pub fn utf16_to_byte(text: &str, offset: usize) -> usize {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "zorite")]
+    #[cfg(editor_zorite)]
     #[test]
     fn utf16_offsets_round_trip_for_multibyte_text() {
         assert_eq!(utf16_to_byte("abc", 0), 0);

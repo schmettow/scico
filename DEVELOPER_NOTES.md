@@ -31,8 +31,10 @@ rasterised `Scico-square.png` beside it is what GPUI hands to the platform.
   `cargo run`.
 - **`zorite`** — live-preview Markdown editor, including inline images, tables,
   math, and clickable PDF/EPUB/HTML chips. Build with
-  `cargo run --no-default-features --features zorite`. The two features are
-  mutually exclusive.
+  `cargo run --no-default-features --features zorite` (plain
+  `--features zorite` also works). Cargo features are additive: if both
+  backends are enabled, `build.rs` selects zorite, so `--all-features` and
+  editor integrations do not compile duplicate backend code.
 
 Syntax highlighting is language-independent: a Syntect-backed adapter maps
 TextMate scopes onto the semantic colours of the component theme, so the
@@ -430,7 +432,9 @@ cargo fmt --check
 cargo check --all-targets
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
-# zorite backend
+# both features at once resolve to zorite (see build.rs)
+cargo check --all-features --all-targets
+# zorite backend explicitly
 cargo check --no-default-features --features zorite --all-targets
 cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings

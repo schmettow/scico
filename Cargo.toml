@@ -12,6 +12,9 @@ categories = ["text-editors", "gui"]
 
 [features]
 default = ["gpuikit"]
+# Cargo features are additive. If both backends are enabled (for example with
+# `--features zorite` on top of the default, or `--all-features`), build.rs
+# selects zorite so the two editor implementations never collide.
 zorite = ["dep:zorite-editor"]
 gpuikit = ["dep:syntect"]
 
