@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Workspace entry resets the view.** Creating or opening a workspace (New
+  workspace, Open workspace, or a directory on the command line) closes every
+  tab outside the new root, then opens the paper and the workspace
+  bibliography, with the paper active. An unsaved tab outside the root is kept
+  open and reported instead of being discarded.
 - **Command-line workspace.** `sciscraper-gpui <directory>` adopts an existing
   directory exactly like **Open workspace**: missing `corpus/`, `.ragrig/`,
   `.sciscraper/`, bibliography, and `Untitled-1.md` are created, the homepage

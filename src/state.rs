@@ -135,7 +135,7 @@ impl AppState {
                     None
                 }
             });
-        let workspace_status = if requested_by_cli {
+        let mut workspace_status = if requested_by_cli {
             workspace_report.as_ref().map(|report| report.status(false))
         } else {
             None
@@ -340,6 +340,12 @@ impl AppState {
         } else if let Some(session) = restored_session {
             state.restore_session(session, window, cx);
             opened = !state.documents.is_empty();
+        }
+        if requested_by_cli && let Some(report) = workspace_report.as_ref() {
+            let (_, kept) = state.retain_workspace_tabs(&report.root, cx);
+            state.open_workspace_files(&report.homepage, &report.bibliography, window, cx);
+            opened = true;
+            workspace_status = workspace_status.map(|status| with_kept_tabs(status, kept));
         }
         if !opened
             && let Some(homepage) = workspace_report
@@ -1408,13 +1414,77 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> String {
         let status = report.status(created);
+        let root = report.root.clone();
         let homepage = report.homepage.clone();
+        let bibliography = report.bibliography.clone();
         self.adopt_workspace(report, cx);
-        if let Err(error) = self.open_path(&homepage, window, cx) {
-            self.set_status(error, cx);
-        }
+        let (_, kept) = self.retain_workspace_tabs(&root, cx);
+        self.open_workspace_files(&homepage, &bibliography, window, cx);
+        let status = with_kept_tabs(status, kept);
         self.set_status(status.clone(), cx);
         status
+    }
+
+    /// Drop tabs that do not belong to `root` and report how many were kept.
+    ///
+    /// A dirty tab is kept, even when it lies outside the workspace: switching
+    /// workspaces must never discard unsaved work. The active tab stays active
+    /// when it survives the prune.
+    pub(crate) fn retain_workspace_tabs(
+        &mut self,
+        root: &Path,
+        cx: &mut Context<Self>,
+    ) -> (usize, usize) {
+        let before = self.documents.len();
+        let active_id = self.active_document().map(|document| document.id);
+        let mut kept_dirty = 0;
+        self.documents.retain(|document| {
+            let outside = match &document.path {
+                Some(path) => {
+                    !path.starts_with(root)
+                        && !std::fs::canonicalize(path).is_ok_and(|path| path.starts_with(root))
+                }
+                None => true,
+            };
+            if outside && document.dirty {
+                kept_dirty += 1;
+                true
+            } else {
+                !outside
+            }
+        });
+        let removed = before - self.documents.len();
+        if removed > 0 {
+            self.active = active_id
+                .and_then(|id| self.documents.iter().position(|document| document.id == id))
+                .unwrap_or_else(|| self.active.min(self.documents.len().saturating_sub(1)));
+            self.persist_session(cx);
+            cx.notify();
+        }
+        (removed, kept_dirty)
+    }
+
+    /// Open the paper and its bibliography; the paper takes focus.
+    pub(crate) fn open_workspace_files(
+        &mut self,
+        homepage: &Path,
+        bibliography: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.open_path(homepage, window, cx) {
+            self.set_status(error, cx);
+        }
+        if let Err(error) = self.open_path(bibliography, window, cx) {
+            self.set_status(error, cx);
+        }
+        if let Some(index) = self
+            .documents
+            .iter()
+            .position(|document| document.path.as_deref() == Some(homepage))
+        {
+            self.select_tab(index, window, cx);
+        }
     }
 
     /// Create a new workspace directory with the full scaffold and open it.
@@ -2066,6 +2136,15 @@ fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) 
             settings.system_prompt_path.clear();
             settings.system_prompt = SCICO_PROMPT.to_owned();
         }
+    }
+}
+
+fn with_kept_tabs(status: String, kept: usize) -> String {
+    if kept == 0 {
+        status
+    } else {
+        let tabs = if kept == 1 { "tab" } else { "tabs" };
+        format!("{status} · {kept} unsaved {tabs} outside the workspace kept open")
     }
 }
 

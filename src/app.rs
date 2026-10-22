@@ -1865,6 +1865,26 @@ mod tests {
             bind_keys(cx);
         });
 
+        // A restored tab from elsewhere must not survive the workspace switch.
+        let outside = std::env::temp_dir().join(format!(
+            "sciscraper-outside-{}-{}.md",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&outside, "# elsewhere").expect("outside file");
+        crate::session::SessionState {
+            documents: vec![crate::session::SessionDocument {
+                path: Some(outside.clone()),
+                title: "elsewhere.md".to_owned(),
+                text: "# elsewhere".to_owned(),
+                cursor: 0,
+                dirty: false,
+            }],
+            ..Default::default()
+        }
+        .save(&session_path)
+        .expect("session");
+
         let workspace = root.clone();
         let (app, cx) = cx.add_window_view(move |window, cx| {
             SciscraperApp::new_with_paths_and_workspace(
@@ -1884,6 +1904,21 @@ mod tests {
             assert!(root.join("corpus").is_dir());
             assert!(root.join(".ragrig").is_dir());
             assert!(root.join("Untitled-1.md").is_file());
+            assert_eq!(state.documents.len(), 2, "paper and bibliography");
+            assert!(
+                state.documents.iter().all(|document| document
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.starts_with(&root))),
+                "tabs outside the workspace are closed"
+            );
+            assert!(
+                state.documents.iter().any(|document| document
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.extension().is_some_and(|ext| ext == "bib"))),
+                "the workspace bibliography is open"
+            );
             let document = state.active_document().expect("the homepage is open");
             assert_eq!(
                 document.path.as_deref(),
@@ -1896,6 +1931,144 @@ mod tests {
         });
 
         let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_file(outside);
+    }
+
+    #[gpui_kit::test]
+    fn an_unsaved_outside_tab_is_not_discarded(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        cx.update(|cx| {
+            ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
+            zorite_editor::bind_keys(cx);
+            bind_keys(cx);
+        });
+
+        let root = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-workspace-keep-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).expect("workspace directory");
+        let outside = std::env::temp_dir().join(format!(
+            "sciscraper-outside-unsaved-{}-{}.md",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&outside, "# saved").expect("outside file");
+        crate::session::SessionState {
+            documents: vec![crate::session::SessionDocument {
+                path: Some(outside.clone()),
+                title: "elsewhere.md".to_owned(),
+                text: "# unsaved".to_owned(),
+                cursor: 0,
+                dirty: true,
+            }],
+            ..Default::default()
+        }
+        .save(&session_path)
+        .expect("session");
+
+        let workspace = root.clone();
+        let (app, cx) = cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths_and_workspace(
+                window,
+                cx,
+                settings_path,
+                session_path,
+                Some(workspace),
+            )
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert!(
+                state
+                    .documents
+                    .iter()
+                    .any(|document| document.path.as_deref() == Some(outside.as_path())),
+                "unsaved work outside the workspace stays open"
+            );
+            assert_eq!(state.documents.len(), 3, "outside + paper + bibliography");
+            assert_eq!(
+                state
+                    .active_document()
+                    .and_then(|document| document.path.as_deref()),
+                Some(root.join("Untitled-1.md").as_path())
+            );
+        });
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_file(outside);
+    }
+
+    #[gpui_kit::test]
+    fn a_workspace_switch_closes_tabs_from_the_old_one(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        cx.update(|cx| {
+            ragrig_gpui::init(cx);
+            #[cfg(feature = "zorite")]
+            zorite_editor::bind_keys(cx);
+            bind_keys(cx);
+        });
+
+        let first = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-workspace-a-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let second = std::env::temp_dir().join(format!(
+            "sciscraper-gpui-workspace-b-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let first = crate::workspace::prepare(&first, true).expect("first workspace");
+        let second = crate::workspace::prepare(&second, true).expect("second workspace");
+
+        let initial = first.root.clone();
+        let (app, cx) = cx.add_window_view(move |window, cx| {
+            SciscraperApp::new_with_paths_and_workspace(
+                window,
+                cx,
+                settings_path,
+                session_path,
+                Some(initial),
+            )
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        // Exercise the same pruning and opening path the workspace commands
+        // use, without rebuilding the RAG worker inside the test scheduler.
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.retain_workspace_tabs(&second.root, cx);
+                state.open_workspace_files(&second.homepage, &second.bibliography, window, cx);
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert_eq!(state.documents.len(), 2, "paper and bibliography");
+            assert!(
+                state.documents.iter().all(|document| document
+                    .path
+                    .as_deref()
+                    .is_some_and(|path| path.starts_with(&second.root))),
+                "no tab from the first workspace survives"
+            );
+            assert_eq!(
+                state
+                    .active_document()
+                    .and_then(|document| document.path.as_deref()),
+                Some(second.homepage.as_path())
+            );
+        });
+
+        let _ = std::fs::remove_dir_all(&first.root);
+        let _ = std::fs::remove_dir_all(&second.root);
     }
 
     #[gpui_kit::test]
