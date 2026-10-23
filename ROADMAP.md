@@ -31,6 +31,11 @@ stabilised.
 - Enrich selection now runs retrieval on the marked passage itself. Next:
   compare enriched retrieval quality against ordinary selection context and
   expose the retrieved sources beside the replacement.
+- GROBID setup moved into **Settings → External services**: discovery, URL
+  probing, and a managed full-image Docker container (pull and startup are
+  cancellable). Verified end to end on Linux. Next: exercise the managed
+  container on Windows and macOS; the full image runs emulated on Apple
+  silicon.
 - The Scico status bar switches Chat memory and hybrid retrieval from the
   component menu. Next: surface the running memory strategy and retrieval
   mode in the transcript meta so saved sessions explain how an answer was

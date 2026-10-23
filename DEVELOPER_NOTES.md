@@ -62,11 +62,15 @@ not stabilised.
     embedding models.
   - **DeepSeek**: export `DEEPSEEK_API_KEY`; the key is read from the
     environment and never persisted.
-- Optional: a running **GROBID** server on `http://localhost:8070` for parsing
-  PDFs into the bibliography:
+- Optional: **GROBID** for parsing PDFs into the bibliography. Either point
+  **Settings → External services** at a running server, or let Scico pull and
+  run the container. The default is the full image
+  (`grobid/grobid:0.9.1-full`, about 8 GB); the CRF-only variant is smaller.
+  Docker Desktop or the Docker daemon must be running. A manual start that
+  matches the managed container is:
 
   ```sh
-  docker run --rm --init --ulimit core=0 -p 8070:8070 grobid/grobid:0.9.1-crf
+  docker run --rm --init --ulimit core=0 -p 127.0.0.1:8070:8070 grobid/grobid:0.9.1-full
   ```
 
 ## Run
@@ -306,9 +310,16 @@ of the controls column and the chosen width is remembered.
   name is new); Load profile reads the selected profile from disk.
 - **Library** — workspace, corpus folder, bibliography, pane visibility,
   external viewers for PDF/EPUB/HTML, the default library attachment, and
-  reference ingestion (GROBID, renaming, OpenAlex, `@key` citations). Every path
+  reference processing (renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
   and creates the corpus folder when it is opened.
+- **External services** — source (existing server or managed Docker
+  container), server URL with **Test** and **Discover on localhost**, and the
+  managed image with **Pull and start**, **Cancel**, **Stop**, **Remove
+  container**, and **Refresh**. The managed container binds
+  `127.0.0.1:8070`; Scico stops it on quit. Discovery checks ports 8070 and
+  8080. Full images are pulled as `linux/amd64` (the official full image is
+  not multi-architecture); `-crf` images run natively.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
   preview (zorite); editor font family and size; Scico visibility; and the
   default document attachment.
@@ -371,7 +382,7 @@ sciscraper-gpui
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
   workspace.rs    workspace scaffold, descriptor, defaults
-  app_settings.rs Overview, Library, and Editor settings pages
+  app_settings.rs Overview, Library, and Editor settings pages; External services lives in ragrig-gpui
   settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue

@@ -8,7 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ragrig_gpui::{ChatProvider, MemoryChoice, PdfBackend, RagSettings};
+use ragrig_gpui::{ChatProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings};
 use serde::{Deserialize, Serialize};
 
 /// The Scico prompt compiled into the binary.
@@ -148,8 +148,12 @@ pub struct PersistedSettings {
     pub memory_when_on: String,
     /// Memory model.
     pub memory_model: String,
+    /// Where the GROBID server comes from.
+    pub grobid_source: String,
     /// GROBID server URL.
     pub grobid_url: String,
+    /// Docker image for the managed GROBID container.
+    pub grobid_image: String,
     /// Rename parsed PDFs.
     pub rename_pdfs: bool,
     /// Complete records from OpenAlex.
@@ -215,7 +219,9 @@ impl Default for PersistedSettings {
             memory: rag.memory.label().to_owned(),
             memory_when_on: rag.memory.label().to_owned(),
             memory_model: rag.memory_model,
+            grobid_source: rag.grobid_source.label().to_owned(),
             grobid_url: rag.grobid_url,
+            grobid_image: rag.grobid_image,
             rename_pdfs: rag.rename_pdfs,
             openalex: rag.openalex,
             resolve_citations: rag.resolve_citations,
@@ -319,7 +325,10 @@ impl PersistedSettings {
             .find(|(memory, label)| memory.label() == self.memory || *label == self.memory)
             .map_or(settings.memory, |(memory, _)| *memory);
         settings.memory_model = self.memory_model.clone();
+        settings.grobid_source =
+            GrobidSource::from_label(&self.grobid_source).unwrap_or(settings.grobid_source);
         settings.grobid_url = self.grobid_url.clone();
+        settings.grobid_image = self.grobid_image.clone();
         settings.rename_pdfs = self.rename_pdfs;
         settings.openalex = self.openalex;
         settings.resolve_citations = self.resolve_citations;
@@ -347,7 +356,9 @@ impl PersistedSettings {
         self.sloppy_pdf = settings.sloppy_pdf;
         self.memory = settings.memory.label().to_owned();
         self.memory_model = settings.memory_model.clone();
+        self.grobid_source = settings.grobid_source.label().to_owned();
         self.grobid_url = settings.grobid_url.clone();
+        self.grobid_image = settings.grobid_image.clone();
         self.rename_pdfs = settings.rename_pdfs;
         self.openalex = settings.openalex;
         self.resolve_citations = settings.resolve_citations;
@@ -469,12 +480,16 @@ mod tests {
         rag.top_k = 42;
         rag.memory = MemoryChoice::Transcript;
         rag.system_prompt_path = "/tmp/Scico.md".to_owned();
+        rag.grobid_source = GrobidSource::Managed;
+        rag.grobid_url = "http://127.0.0.1:8070".to_owned();
+        rag.grobid_image = "grobid/grobid:0.9.1-crf".to_owned();
 
         persisted.capture(&rag);
         assert_eq!(persisted.provider, "DeepSeek");
         assert_eq!(persisted.top_k, 42);
         assert_eq!(persisted.memory, "Transcript");
         assert_eq!(persisted.system_prompt_path, "/tmp/Scico.md");
+        assert_eq!(persisted.grobid_source, "Docker container");
 
         let mut restored = RagSettings::default();
         persisted.apply_to(&mut restored);
@@ -485,6 +500,9 @@ mod tests {
         assert_eq!(restored.memory, MemoryChoice::Transcript);
         assert_eq!(restored.system_prompt_path, "/tmp/Scico.md");
         assert_eq!(restored.system_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(restored.grobid_source, GrobidSource::Managed);
+        assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
+        assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
     }
 
     #[test]

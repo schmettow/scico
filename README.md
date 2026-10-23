@@ -143,8 +143,12 @@ instead, so nothing is lost.
   or close the `.bib` file and the Library reloads the changed metadata.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
 - **GROBID** (optional) reads PDF headers and fills in authors, title, year,
-  and DOI. Running the GROBID container locally is enough; Scico will use it
-  when it is available. See the [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
+  and DOI. Open **Settings → External services** to discover a server that is
+  already running, enter its URL, or let Scico pull and run the official
+  Docker image. The full image is the default (about 8 GB); the image field is
+  editable if you prefer the smaller CRF-only image. Scico stops a container it
+  started when the app quits. See the
+  [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
 - **Your bibliography stays yours.** Scico merges new records into the `.bib`
   file in the workspace; it does not lock you into a database.
 
@@ -231,8 +235,11 @@ retrieval off, Scico uses BM25 only; with no index at all it answers as a plain
 chat model.
 
 **GROBID is not running.** That is fine. PDFs are still indexed; only the
-automatic author/title/year extraction is skipped. You can fill in the `.bib`
-by hand or run GROBID later and re-run **Add PDFs**.
+automatic author/title/year extraction is skipped. Use **Settings → External
+services → Discover on localhost**, enter a URL, or press **Pull and start**
+under **Docker container**. Docker Desktop (or the Docker daemon) must be
+running. You can also fill in the `.bib` by hand and re-run **Add PDFs**
+after a server is available.
 
 **I need a PDF with a journal template.** Scico writes Markdown and Quarto, not
 a typeset page. Export or continue in Quarto/Pandoc, or paste the text into

@@ -516,7 +516,10 @@ pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
             ),
     )
     .group(viewers)
-    .group(ragrig_gpui::rag_references_group(&references, &changes))
+    .group(ragrig_gpui::rag_reference_processing_group(
+        &references,
+        &changes,
+    ))
     .group(
         SettingGroup::new().title("Context").item(
             SettingItem::new("Attach library by default", library_attached)

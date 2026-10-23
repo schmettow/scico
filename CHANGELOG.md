@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **External services settings.** A new **Settings → External services** page
+  manages the GROBID server. It discovers a running instance on localhost,
+  tests a URL entered by the user, or pulls and runs
+  `grobid/grobid:0.9.1-full` in Docker (the full model set is the default; the
+  image field is editable). The managed container binds loopback only,
+  reports cancellable pull and startup progress, and is stopped when Scico
+  quits. Source, URL, and image are persisted; a successful discovery or start
+  updates the URL and immediately marks it for the reference pipeline.
 - **Edit in BibTeX.** Every Library row has a pencil action. It opens the
   workspace bibliography (or focuses it when already open) and places the
   caret on that key's entry. The action is the shared

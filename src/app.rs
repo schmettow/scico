@@ -226,6 +226,18 @@ impl SciscraperApp {
                 cx.notify();
             }
         }));
+        let grobid = state.read(cx).grobid.clone();
+        subscriptions.push(cx.subscribe(
+            &grobid,
+            |this, _, event: &ragrig_gpui::GrobidServiceEvent, cx| {
+                if matches!(event, ragrig_gpui::GrobidServiceEvent::UrlChanged(_)) {
+                    this.state.update(cx, |state, cx| {
+                        state.persist_grobid_service(cx);
+                        cx.notify();
+                    });
+                }
+            },
+        ));
 
         // The panes announce themselves as soon as the worker builds; ask for
         // the session list and store snapshot explicitly so a restored window
@@ -1439,6 +1451,7 @@ impl SciscraperApp {
     fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rag = self.state.read(cx).rag.clone();
+        let grobid = self.state.read(cx).grobid.clone();
         let changes: ragrig_gpui::Changes = {
             let state = self.state.clone();
             Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
@@ -1450,6 +1463,12 @@ impl SciscraperApp {
         .page(app_overview_page(self.state.clone(), &now, cx))
         .page(app_library_page(self.state.clone(), cx))
         .page(app_editor_page(self.state.clone()))
+        .page(ragrig_gpui::external_services_page(
+            rag.clone(),
+            grobid,
+            changes.clone(),
+            cx,
+        ))
         .page(ragrig_gpui::rag_model_page(
             rag,
             changes,

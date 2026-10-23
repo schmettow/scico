@@ -18,7 +18,9 @@ use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
     SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
 };
-use ragrig_gpui::{ChatProvider, MemoryChoice, RagChanges, RagController, RagSettings};
+use ragrig_gpui::{
+    ChatProvider, GrobidService, MemoryChoice, RagChanges, RagController, RagSettings,
+};
 #[cfg(editor_zorite)]
 use zorite_editor::EditorEvent;
 
@@ -44,6 +46,8 @@ pub struct AppState {
     applied_rag: RagSettings,
     /// The RAG worker controller.
     pub controller: Entity<RagController>,
+    /// The managed GROBID service and Docker lifecycle.
+    pub grobid: Entity<GrobidService>,
     /// Open documents, in tab order.
     pub documents: Vec<Document>,
     /// Index into [`Self::documents`].
@@ -242,6 +246,9 @@ impl AppState {
         };
         let rag = cx.new(|_| rag_values);
         let applied_rag = rag.read(cx).clone();
+        let grobid = cx.new(|cx| {
+            GrobidService::new(rag.clone(), cx).expect("the GROBID service thread must start")
+        });
         let controller = cx.new(|cx| {
             RagController::new(with_bibliography(setup, bibliography.clone()), cx)
                 .expect("the RAG worker thread must start")
@@ -301,6 +308,7 @@ impl AppState {
             rag,
             applied_rag,
             controller,
+            grobid,
             documents: Vec::new(),
             active: 0,
             next_document: 1,
@@ -1702,6 +1710,19 @@ impl AppState {
         self.settings_gutter = gutter_width(gutter);
         self.persist(cx);
         cx.notify();
+    }
+
+    /// Accept the GROBID source, URL, and image chosen by the service page.
+    ///
+    /// Discovery and a successful container start are not pending edits: the
+    /// values are already in effect for the next extraction, so they join the
+    /// applied snapshot and are persisted immediately.
+    pub fn persist_grobid_service(&mut self, cx: &mut Context<Self>) {
+        let current = self.rag.read(cx).clone();
+        self.applied_rag.grobid_source = current.grobid_source;
+        self.applied_rag.grobid_url = current.grobid_url;
+        self.applied_rag.grobid_image = current.grobid_image;
+        self.persist(cx);
     }
 
     /// Write the settings file and update the in-memory snapshot.
