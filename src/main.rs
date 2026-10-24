@@ -1,4 +1,4 @@
-//! Sciscraper GPUI entry point.
+//! Scico GPUI entry point.
 
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{AppContext as _, WindowBounds, WindowOptions, px, size};
 #[cfg(any(editor_zorite, editor_gpuikit))]
-use sciscraper_gpui::{app, workspace};
+use scico::{app, workspace};
 
 /// The desktop mark rasterised from `assets/logo/Scico square.svg`.
 ///
@@ -26,7 +26,7 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 
 #[cfg(any(editor_zorite, editor_gpuikit))]
 fn main() {
-    // `sciscraper-gpui ~/my-paper` opens that directory as a workspace and
+    // `scico ~/my-paper` opens that directory as a workspace and
     // scaffolds anything it is missing. Other arguments are left alone.
     let initial_workspace = workspace::directory_argument(std::env::args_os());
 
@@ -45,16 +45,16 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 icon: window_icon(),
                 titlebar: Some(gpui_kit::TitlebarOptions {
-                    title: Some("Sciscraper — scientific Markdown".into()),
+                    title: Some("Scico — scientific Markdown".into()),
                     ..Default::default()
                 }),
                 ..Default::default()
             };
 
             if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
-                cx.new(move |cx| app::SciscraperApp::new(window, cx, initial_workspace.clone()))
+                cx.new(move |cx| app::ScicoApp::new(window, cx, initial_workspace.clone()))
             }) {
-                eprintln!("failed to open the Sciscraper window: {error:#}");
+                eprintln!("failed to open the Scico window: {error:#}");
             }
         });
 }

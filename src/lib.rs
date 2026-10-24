@@ -1,9 +1,9 @@
-//! Sciscraper GPUI: a scientific Markdown editor with an integrated RAG
-//! Scico and reference library.
+//! Scico GPUI: a scientific Markdown editor with an integrated RAG
+//! chat and reference library.
 //!
 //! The binary lives in `main.rs`; everything else is exposed here so the
 //! editor roundtrip and its tests can be used (and audited) independently.
-//! The protocol itself lives in `ragrig-gpui::editor`; SciScraper implements
+//! The protocol itself lives in `ragrig-gpui::editor`; Scico implements
 //! its editor contract for the selected editor backend.
 //!
 //! `gpuikit` is the default. If both `gpuikit` and `zorite` are enabled (for

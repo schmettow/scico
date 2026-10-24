@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn only_pdfs_are_copied_and_name_clashes_get_a_suffix() {
         let dir = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-copy-{}-{}",
+            "scico-copy-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

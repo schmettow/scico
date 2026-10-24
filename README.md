@@ -14,12 +14,12 @@ runs on your own machine; no account and no cloud upload.
 
 - **Ask your own literature.** Index a corpus once, then ask questions and get
   answers grounded in the papers you chose, with sources attached.
-- **Revise in place.** Mark a paragraph and ask for a rewrite. Scico replaces
-  just that passage, as one undo step.
+- **Revise in place.** Mark a paragraph and ask for a rewrite. The chat agent
+  replaces just that passage, as one undo step.
 - **Search while you revise.** *Enrich selection* also searches the literature
   about the marked passage, so a rewrite can bring in the evidence you meant.
 - **References that come along.** Keep your `.bib`, insert `@key` citations
-  from the library, and let Scico resolve mentions into the right paper.
+  from the library, and let the chat agent resolve mentions into the right paper.
 - **Never lose work.** A crash-safe journal restores every tab, unsaved
   sentence, caret, and pane layout — even after a crash or a forced shutdown.
 - **Write, don't typeset.** Markdown and Quarto with inline images, tables,
@@ -56,8 +56,8 @@ Run `ollama serve` if the desktop app is not already doing it for you.
 Scico is not on crates.io yet. Build it from a checkout:
 
 ```bash
-git clone https://github.com/schmettow/sciscraper-gpui
-cd sciscraper-gpui
+git clone https://github.com/schmettow/scico
+cd scico
 cargo run
 ```
 
@@ -65,7 +65,7 @@ Or install the binary into `~/.cargo/bin`:
 
 ```bash
 cargo install --path .
-sciscraper-gpui
+scico
 ```
 
 On Linux, the window toolkit needs two system libraries:
@@ -84,7 +84,7 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
    where they are.
 3. **Write** in the left pane. The right pane previews Markdown, tables, and
    images. Drag the divider if you want more room.
-4. **Ask Scico** a question such as *“What do these papers report about
+4. **Ask Chat** a question such as *“What do these papers report about
    response times?”* Answers stream into the transcript and name the documents
    they used.
 5. **Mark a sentence**, press **Edit selection** (`Ctrl+Shift+D`), and type an
@@ -92,7 +92,7 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
    `Ctrl+Enter`. The answer replaces only the marked passage; `Ctrl+Z` puts the
    original back.
 
-> No literature yet? Scico still works as a plain chat partner. Add papers
+> No literature yet? The chat agent still works as a plain chat partner. Add papers
 > whenever you are ready; the next question will use them.
 
 ---
@@ -119,15 +119,15 @@ flowchart LR
   the composer.
 - **Edit selection** (`Ctrl+Shift+D`) treats the next prompt as an instruction.
   The answer comes back as a replacement for that passage, written into the
-  document as a single undo step. While Scico writes, the passage stays marked
+  document as a single undo step. While the chat agent writes, the passage stays marked
   and the document is read-only, so you cannot change it by accident.
 - **Enrich selection** (`Ctrl+Shift+R`) does the same, but the marked passage
   also becomes the literature search. Use it when the rewrite should be
   grounded in what the field says about *this* claim, not just in your
   instruction.
 
-If you edit the passage while Scico is still writing, the write is refused
-rather than applied to the wrong text. Scico offers the answer as **Insert**
+If you edit the passage while the chat agent is still writing, the write is refused
+rather than applied to the wrong text. The chat agent offers the answer as **Insert**
 instead, so nothing is lost.
 
 ---
@@ -163,9 +163,9 @@ my-paper/
   Untitled-1.md        your paper (or paper.qmd)
   corpus/              PDFs and other source documents
   my-paper.bib         your bibliography
-  Scico.md             optional project-specific writing prompt
+  Chat.md              optional project-specific writing prompt
   .ragrig/             index, chat sessions, profiles
-  .sciscraper/         workspace descriptor
+  .scico/              workspace descriptor
 ```
 
 - **New workspace** creates the whole set in an empty folder.
@@ -174,7 +174,7 @@ my-paper/
 - Entering a workspace closes tabs from other folders and opens the paper and
   its bibliography, with the paper in front. Unsaved tabs are never discarded
   silently.
-- **From a terminal**, `sciscraper-gpui ~/my-paper` does the same: it opens that
+- **From a terminal**, `scico ~/my-paper` does the same: it opens that
   folder as a workspace, creating the missing pieces on the first visit.
 - **Nothing is hidden in a cloud account.** Copy the folder to a backup drive,
   a shared project space, or an archive when the paper is done.
@@ -193,7 +193,7 @@ my-paper/
 | `Ctrl+Shift+D` | Edit the marked selection |
 | `Ctrl+Shift+R` | Enrich and edit the marked selection |
 | `Ctrl+Shift+L` | Show or hide the Library |
-| `Ctrl+Shift+A` | Show or hide Scico |
+| `Ctrl+Shift+A` | Show or hide Chat |
 | `Ctrl+Shift+E` | Show or hide the preview |
 | `Ctrl+,` | Settings |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
@@ -215,10 +215,10 @@ On macOS, use `⌘` in place of `Ctrl`.
 - **DeepSeek** is a hosted option. Prompts and attached context are sent to
   the API; set `DEEPSEEK_API_KEY` in your environment. The key is read from the
   environment and never written to a profile or the workspace.
-- The **Scico prompt** can be project-specific. The built-in prompt is
+- The **Chat prompt** can be project-specific. The built-in prompt is
   compiled in; *Settings → RAG → Chat* lets you open it, export it as
-  `Scico.md` into the workspace, or point to your own file. A workspace
-  `Scico.md` is never overwritten.
+  `Chat.md` into the workspace, or point to your own file. A workspace
+  `Chat.md` is never overwritten.
 
 ---
 
@@ -229,9 +229,9 @@ free, and confirm the model names in **Settings → RAG → Chat**. If you pulle
 model with an older Ollama, use its full name (`nomic-embed-text:latest`).
 
 **Answers ignore my library.** Check that the corpus has been indexed
-(**Library → Index**), that **Hybrid retrieval** is on in the Scico status bar,
+(**Library → Index**), that **Hybrid retrieval** is on in the Chat status bar,
 and that the question is specific enough to match a passage. With hybrid
-retrieval off, Scico uses BM25 only; with no index at all it answers as a plain
+retrieval off, the chat agent uses BM25 only; with no index at all it answers as a plain
 chat model.
 
 **GROBID is not running.** That is fine. PDFs are still indexed; only the
@@ -241,7 +241,7 @@ under **Docker container**. Docker Desktop (or the Docker daemon) must be
 running. You can also fill in the `.bib` by hand and re-run **Add PDFs**
 after a server is available.
 
-**I need a PDF with a journal template.** Scico writes Markdown and Quarto, not
+**I need a PDF with a journal template.** The chat agent writes Markdown and Quarto, not
 a typeset page. Export or continue in Quarto/Pandoc, or paste the text into
 your LaTeX template.
 
@@ -253,10 +253,10 @@ restores unsaved text after a crash.
 
 ## Status
 
-Scico is a working prototype. The editor, library, references, Scico chat, and
+Scico is a working prototype. The editor, library, references, chat, and
 the edit/enrich roundtrip are implemented; the internal API is still moving.
 Bug reports and feature ideas are welcome at
-[github.com/schmettow/sciscraper-gpui](https://github.com/schmettow/sciscraper-gpui).
+[github.com/schmettow/scico](https://github.com/schmettow/scico).
 
 If you want the architecture, editor backends, protocol details, and the test
 matrix, read [DEVELOPER_NOTES.md](DEVELOPER_NOTES.md).

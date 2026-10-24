@@ -1,4 +1,4 @@
-//! The Sciscraper workspace layout.
+//! The Scico workspace layout.
 //!
 //! A workspace is one directory:
 //!
@@ -7,9 +7,9 @@
 //!   Untitled-1.md        the paper
 //!   corpus/              source documents (PDFs, Markdown, …)
 //!   my-paper.bib         the workspace bibliography
-//!   Scico.md             optional project-specific prompt
+//!   Chat.md             optional project-specific prompt
 //!   .ragrig/             vector store, sessions, and profiles
-//!   .sciscraper/
+//!   .scico/
 //!     workspace.toml     workspace descriptor
 //! ```
 //!
@@ -25,15 +25,15 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// The workspace metadata folder.
-pub const WORKSPACE_DIR: &str = ".sciscraper";
+pub const WORKSPACE_DIR: &str = ".scico";
 /// The workspace descriptor file inside [`WORKSPACE_DIR`].
 pub const WORKSPACE_FILE: &str = "workspace.toml";
 /// The project-specific Ragrig data folder.
 pub const RAGRIG_DIR: &str = ".ragrig";
 /// The folder scanned and indexed by the library.
 pub const CORPUS_DIR: &str = "corpus";
-/// The optional project-specific Scico prompt.
-pub const PROMPT_FILE: &str = "Scico.md";
+/// The optional project-specific Chat prompt.
+pub const PROMPT_FILE: &str = "Chat.md";
 /// The document opened when a workspace has none.
 pub const DEFAULT_DOCUMENT: &str = "Untitled-1.md";
 /// What to tell the user after a workspace is ready.
@@ -49,7 +49,7 @@ pub fn directory_argument(args: impl IntoIterator<Item = OsString>) -> Option<Pa
     path.is_dir().then_some(path)
 }
 
-/// The workspace descriptor stored in `.sciscraper/workspace.toml`.
+/// The workspace descriptor stored in `.scico/workspace.toml`.
 ///
 /// Paths are relative to the workspace root. The file is written after every
 /// open so it always describes what is actually on disk.
@@ -91,7 +91,7 @@ pub struct WorkspaceReport {
     pub documents: Vec<PathBuf>,
     /// The document the editor should show.
     pub homepage: PathBuf,
-    /// The project-specific prompt, when `Scico.md` exists.
+    /// The project-specific prompt, when `Chat.md` exists.
     pub prompt: Option<PathBuf>,
     /// The Ragrig data folder (vector store, sessions, profiles).
     pub ragrig_dir: PathBuf,
@@ -157,7 +157,7 @@ pub fn prepare(root: &Path, create: bool) -> Result<WorkspaceReport, String> {
 
     let prompt_path = root.join(PROMPT_FILE);
     if create && !prompt_path.is_file() {
-        fs::write(&prompt_path, crate::settings::SCICO_PROMPT)
+        fs::write(&prompt_path, crate::settings::CHAT_PROMPT)
             .map_err(|error| format!("cannot write '{}': {error}", prompt_path.display()))?;
         created.push(PROMPT_FILE.to_owned());
     }
@@ -434,7 +434,7 @@ mod tests {
     fn scratch(name: &str) -> PathBuf {
         let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "sciscraper-workspace-{name}-{}-{unique}",
+            "scico-workspace-{name}-{}-{unique}",
             std::process::id()
         ))
     }
@@ -443,7 +443,7 @@ mod tests {
     fn the_first_argument_is_a_workspace_only_when_it_is_a_directory() {
         let root = scratch("arg");
         fs::create_dir_all(&root).expect("root");
-        let program = OsString::from("sciscraper-gpui");
+        let program = OsString::from("scico");
 
         assert_eq!(
             directory_argument([program.clone(), root.clone().into_os_string()]),
@@ -470,9 +470,9 @@ mod tests {
         assert!(report.root.join("corpus").is_dir());
         assert!(report.root.join(".ragrig/profiles").is_dir());
         assert!(report.root.join(".ragrig/sessions").is_dir());
-        assert!(report.root.join(".sciscraper/workspace.toml").is_file());
+        assert!(report.root.join(".scico/workspace.toml").is_file());
         assert!(report.root.join("Untitled-1.md").is_file());
-        assert!(report.root.join("Scico.md").is_file());
+        assert!(report.root.join("Chat.md").is_file());
         assert!(report.bibliography.is_file());
         assert_eq!(report.bibliography.extension().unwrap(), "bib");
         assert_eq!(report.homepage.file_name().unwrap(), DEFAULT_DOCUMENT);
@@ -481,7 +481,7 @@ mod tests {
             report
                 .created
                 .iter()
-                .any(|item| item == ".sciscraper/workspace.toml")
+                .any(|item| item == ".scico/workspace.toml")
         );
         assert!(report.created.iter().any(|item| item == DEFAULT_DOCUMENT));
 
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(report.homepage.file_name().unwrap(), "paper.md");
         assert!(root.join(".ragrig").is_dir());
         assert!(root.join("corpus").is_dir());
-        assert!(!root.join("Scico.md").exists(), "the prompt stays optional");
+        assert!(!root.join("Chat.md").exists(), "the prompt stays optional");
         assert!(
             report.created.iter().any(|item| item == ".ragrig"),
             "only the missing parts are reported"

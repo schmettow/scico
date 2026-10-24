@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- **Scico rebrand.** The application is now **Scico**. The crate and binary are
+  `scico`, the workspace metadata folder is `.scico/`, environment variables
+  use the `SCICO_` prefix, and the platform settings directory is `scico`.
+  The assistant is now **Chat**: its prompt constants are `CHAT_PROMPT` and
+  `CHAT_PROMPT_FILE`, its project prompt is `Chat.md`, and its pane labels say
+  Chat. The roundtrip protocol is namespaced `scico:v1`. This is a breaking
+  rename: existing workspace markers, prompt files, environment variables, and
+  platform settings paths are not migrated automatically.
+
 ### Added
 
 - **External services settings.** A new **Settings → External services** page
@@ -21,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workspace bibliography (or focuses it when already open) and places the
   caret on that key's entry. The action is the shared
   `ragrig_gpui::editor` roundtrip (`ReferenceRow::on_edit`,
-  `RoundtripHost::edit_reference`, `EditorSurface::reveal`), so Sciscraper only
+  `RoundtripHost::edit_reference`, `EditorSurface::reveal`), so Scico only
   implements the tab and caret handling. Saving or closing the bibliography
   bumps `AppState::references_revision`, which makes the Library reload its
   rows.
@@ -30,43 +41,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tab outside the new root, then opens the paper and the workspace
   bibliography, with the paper active. An unsaved tab outside the root is kept
   open and reported instead of being discarded.
-- **Command-line workspace.** `sciscraper-gpui <directory>` adopts an existing
+- **Command-line workspace.** `scico <directory>` adopts an existing
   directory exactly like **Open workspace**: missing `corpus/`, `.ragrig/`,
-  `.sciscraper/`, bibliography, and `Untitled-1.md` are created, the homepage
+  `.scico/`, bibliography, and `Untitled-1.md` are created, the homepage
   opens, and the choice is remembered for the next launch. The argument
-  outranks `SCISCRAPER_WORKSPACE` and the persisted workspace; a file or a
+  outranks `SCICO_WORKSPACE` and the persisted workspace; a file or a
   non-existent path is ignored.
 - **Writer-facing README.** The README is now a guide for researchers and
   students: quick start, the edit/enrich roundtrip, library and citations,
   workspaces, shortcuts, privacy, and troubleshooting. The technical material
   moved to `DEVELOPER_NOTES.md`.
-- **Scico chrome marks.** The chat component, its component bar, and the send
-  button use the Scico mark; **Chat memory** sits next to the chat model. The
+- **Chat chrome marks.** The chat component, its component bar, and the send
+  button use the Chat mark; **Chat memory** sits next to the chat model. The
   welcome screen shows the full-colour square, and the assistant rows use the
   monochrome mark.
 - **`UPSTREAM.md`.** Tracks requests to the upstream crates; US001 asks Ragrig
   to publish bounds/step/default with each bounded parameter.
-- **Scico identity.** The README opens with the banner from `assets/logo/`.
-  The empty transcript shows the square mark over “Scico knows your library.”,
-  assistant rows are signed with the Scico icon instead of “Ragrig”, and the
+- **Chat identity.** The README opens with the banner from `assets/logo/`.
+  The empty transcript shows the square mark over “Chat knows your library.”,
+  assistant rows are signed with the Chat icon instead of “Ragrig”, and the
   window receives the square as its desktop icon through the rasterised
   `Scico-square.png` (generated from `Scico square.svg` with Inkscape).
 - **Workspace model and commands.** A workspace is one directory with the
   paper, `corpus/`, a `.bib`, the project `.ragrig` store/sessions/profiles,
-  an optional `Scico.md`, and a `.sciscraper/workspace.toml` descriptor
+  an optional `Chat.md`, and a `.scico/workspace.toml` descriptor
   (`bibtex`, `document`, `ragrig`, `homepage`). **New workspace**
   (`Ctrl+Shift+N`) scaffolds a new folder; **Open workspace**
   (`Ctrl+Shift+O`) adds missing pieces to an existing directory. Both report
   what was created and end with “Add PDFs to the library and chat about them.”
-  The Scico header repeats the list so it stays readable.
+  The Chat header repeats the list so it stays readable.
 - **Layered Ragrig configuration.** `~/.ragrig/config.json` (or
   `RAGRIG_HOME/config.json`) and `<workspace>/.ragrig/config.json` are merged
   per setting over the built-in defaults, workspace last. Profiles are listed
   and resolved from both locations, with workspace profiles shadowing global
   ones. The vector store moves to `<workspace>/.ragrig/.ragrig_store`, with
   an automatic migration from the old root-level `.ragrig_store`.
-- **Status-bar switches for Scico.** The **Chat memory** and **Hybrid
-  retrieval** components in the Scico bar now carry an **Enabled** switch in
+- **Status-bar switches for Chat.** The **Chat memory** and **Hybrid
+  retrieval** components in the Chat bar now carry an **Enabled** switch in
   their menu. Memory off selects `MemoryChoice::Off` and restores the previous
   strategy when switched back on. Hybrid retrieval off rebuilds the worker
   with `EmbedderSpec::None`: no embedding model is required and vector search
@@ -81,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is read-only; programmatic agent write-back still works, and navigation,
   selection, and copy remain available.
 - **One chip for inline editing**: while an Edit or Enrich target is armed,
-  Scico shows a single **Direct edit** chip and suppresses the redundant
+  Chat shows a single **Direct edit** chip and suppresses the redundant
   **Marked region** chip for the same passage. Closing the Direct edit chip
   cancels the mode, clears the range decoration, unlocks the document, drops
   the target, and collapses the native editor selection; other marked regions
@@ -91,12 +102,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   search runs on the passage as well as the instruction. The passage is not
   attached twice, retrieved chunks arrive as corpus context, and the answer's
   replacement block still targets the marked region.
-- **Scico prompt management**: the full prompt is compiled in from
-  `assets/prompts/Scico.md` and used by default. **Settings → RAG → Chat**
+- **Chat prompt management**: the full prompt is compiled in from
+  `assets/prompts/Chat.md` and used by default. **Settings → RAG → Chat**
   shows a prompt-file field with **Browse…**, **Open prompt**, **Export
-  Scico.md**, and **Use built-in**. **Open prompt** shows the selected file in
-  the editor, or the compiled prompt as an untitled `Scico.md` buffer.
-  **Export Scico.md** writes the compiled prompt into the workspace, selects
+  Chat.md**, and **Use built-in**. **Open prompt** shows the selected file in
+  the editor, or the compiled prompt as an untitled `Chat.md` buffer.
+  **Export Chat.md** writes the compiled prompt into the workspace, selects
   it as the active prompt, and opens it; an existing file is opened instead of
   overwritten. Saving the prompt file marks the prompt as unsaved so **Apply**
   rebuilds the agent with the new text.
@@ -163,7 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The system prompt is no longer an inline text field. Settings store a
-  `system_prompt_path` (empty = compiled-in `Scico.md`); the file is read when
+  `system_prompt_path` (empty = compiled-in `Chat.md`); the file is read when
   the agent is rebuilt.
 - The library inserts citations through `ragrig_gpui::Roundtrip` instead of
   calling the document's `insert_at_caret` directly, so reference insertion
@@ -174,7 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The duplicate in-body summary is gone.
 - The reference selection bar is the single place for batch actions; the
   duplicate in-body **Insert [@keys]** button was removed.
-- The assistant is called **Scico** everywhere (previously “SciCo”).
+- The assistant is called **Chat** everywhere.
 - **`gpuikit` is now the default backend.** `cargo run` opens the source editor
   and rendered preview; the live-preview `zorite` backend is opt-in with
   `--no-default-features --features zorite`. The README documents both.
@@ -222,9 +233,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resulting programmatic editor offset is consumed once and never re-scrolls
   the preview. Regression tests cover the wheel path without a jump back and
   soft-wrapped paragraphs mapping to the same block.
-- **Profile Defaults** no longer replaces the Scico persona with Ragrig's
+- **Profile Defaults** no longer replaces the Chat persona with Ragrig's
   generic one-line stub; profile defaults and profiles without a prompt file
-  restore the compiled-in `Scico.md`.
+  restore the compiled-in `Chat.md`.
 - Editor scrolling no longer jumps back while the mouse is over the text:
   caret-follow now listens to editor change/selection events instead of every
   repaint, and it applies one stable offset after the layout settles. It also

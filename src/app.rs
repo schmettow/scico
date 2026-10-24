@@ -30,7 +30,7 @@ use crate::session::SessionState;
 use crate::state::AppState;
 
 actions!(
-    sciscraper,
+    scico,
     [
         NewDocument,
         NewWorkspace,
@@ -113,7 +113,7 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
 }
 
 /// The root view.
-pub struct SciscraperApp {
+pub struct ScicoApp {
     state: Entity<AppState>,
     agent: Entity<AgentPane>,
     library: Entity<LibraryPane>,
@@ -127,7 +127,7 @@ pub struct SciscraperApp {
     _subscriptions: Vec<Subscription>,
 }
 
-impl SciscraperApp {
+impl ScicoApp {
     /// Build the state and both panes for a new window.
     ///
     /// `initial_workspace` is the directory named on the command line, if any.
@@ -138,10 +138,10 @@ impl SciscraperApp {
         cx: &mut Context<Self>,
         initial_workspace: Option<PathBuf>,
     ) -> Self {
-        let settings_path = std::env::var_os("SCISCRAPER_SETTINGS")
+        let settings_path = std::env::var_os("SCICO_SETTINGS")
             .map(PathBuf::from)
             .unwrap_or_else(crate::settings::PersistedSettings::default_path);
-        let session_path = std::env::var_os("SCISCRAPER_SESSION")
+        let session_path = std::env::var_os("SCICO_SESSION")
             .map(PathBuf::from)
             .unwrap_or_else(|| SessionState::path_for_settings(&settings_path));
         Self::new_with_paths_and_workspace(
@@ -275,7 +275,7 @@ impl SciscraperApp {
                 .unwrap_or(true)
         });
 
-        if let Ok(prompt) = std::env::var("SCISCRAPER_ASK")
+        if let Ok(prompt) = std::env::var("SCICO_ASK")
             && !prompt.trim().is_empty()
         {
             let agent = this.agent.clone();
@@ -319,7 +319,7 @@ impl SciscraperApp {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Open a Sciscraper workspace".into()),
+            prompt: Some("Open a Scico workspace".into()),
         });
         let state = self.state.clone();
         let agent = self.agent.clone();
@@ -761,7 +761,7 @@ impl SciscraperApp {
             )
         };
         let resize_state = self.state.clone();
-        let mut dock = h_resizable(ElementId::Name("sciscraper-dock".into()))
+        let mut dock = h_resizable(ElementId::Name("scico-dock".into()))
             .with_state(&self.resizable)
             .on_resize(move |resizable, _window, cx| {
                 let sizes: Vec<f32> = resizable
@@ -867,7 +867,7 @@ impl SciscraperApp {
                         this.toggle_library(&ToggleLibrary, window, cx);
                     })),
             )
-            .child(div().mr_3().text_color(theme.primary).child("Sciscraper"))
+            .child(div().mr_3().text_color(theme.primary).child("Scico"))
             .child(
                 Button::new("toolbar-new")
                     .icon(IconName::Plus)
@@ -998,7 +998,7 @@ impl SciscraperApp {
             )
             .child(
                 Button::new("toolbar-agent")
-                    .label("Scico")
+                    .label("Chat")
                     .icon(if show_agent {
                         IconName::PanelRightClose
                     } else {
@@ -1008,9 +1008,9 @@ impl SciscraperApp {
                     .ghost()
                     .selected(show_agent)
                     .tooltip(if show_agent {
-                        "Hide Scico (Ctrl+Shift+A)"
+                        "Hide Chat (Ctrl+Shift+A)"
                     } else {
-                        "Show Scico (Ctrl+Shift+A)"
+                        "Show Chat (Ctrl+Shift+A)"
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_agent(&ToggleAgent, window, cx);
@@ -1457,27 +1457,26 @@ impl SciscraperApp {
             Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
         };
         let now = self.state.read(cx).rag_changes(cx);
-        let settings = gpui_kit::component::setting::Settings::new(ElementId::Name(
-            "sciscraper-settings".into(),
-        ))
-        .page(app_overview_page(self.state.clone(), &now, cx))
-        .page(app_library_page(self.state.clone(), cx))
-        .page(app_editor_page(self.state.clone()))
-        .page(ragrig_gpui::external_services_page(
-            rag.clone(),
-            grobid,
-            changes.clone(),
-            cx,
-        ))
-        .page(ragrig_gpui::rag_model_page(
-            rag,
-            changes,
-            Some(prompt_actions(self.state.clone())),
-            cx,
-        ));
+        let settings =
+            gpui_kit::component::setting::Settings::new(ElementId::Name("scico-settings".into()))
+                .page(app_overview_page(self.state.clone(), &now, cx))
+                .page(app_library_page(self.state.clone(), cx))
+                .page(app_editor_page(self.state.clone()))
+                .page(ragrig_gpui::external_services_page(
+                    rag.clone(),
+                    grobid,
+                    changes.clone(),
+                    cx,
+                ))
+                .page(ragrig_gpui::rag_model_page(
+                    rag,
+                    changes,
+                    Some(prompt_actions(self.state.clone())),
+                    cx,
+                ));
         let gutter = self.state.read(cx).settings_gutter;
         let resize_state = self.state.clone();
-        let layout = h_resizable(ElementId::Name("sciscraper-settings-layout".into()))
+        let layout = h_resizable(ElementId::Name("scico-settings-layout".into()))
             .with_state(&self.settings_resizable)
             .on_resize(move |resizable, _window, cx| {
                 let gutter = resizable
@@ -1524,15 +1523,15 @@ impl SciscraperApp {
     }
 }
 
-impl Render for SciscraperApp {
+impl Render for ScicoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active_title = self
             .state
             .read(cx)
             .active_document()
             .map(|document| document.title.to_string())
-            .unwrap_or_else(|| "Sciscraper".to_owned());
-        window.set_window_title(&format!("Sciscraper — {active_title}"));
+            .unwrap_or_else(|| "Scico".to_owned());
+        window.set_window_title(&format!("Scico — {active_title}"));
         let theme = cx.theme();
 
         let body: gpui_kit::AnyElement = if self.show_settings {
@@ -1574,7 +1573,7 @@ impl Render for SciscraperApp {
     }
 }
 
-impl Focusable for SciscraperApp {
+impl Focusable for ScicoApp {
     fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {
         self.focus_handle.clone()
     }
@@ -1593,15 +1592,12 @@ mod tests {
     /// A scratch persistence directory, unique per test and per window.
     fn scratch_paths() -> (PathBuf, PathBuf) {
         let unique = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-app-{}-{unique}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("scico-app-{}-{unique}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         (dir.join("settings.json"), dir.join("session.json"))
     }
 
-    fn mount(cx: &mut TestAppContext) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
+    fn mount(cx: &mut TestAppContext) -> (Entity<ScicoApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
@@ -1610,7 +1606,7 @@ mod tests {
         });
         let (settings, session) = scratch_paths();
         cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths(window, cx, settings, session)
+            ScicoApp::new_with_paths(window, cx, settings, session)
         })
     }
 
@@ -1618,7 +1614,7 @@ mod tests {
         cx: &mut TestAppContext,
         settings: PathBuf,
         session: PathBuf,
-    ) -> (Entity<SciscraperApp>, &mut VisualTestContext) {
+    ) -> (Entity<ScicoApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
@@ -1626,11 +1622,11 @@ mod tests {
             bind_keys(cx);
         });
         cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths(window, cx, settings, session)
+            ScicoApp::new_with_paths(window, cx, settings, session)
         })
     }
 
-    fn type_into_active(cx: &mut VisualTestContext, app: &Entity<SciscraperApp>, text: &str) {
+    fn type_into_active(cx: &mut VisualTestContext, app: &Entity<ScicoApp>, text: &str) {
         let handle = cx.update(|_, cx| {
             app.read(cx)
                 .state
@@ -1693,7 +1689,7 @@ mod tests {
         cx.update(|window, cx| {
             app.update(cx, |app, cx| {
                 app.state
-                    .update(cx, |state, cx| state.open_scico_prompt(window, cx))
+                    .update(cx, |state, cx| state.open_chat_prompt(window, cx))
                     .expect("open prompt");
             });
         });
@@ -1704,10 +1700,10 @@ mod tests {
             assert!(document.path.is_none());
             assert_eq!(
                 document.title.as_ref(),
-                crate::settings::SCICO_PROMPT_FILE,
+                crate::settings::CHAT_PROMPT_FILE,
                 "the buffer is named after the compiled prompt"
             );
-            assert_eq!(document.text(cx), crate::settings::SCICO_PROMPT);
+            assert_eq!(document.text(cx), crate::settings::CHAT_PROMPT);
         });
     }
 
@@ -1715,7 +1711,7 @@ mod tests {
     fn exporting_the_prompt_writes_it_and_opens_it(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let workspace = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-prompt-export-{}-{}",
+            "scico-prompt-export-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1726,24 +1722,24 @@ mod tests {
                 app.update(cx, |app, cx| {
                     app.state.update(cx, |state, cx| {
                         state.workspace = Some(workspace.clone());
-                        state.export_scico_prompt(window, cx)
+                        state.export_chat_prompt(window, cx)
                     })
                 })
             })
             .expect("export prompt");
 
-        let path = workspace.join(crate::settings::SCICO_PROMPT_FILE);
+        let path = workspace.join(crate::settings::CHAT_PROMPT_FILE);
         assert_eq!(exported, path.display().to_string());
         assert_eq!(
             std::fs::read_to_string(&path).expect("exported prompt"),
-            crate::settings::SCICO_PROMPT
+            crate::settings::CHAT_PROMPT
         );
 
         cx.update(|_, cx| {
             let state = app.read(cx).state.read(cx);
             let document = state.active_document().expect("prompt document");
             assert_eq!(document.path.as_deref(), Some(path.as_path()));
-            assert_eq!(document.text(cx), crate::settings::SCICO_PROMPT);
+            assert_eq!(document.text(cx), crate::settings::CHAT_PROMPT);
             assert_eq!(state.rag.read(cx).system_prompt_path, exported);
         });
 
@@ -1754,12 +1750,12 @@ mod tests {
     fn exporting_never_overwrites_an_existing_prompt(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let workspace = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-prompt-existing-{}-{}",
+            "scico-prompt-existing-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&workspace).expect("workspace");
-        let path = workspace.join(crate::settings::SCICO_PROMPT_FILE);
+        let path = workspace.join(crate::settings::CHAT_PROMPT_FILE);
         std::fs::write(&path, "Local prompt").expect("existing prompt");
 
         cx.update(|window, cx| {
@@ -1767,7 +1763,7 @@ mod tests {
                 app.state
                     .update(cx, |state, cx| {
                         state.workspace = Some(workspace.clone());
-                        state.export_scico_prompt(window, cx)
+                        state.export_chat_prompt(window, cx)
                     })
                     .expect("export prompt");
             });
@@ -1832,7 +1828,7 @@ mod tests {
     fn a_configured_workspace_opens_its_homepage(cx: &mut TestAppContext) {
         let (settings_path, session_path) = scratch_paths();
         let root = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-workspace-{}-{}",
+            "scico-workspace-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1872,7 +1868,7 @@ mod tests {
     fn a_command_line_workspace_is_initialized_and_opened(cx: &mut TestAppContext) {
         let (settings_path, session_path) = scratch_paths();
         let root = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-cli-workspace-{}-{}",
+            "scico-cli-workspace-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1886,7 +1882,7 @@ mod tests {
 
         // A restored tab from elsewhere must not survive the workspace switch.
         let outside = std::env::temp_dir().join(format!(
-            "sciscraper-outside-{}-{}.md",
+            "scico-outside-{}-{}.md",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1906,7 +1902,7 @@ mod tests {
 
         let workspace = root.clone();
         let (app, cx) = cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths_and_workspace(
+            ScicoApp::new_with_paths_and_workspace(
                 window,
                 cx,
                 settings_path,
@@ -1919,7 +1915,7 @@ mod tests {
         cx.update(|_, cx| {
             let state = app.read(cx).state.read(cx);
             assert_eq!(state.workspace.as_deref(), Some(root.as_path()));
-            assert!(root.join(".sciscraper/workspace.toml").is_file());
+            assert!(root.join(".scico/workspace.toml").is_file());
             assert!(root.join("corpus").is_dir());
             assert!(root.join(".ragrig").is_dir());
             assert!(root.join("Untitled-1.md").is_file());
@@ -1964,13 +1960,13 @@ mod tests {
         });
 
         let root = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-workspace-keep-{}-{}",
+            "scico-workspace-keep-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).expect("workspace directory");
         let outside = std::env::temp_dir().join(format!(
-            "sciscraper-outside-unsaved-{}-{}.md",
+            "scico-outside-unsaved-{}-{}.md",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1990,7 +1986,7 @@ mod tests {
 
         let workspace = root.clone();
         let (app, cx) = cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths_and_workspace(
+            ScicoApp::new_with_paths_and_workspace(
                 window,
                 cx,
                 settings_path,
@@ -2033,12 +2029,12 @@ mod tests {
         });
 
         let first = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-workspace-a-{}-{}",
+            "scico-workspace-a-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
         let second = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-workspace-b-{}-{}",
+            "scico-workspace-b-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -2047,7 +2043,7 @@ mod tests {
 
         let initial = first.root.clone();
         let (app, cx) = cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths_and_workspace(
+            ScicoApp::new_with_paths_and_workspace(
                 window,
                 cx,
                 settings_path,
@@ -2101,7 +2097,7 @@ mod tests {
         });
 
         let root = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-bib-edit-{}-{}",
+            "scico-bib-edit-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));
@@ -2115,7 +2111,7 @@ mod tests {
 
         let workspace = report.root.clone();
         let (app, cx) = cx.add_window_view(move |window, cx| {
-            SciscraperApp::new_with_paths_and_workspace(
+            ScicoApp::new_with_paths_and_workspace(
                 window,
                 cx,
                 settings_path,

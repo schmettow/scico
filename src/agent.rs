@@ -1,6 +1,6 @@
-//! The Scico pane: transcript, composer, context chips, and roundtrip.
+//! The Chat pane: transcript, composer, context chips, and roundtrip.
 //!
-//! This is the Sciscraper-specific composite built on Ragrig's primitives
+//! This is the Scico-specific composite built on Ragrig's primitives
 //! instead of `RagChat`, because a question has to carry the editor's own
 //! containers (document, bibliography, marked selections) and a finished answer
 //! may carry a replacement block that belongs back in the document.
@@ -21,12 +21,12 @@ use ragrig_gpui::prelude::*;
 use crate::document::{RangeHighlight, mark_editor_range, set_editor_readonly};
 use crate::state::{AppState, AppStateHost};
 
-/// The monochrome Scico mark used in buttons and message headers.
-const SCICO_ICON: &[u8] = include_bytes!("../assets/logo/Scico icon.svg");
+/// The monochrome Chat mark used in buttons and message headers.
+const CHAT_ICON: &[u8] = include_bytes!("../assets/logo/Scico icon.svg");
 /// The full-colour square used on the welcome screen.
-const SCICO_SQUARE: &[u8] = include_bytes!("../assets/logo/Scico-square.png");
+const CHAT_MARK: &[u8] = include_bytes!("../assets/logo/Scico-square.png");
 
-/// What the Scico pane tells its host.
+/// What the Chat pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentPaneEvent {
     /// A one-line status for the window's status bar.
@@ -74,7 +74,7 @@ struct PendingWrite {
     empty_prose: bool,
 }
 
-/// The Sciscraper Scico pane.
+/// The Scico Chat pane.
 pub struct AgentPane {
     state: Entity<AppState>,
     roundtrip: Roundtrip,
@@ -106,7 +106,7 @@ impl AgentPane {
     pub fn new(window: &mut Window, cx: &mut Context<Self>, state: Entity<AppState>) -> Self {
         let chat = cx.new(ChatView::new);
         let composer = cx.new(|cx| Composer::new(window, cx));
-        let chat_icon = ChatIcon::data(SCICO_ICON);
+        let chat_icon = ChatIcon::data(CHAT_ICON);
         composer.update(cx, |composer, cx| {
             composer.set_send_icon(chat_icon.clone(), cx);
         });
@@ -154,17 +154,17 @@ impl AgentPane {
         this.chat.update(cx, |chat, cx| {
             chat.set_empty_state(
                 EmptyState {
-                    icon: ChatIcon::png(SCICO_SQUARE),
-                    title: "Scico knows your library.".into(),
+                    icon: ChatIcon::png(CHAT_MARK),
+                    title: "Chat knows your library.".into(),
                     description: "Index a corpus in the Library, attach your draft, \
-                                  then ask a question. Scico answers with the documents \
+                                  then ask a question. Chat answers with the documents \
                                   it used, and you can send its answer straight back \
                                   into the marked passage."
                         .into(),
                 },
                 cx,
             );
-            chat.set_assistant(ChatIdentity::new("Scico", ChatIcon::data(SCICO_ICON)), cx);
+            chat.set_assistant(ChatIdentity::new("Chat", ChatIcon::data(CHAT_ICON)), cx);
         });
         this
     }
@@ -459,7 +459,7 @@ impl AgentPane {
         self.selections.len()
     }
 
-    /// The latest Scico status line.
+    /// The latest Chat status line.
     pub fn status(&self) -> &SharedString {
         &self.status
     }
@@ -541,10 +541,10 @@ impl AgentPane {
         self.send_prompt(prompt.into(), true, cx);
     }
 
-    /// Show a host notice under the Scico title.
+    /// Show a host notice under the Chat title.
     ///
     /// Used for workspace feedback that is too long for the one-line window
-    /// status bar; the notice wraps in the Scico header and remains readable.
+    /// status bar; the notice wraps in the Chat header and remains readable.
     pub fn announce(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.set_status(message, cx);
     }
@@ -606,14 +606,14 @@ impl AgentPane {
             let range = target.context.range().unwrap_or(0..0);
             if enriching {
                 format!(
-                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). The marked passage is also the retrieval query, so the corpus context is about it. Enrich the passage with the retrieved evidence and citations, keeping the author's voice. Return exactly one sciscraper:v1:replace block for that selection.",
+                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). The marked passage is also the retrieval query, so the corpus context is about it. Enrich the passage with the retrieved evidence and citations, keeping the author's voice. Return exactly one scico:v1:replace block for that selection.",
                     range.start,
                     range.end,
                     target.context.digest()
                 )
             } else {
                 format!(
-                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). Return exactly one sciscraper:v1:replace block for that selection.",
+                    "{prompt}\n\nThe edit target is the marked selection at range {}..{} (digest {}). Return exactly one scico:v1:replace block for that selection.",
                     range.start,
                     range.end,
                     target.context.digest()
@@ -1237,7 +1237,7 @@ impl Render for AgentPane {
         {
             chat.icon = Some(self.chat_icon.clone());
         }
-        let picker = SessionPicker::new("sciscraper-sessions", sessions)
+        let picker = SessionPicker::new("scico-sessions", sessions)
             .busy(busy)
             .current(current.unwrap_or_default())
             .on_event({
@@ -1263,7 +1263,7 @@ impl Render for AgentPane {
             })
         });
 
-        let agent_bar = AgentBar::new("sciscraper-agent-bar", components).on_event({
+        let agent_bar = AgentBar::new("scico-agent-bar", components).on_event({
             let this = cx.entity();
             move |event, _, cx| match event {
                 AgentBarEvent::Toggle {
@@ -1302,7 +1302,7 @@ impl Render for AgentPane {
                             .justify_between()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().child("Scico"))
+                            .child(div().text_lg().child("Chat"))
                             .child(picker),
                     )
                     .child(
@@ -1399,7 +1399,7 @@ mod tests {
     use super::context_char_limit;
 
     #[test]
-    fn the_scico_marks_render_and_keep_their_colours() {
+    fn the_chat_marks_render_and_keep_their_colours() {
         let renderer = SvgRenderer::new(Arc::new(gpui_kit::assets::AllAssets));
         for (name, bytes) in [
             (

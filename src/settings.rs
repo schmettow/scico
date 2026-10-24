@@ -1,8 +1,8 @@
 //! Durable application settings.
 //!
 //! The RAG fields mirror [`RagSettings`] but are stored as plain strings, so a
-//! settings file stays readable and stable across Ragrig upgrades. The Scico
-//! prompt is compiled in as `Scico.md`; an empty `system_prompt_path` means
+//! settings file stays readable and stable across Ragrig upgrades. The Chat
+//! prompt is compiled in as `Chat.md`; an empty `system_prompt_path` means
 //! "use the built-in one".
 
 use std::collections::BTreeMap;
@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use ragrig_gpui::{ChatProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings};
 use serde::{Deserialize, Serialize};
 
-/// The Scico prompt compiled into the binary.
-pub const SCICO_PROMPT: &str = include_str!("../assets/prompts/Scico.md");
+/// The Chat prompt compiled into the binary.
+pub const CHAT_PROMPT: &str = include_str!("../assets/prompts/Chat.md");
 
 /// The file name used when the prompt is exported into a workspace.
-pub const SCICO_PROMPT_FILE: &str = "Scico.md";
+pub const CHAT_PROMPT_FILE: &str = "Chat.md";
 
 /// A file kind with an assignable external viewer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +100,7 @@ impl ExternalViewers {
     }
 }
 
-/// Everything Sciscraper remembers between runs.
+/// Everything Scico remembers between runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PersistedSettings {
@@ -126,7 +126,7 @@ pub struct PersistedSettings {
     pub max_tokens: usize,
     /// Chat context window in tokens.
     pub context_tokens: usize,
-    /// Markdown prompt file overriding [`SCICO_PROMPT`]; empty uses the
+    /// Markdown prompt file overriding [`CHAT_PROMPT`]; empty uses the
     /// built-in prompt.
     pub system_prompt_path: String,
     /// Whether answers stream.
@@ -179,7 +179,7 @@ pub struct PersistedSettings {
     pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the Scico pane in pixels.
+    /// Width of the Chat pane in pixels.
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface, in pixels.
     pub settings_gutter: f32,
@@ -253,7 +253,7 @@ impl PersistedSettings {
     pub fn default_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("sciscraper-gpui")
+            .join("scico")
             .join("settings.json")
     }
 
@@ -312,14 +312,14 @@ impl PersistedSettings {
         settings.temperature = self.temperature;
         settings.max_tokens = self.max_tokens;
         settings.context_tokens = self.context_tokens;
-        settings.built_in_prompt = SCICO_PROMPT.to_owned();
+        settings.built_in_prompt = CHAT_PROMPT.to_owned();
         settings.system_prompt_path = self.system_prompt_path.trim().to_owned();
         settings.system_prompt = match settings.prompt_path() {
             Some(path) => fs::read_to_string(&path)
                 .ok()
                 .filter(|text| !text.trim().is_empty())
-                .unwrap_or_else(|| SCICO_PROMPT.to_owned()),
-            None => SCICO_PROMPT.to_owned(),
+                .unwrap_or_else(|| CHAT_PROMPT.to_owned()),
+            None => CHAT_PROMPT.to_owned(),
         };
         settings.stream = self.stream;
         settings.embed_model = self.embed_model.clone();
@@ -462,8 +462,8 @@ mod tests {
         let persisted = PersistedSettings::default();
         let mut rag = RagSettings::default();
         persisted.apply_to(&mut rag);
-        assert_eq!(rag.system_prompt.trim(), SCICO_PROMPT.trim());
-        assert_eq!(rag.built_in_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(rag.system_prompt.trim(), CHAT_PROMPT.trim());
+        assert_eq!(rag.built_in_prompt.trim(), CHAT_PROMPT.trim());
         assert!(rag.system_prompt_path.is_empty());
         assert!(rag.bibliography.is_empty());
     }
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn a_custom_prompt_file_replaces_the_builtin_prompt() {
         let dir = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-prompt-{}-{}",
+            "scico-prompt-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -479,8 +479,8 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).expect("prompt dir");
-        let path = dir.join("Scico.md");
-        std::fs::write(&path, "Custom Scico prompt").expect("prompt file");
+        let path = dir.join("Chat.md");
+        std::fs::write(&path, "Custom Chat prompt").expect("prompt file");
 
         let persisted = PersistedSettings {
             system_prompt_path: path.display().to_string(),
@@ -489,11 +489,11 @@ mod tests {
         let mut rag = RagSettings::default();
         persisted.apply_to(&mut rag);
 
-        assert_eq!(rag.system_prompt, "Custom Scico prompt");
-        assert_eq!(rag.built_in_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(rag.system_prompt, "Custom Chat prompt");
+        assert_eq!(rag.built_in_prompt.trim(), CHAT_PROMPT.trim());
         assert_eq!(
             rag.to_setup().expect("setup").system_prompt.as_deref(),
-            Some("Custom Scico prompt")
+            Some("Custom Chat prompt")
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -510,7 +510,7 @@ mod tests {
         rag.set_model_for(ChatProvider::OpenAi, "gpt-4o-mini");
         rag.top_k = 42;
         rag.memory = MemoryChoice::Transcript;
-        rag.system_prompt_path = "/tmp/Scico.md".to_owned();
+        rag.system_prompt_path = "/tmp/Chat.md".to_owned();
         rag.grobid_source = GrobidSource::Managed;
         rag.grobid_url = "http://127.0.0.1:8070".to_owned();
         rag.grobid_image = "grobid/grobid:0.9.1-crf".to_owned();
@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(persisted.provider, "DeepSeek");
         assert_eq!(persisted.top_k, 42);
         assert_eq!(persisted.memory, "Transcript");
-        assert_eq!(persisted.system_prompt_path, "/tmp/Scico.md");
+        assert_eq!(persisted.system_prompt_path, "/tmp/Chat.md");
         assert_eq!(persisted.grobid_source, "Docker container");
 
         let mut restored = RagSettings::default();
@@ -530,8 +530,8 @@ mod tests {
         assert_eq!(restored.model_for(ChatProvider::OpenAi), "gpt-4o-mini");
         assert_eq!(restored.top_k, 42);
         assert_eq!(restored.memory, MemoryChoice::Transcript);
-        assert_eq!(restored.system_prompt_path, "/tmp/Scico.md");
-        assert_eq!(restored.system_prompt.trim(), SCICO_PROMPT.trim());
+        assert_eq!(restored.system_prompt_path, "/tmp/Chat.md");
+        assert_eq!(restored.system_prompt.trim(), CHAT_PROMPT.trim());
         assert_eq!(restored.grobid_source, GrobidSource::Managed);
         assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
         assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn a_missing_file_is_defaults_without_an_error() {
         let path = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-missing-{}-{}.json",
+            "scico-missing-{}-{}.json",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -555,7 +555,7 @@ mod tests {
     #[test]
     fn saved_settings_round_trip() {
         let dir = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-settings-{}-{}",
+            "scico-settings-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

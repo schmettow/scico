@@ -1,6 +1,6 @@
 # Roadmap
 
-Sciscraper is a scientific Markdown editor with an integrated RAG agent and
+Scico is a scientific Markdown editor with an integrated RAG agent and
 reference management. The current prototype is functional; the API is not
 stabilised.
 
@@ -13,7 +13,7 @@ stabilised.
   `DEVELOPER_NOTES.md` keeps the architecture and protocol notes, and
   `UPSTREAM.md` tracks requests to Ragrig.
 - Keep the roundtrip experience solid across both editor backends: selection
-  capture, guarded write-back, Scico edit mode, and complete crash-safe session
+  capture, guarded write-back, Chat edit mode, and complete crash-safe session
   restore.
 - Polish the `gpuikit` writing surface: collapsible preview, two-way
   block-level synchronized scrolling, theme-following syntax highlighting, and
@@ -25,7 +25,7 @@ stabilised.
 - Edit and Enrich targets now keep a persistent range decoration, and the
   target document is read-only while the agent writes (`gpuikit`). Next: add a
   cancel path for an armed edit and use a per-range guard if gpuikit offers one.
-- The Scico prompt is file-based: the full `Scico.md` is compiled in, can be
+- The Chat prompt is file-based: the full `Chat.md` is compiled in, can be
   exported into the workspace, edited in the editor, and overridden per
   profile. Refine the prompt alongside protocol changes.
 - Enrich selection now runs retrieval on the marked passage itself. Next:
@@ -36,7 +36,7 @@ stabilised.
   cancellable). Verified end to end on Linux. Next: exercise the managed
   container on Windows and macOS; the full image runs emulated on Apple
   silicon.
-- The Scico status bar switches Chat memory and hybrid retrieval from the
+- The Chat status bar switches Chat memory and hybrid retrieval from the
   component menu. Next: surface the running memory strategy and retrieval
   mode in the transcript meta so saved sessions explain how an answer was
   produced.
@@ -57,5 +57,5 @@ stabilised.
 
 ## Later
 
-- Prepare `sciscraper-gpui` and the supporting crates for publication.
-- Reach functional parity with the `sciscraper-rs` prototype and retire it.
+- Prepare `scico` and the supporting crates for publication.
+- Reach functional parity with the earlier egui prototype and retire it.

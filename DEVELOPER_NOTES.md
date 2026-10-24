@@ -2,15 +2,15 @@
   <img src="assets/logo/Scico%20banner.svg" alt="Scico — scientific writing with your library" width="720">
 </p>
 
-# Sciscraper developer notes
+# Scico developer notes
 
 Technical documentation for contributors: editor backends, workspaces, the
 roundtrip protocol, architecture, checks, and known limitations. The
 user-facing introduction lives in [README.md](README.md).
 
-A scientific Markdown editor with an integrated RAG assistant, Scico, and a
+A scientific Markdown editor with an integrated RAG assistant, Chat, and a
 reference library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
-[Sciscraper](https://github.com/schmettow/sciscraper-rs) and composes the
+the earlier egui prototype and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
 [`gpuikit`](https://crates.io/crates/gpui-kit) source editor and a rendered
 Markdown preview. The optional `zorite` backend remains available for the
@@ -89,42 +89,42 @@ Useful environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `SCISCRAPER_WORKSPACE` | Editor/RAG workspace folder |
-| `SCISCRAPER_CORPUS` | Folder indexed by the agent |
-| `SCISCRAPER_BIB` | Bibliography file |
-| `SCISCRAPER_FILE` | Markdown file to open at startup |
-| `SCISCRAPER_ASK` | Ask this question once the window opens |
-| `SCISCRAPER_SETTINGS` | Settings file (defaults to the platform config dir) |
-| `SCISCRAPER_SESSION` | Session journal (defaults to `session.json` beside the settings file) |
+| `SCICO_WORKSPACE` | Editor/RAG workspace folder |
+| `SCICO_CORPUS` | Folder indexed by the agent |
+| `SCICO_BIB` | Bibliography file |
+| `SCICO_FILE` | Markdown file to open at startup |
+| `SCICO_ASK` | Ask this question once the window opens |
+| `SCICO_SETTINGS` | Settings file (defaults to the platform config dir) |
+| `SCICO_SESSION` | Session journal (defaults to `session.json` beside the settings file) |
 | `RAGRIG_HOME` | Global Ragrig profile/config directory (default `~/.ragrig`) |
 
 For a first roundtrip without a corpus:
 
 ```sh
 DEEPSEEK_API_KEY=… \
-SCISCRAPER_FILE=paper.md \
-SCISCRAPER_WORKSPACE=$PWD \
+SCICO_FILE=paper.md \
+SCICO_WORKSPACE=$PWD \
 cargo run
 ```
 
 The first launch scaffolds that workspace (`corpus/`, `.ragrig/`, a `.bib`,
-and `.sciscraper/`) and opens `paper.md`.
+and `.scico/`) and opens `paper.md`.
 
 Chat still works with an empty index; Ragrig then answers as a plain chat
 model.
 
 ## Workspaces
 
-A Sciscraper workspace is one directory:
+A Scico workspace is one directory:
 
 ```text
 my-paper/
   Untitled-1.md        the paper
   corpus/              source documents added through the Library
   my-paper.bib         bibliography (created when none exists)
-  Scico.md             optional project-specific prompt
+  Chat.md              optional project-specific prompt
   .ragrig/             .ragrig_store, sessions/, profiles/
-  .sciscraper/
+  .scico/
     workspace.toml     descriptor: bibtex, document, ragrig, homepage
 ```
 
@@ -132,8 +132,8 @@ my-paper/
   and creates the full scaffold. A non-empty target is refused rather than
   overwritten.
 - **Command line.** If the first argument is a directory
-  (`sciscraper-gpui ~/my-paper`), it is adopted like **Open workspace** and
-  initialized on demand. It outranks `SCISCRAPER_WORKSPACE` and the saved
+  (`scico ~/my-paper`), it is adopted like **Open workspace** and
+  initialized on demand. It outranks `SCICO_WORKSPACE` and the saved
   settings, and the choice is written back to the settings file. A file or a
   missing path is ignored.
 - **Workspace entry closes outside tabs.** New workspace, Open workspace, and
@@ -147,9 +147,9 @@ my-paper/
   `Untitled-1.md` when it has no document. A legacy `.ragrig_store` at the
   workspace root is moved into `.ragrig/` on the first open.
 - Both commands list everything they created and end with
-  **Add PDFs to the library and chat about them.** The Scico header repeats the
+  **Add PDFs to the library and chat about them.** The Chat header repeats the
   message so the full list stays readable when the status bar truncates.
-- `.sciscraper/workspace.toml` records the discovered `bibtex` and `document`
+- `.scico/workspace.toml` records the discovered `bibtex` and `document`
   lists, the `ragrig = "./.ragrig"` data folder, and the `homepage`. It is
   rewritten on each open when the directory contents changed.
 - Opening a workspace always leaves a document open: the descriptor's
@@ -194,7 +194,7 @@ my-paper/
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
 - `PageUp` / `PageDown` move by a viewport; add `Shift` to extend the
   selection.
-- **Library** (top left) and **Scico** (top right) toggle their panes. Both
+- **Library** (top left) and **Chat** (top right) toggle their panes. Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
@@ -236,7 +236,7 @@ my-paper/
    write-back bypasses the lock (`Document::replace` is programmatic), and
    navigation, selection, and copy still work. The `zorite` backend has no
    range decoration or read-only mode and only arms the mode.
-6. If the passage changed while Scico was writing, nothing is written: an
+6. If the passage changed while the chat agent was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
 The same flow works if you switch tabs while the answer streams; the edit
@@ -283,7 +283,7 @@ target stays bound to the tab the passage came from.
 - The filter field matches keys, authors, years, titles, and venues; its **X**
   button clears the filter.
 
-### Scico
+### Chat
 
 - Answers stream token by token. **Stop** keeps the partial answer; a failed
   answer can be retried.
@@ -321,18 +321,18 @@ of the controls column and the chosen width is remembered.
   8080. Full images are pulled as `linux/amd64` (the official full image is
   not multi-architecture); `-crf` images run natively.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
-  preview (zorite); editor font family and size; Scico visibility; and the
+  preview (zorite); editor font family and size; Chat visibility; and the
   default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval (including the
   **Hybrid retrieval** switch), parsing/chunking, and memory. The token budgets
   are sliders over powers of two (512, 1024,
   2048, …).
-- **Scico prompt** (RAG → Chat) — the compiled-in `Scico.md` is the default; an
+- **Chat prompt** (RAG → Chat) — the compiled-in `Chat.md` is the default; an
   empty path uses it. **Browse…** selects a Markdown file that overrides it,
   **Open prompt** shows the effective prompt in the editor (a file, or an
-  untitled `Scico.md` buffer for the built-in), **Export Scico.md** writes the
+  untitled `Chat.md` buffer for the built-in), **Export Chat.md** writes the
   built-in into the workspace, selects it, and opens it, and **Use built-in**
-  drops the override. An existing `Scico.md` is never overwritten; exporting
+  drops the override. An existing `Chat.md` is never overwritten; exporting
   opens it instead. Press **Apply** after editing the prompt file; saving the
   file in the editor marks the change immediately.
 
@@ -342,22 +342,22 @@ changes” line; the Overview page lists how many fields changed per section.
 
 ## The roundtrip protocol
 
-The Scico prompt is compiled in from `assets/prompts/Scico.md`. A workspace
+The Chat prompt is compiled in from `assets/prompts/Chat.md`. A workspace
 file selected in **Settings → RAG → Chat** overrides it. Editor contexts use
 the versioned containers the prompt documents:
 
 ```markdown
-<sciscraper:v1:context source="creator">
-<sciscraper:v1:document name="paper.md" path="paper.md" cursor="42:7" chars="12345">…</sciscraper:v1:document>
-<sciscraper:v1:library name="references.bib" path="…" chars="4210">…</sciscraper:v1:library>
-<sciscraper:v1:selection name="paper.md" range="120..480" chars="360" digest="b3:…">…</sciscraper:v1:selection>
-</sciscraper:v1:context>
+<scico:v1:context source="creator">
+<scico:v1:document name="paper.md" path="paper.md" cursor="42:7" chars="12345">…</scico:v1:document>
+<scico:v1:library name="references.bib" path="…" chars="4210">…</scico:v1:library>
+<scico:v1:selection name="paper.md" range="120..480" chars="360" digest="b3:…">…</scico:v1:selection>
+</scico:v1:context>
 ```
 
 The result side is one fenced block:
 
 ````markdown
-```sciscraper:v1:replace target="120..480"
+```scico:v1:replace target="120..480"
 …the finished passage…
 ```
 ````
@@ -365,7 +365,7 @@ The result side is one fenced block:
 `ragrig-gpui/src/editor/protocol.rs` owns the markers, container writers,
 char-indexed replacement, digest, and extraction. It caps a container at 100,000 characters
 and shortens further when the configured context window is small, marking the
-excerpt with `<sciscraper:v1:truncated shown="…" total="…"/>`.
+excerpt with `<scico:v1:truncated shown="…" total="…"/>`.
 
 A replacement is applied only when the digest of the passage at the marked
 range still matches. The model's `target` attribute is informational; the
@@ -374,7 +374,7 @@ author's mark decides where the edit lands.
 ## Architecture
 
 ```text
-sciscraper-gpui
+scico
   app.rs          toolbar, tabs, layout, actions, file dialogs
   state.rs        documents, workspace, settings, replacement write-back
   document.rs     EditorState and TextViewState per tab, save, selection, images
@@ -383,7 +383,7 @@ sciscraper-gpui
   library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
   workspace.rs    workspace scaffold, descriptor, defaults
   app_settings.rs Overview, Library, and Editor settings pages; External services lives in ragrig-gpui
-  settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
+  settings.rs     persisted JSON settings, viewer programs, and the Chat prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
   document.rs     backend-selected editor entity + EditorSurface implementation
@@ -391,7 +391,7 @@ sciscraper-gpui
 ragrig-gpui (path dependency)
   editor/         EditorSurface + RoundtripHost + Roundtrip; containers, digest guard
   RagController → worker thread → Ragrig agent/vector store/session store
-  SciscraperAttach → creator/corpus containers
+  ScicoAttach → creator/corpus containers
 ```
 
 The worker owns the Tokio runtime. No Ragrig future runs on GPUI's executor.
@@ -402,14 +402,14 @@ The following were fixed in `ragrig-gpui` during development:
 
 - `ChatIcon` gained `Png` and an `element()` renderer, because GPUI paints
   every `svg()` as a monochrome alpha mask. `AgentComponent::icon` and
-  `Composer::send_icon` let this app plug in the Scico mark, and
+  `Composer::send_icon` let this app plug in the Chat mark, and
   `agent_components()` keeps **Chat memory** beside the chat model.
 - `number_control` validates on Enter/blur instead of every keystroke, keeps
   the previous value on invalid input, and renders the accepted range below
   the field. The stock `NumberField` had the same draft problem; the custom
   control now owns its validation.
 
-- `SciscraperAttach` now passes pre-built `<sciscraper:v1:…>` containers
+- `ScicoAttach` now passes pre-built `<scico:v1:…>` containers
   through verbatim instead of wrapping them in a second `document` element.
 - `RagSetup` and `RagSettings` carry an explicit bibliography path; the worker
   uses it for reference rows, GROBID merging, and `@key` resolution (default
@@ -483,7 +483,7 @@ write-back plus undo in a headless GPUI window, persistent edit decorations
 with the read-only guard, the Library's BibTeX jump and bibliography file
 lookup, incremental Markdown/BibTeX highlighting, editor font
 defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
-both directions (including soft-wrapped paragraphs), and the Scico marks,
+both directions (including soft-wrapped paragraphs), and the Chat marks,
 their colour retention, and the window icon.
 
 ## Known limitations

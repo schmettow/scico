@@ -26,7 +26,7 @@ use zorite_editor::EditorEvent;
 
 use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_for};
 use crate::session::{SessionDocument, SessionState};
-use crate::settings::{PersistedSettings, SCICO_PROMPT, SCICO_PROMPT_FILE};
+use crate::settings::{CHAT_PROMPT, CHAT_PROMPT_FILE, PersistedSettings};
 use crate::theme::syntax_style;
 use crate::workspace::{self, WorkspaceReport};
 
@@ -82,7 +82,7 @@ pub struct AppState {
     pub sync_scroll: bool,
     /// Width of the library pane in pixels.
     pub library_width: f32,
-    /// Width of the Scico pane in pixels.
+    /// Width of the Chat pane in pixels.
     pub agent_width: f32,
     /// Empty gutter on the right of the settings surface.
     pub settings_gutter: f32,
@@ -127,7 +127,7 @@ impl AppState {
         let cli_workspace = initial_workspace.filter(|path| path.is_dir());
         let requested_by_cli = cli_workspace.is_some();
         let configured_workspace = cli_workspace
-            .or_else(|| std::env::var_os("SCISCRAPER_WORKSPACE").map(PathBuf::from))
+            .or_else(|| std::env::var_os("SCICO_WORKSPACE").map(PathBuf::from))
             .or_else(|| non_empty_path(&persisted.workspace))
             .or_else(|| std::env::var_os("RAGRIG_WORKSPACE").map(PathBuf::from));
         let workspace_explicit = configured_workspace.is_some();
@@ -154,7 +154,7 @@ impl AppState {
             .or_else(|| non_empty_path(&rag_values.workspace))
             .or_else(|| std::env::current_dir().ok());
 
-        let corpus = std::env::var_os("SCISCRAPER_CORPUS")
+        let corpus = std::env::var_os("SCICO_CORPUS")
             .map(PathBuf::from)
             .or_else(|| {
                 workspace_report
@@ -168,7 +168,7 @@ impl AppState {
                     .map(|workspace| workspace.join(workspace::CORPUS_DIR))
             })
             .or_else(|| workspace.clone());
-        let bibliography = std::env::var_os("SCISCRAPER_BIB")
+        let bibliography = std::env::var_os("SCICO_BIB")
             .map(PathBuf::from)
             .or_else(|| {
                 workspace_report
@@ -198,7 +198,7 @@ impl AppState {
         if let Some(report) = &workspace_report
             && let Some(mut layered) = RagSettings::from_layers_over(&report.root, &rag_values)
         {
-            layered.built_in_prompt = SCICO_PROMPT.to_owned();
+            layered.built_in_prompt = CHAT_PROMPT.to_owned();
             rag_values = layered;
         }
         if let Some(workspace) = &workspace {
@@ -340,7 +340,7 @@ impl AppState {
             style,
         };
 
-        let restore = std::env::var_os("SCISCRAPER_FILE")
+        let restore = std::env::var_os("SCICO_FILE")
             .map(PathBuf::from)
             .filter(|path| path.is_file());
         let mut opened = false;
@@ -537,11 +537,11 @@ impl AppState {
         id
     }
 
-    /// Open the effective Scico prompt in the editor.
+    /// Open the effective Chat prompt in the editor.
     ///
     /// A selected prompt file opens as a normal document. Without one, the
-    /// compiled-in `Scico.md` appears as an untitled buffer.
-    pub fn open_scico_prompt(
+    /// compiled-in `Chat.md` appears as an untitled buffer.
+    pub fn open_chat_prompt(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -549,7 +549,7 @@ impl AppState {
         match self.rag.read(cx).prompt_path() {
             Some(path) => self.open_path(&path, window, cx),
             None => {
-                self.open_buffer(SCICO_PROMPT_FILE, SCICO_PROMPT.to_owned(), window, cx);
+                self.open_buffer(CHAT_PROMPT_FILE, CHAT_PROMPT.to_owned(), window, cx);
                 Ok(())
             }
         }
@@ -557,9 +557,9 @@ impl AppState {
 
     /// Write the compiled-in prompt into the workspace, select it, and open it.
     ///
-    /// An existing `Scico.md` is never overwritten: it is opened and selected
+    /// An existing `Chat.md` is never overwritten: it is opened and selected
     /// as the prompt instead, so local edits survive the action.
-    pub fn export_scico_prompt(
+    pub fn export_chat_prompt(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -568,10 +568,10 @@ impl AppState {
             .workspace
             .clone()
             .ok_or_else(|| "choose a workspace folder first".to_owned())?;
-        let path = workspace.join(SCICO_PROMPT_FILE);
+        let path = workspace.join(CHAT_PROMPT_FILE);
         let mut created = false;
         if !path.exists() {
-            fs::write(&path, SCICO_PROMPT)
+            fs::write(&path, CHAT_PROMPT)
                 .map_err(|error| format!("cannot write '{}': {error}", path.display()))?;
             created = true;
         }
@@ -589,9 +589,9 @@ impl AppState {
         });
         self.set_status(
             if created {
-                format!("Exported {SCICO_PROMPT_FILE} to {}", workspace.display())
+                format!("Exported {CHAT_PROMPT_FILE} to {}", workspace.display())
             } else {
-                format!("Using existing {SCICO_PROMPT_FILE}")
+                format!("Using existing {CHAT_PROMPT_FILE}")
             },
             cx,
         );
@@ -1457,12 +1457,12 @@ impl AppState {
         let layered = RagSettings::from_layers_over(&report.root, &self.rag.read(cx).clone());
         self.rag.update(cx, |settings, cx| {
             if let Some(mut layered) = layered {
-                layered.built_in_prompt = SCICO_PROMPT.to_owned();
+                layered.built_in_prompt = CHAT_PROMPT.to_owned();
                 *settings = layered;
             }
             settings.workspace = report.root.display().to_string();
             settings.bibliography = report.bibliography.display().to_string();
-            settings.built_in_prompt = SCICO_PROMPT.to_owned();
+            settings.built_in_prompt = CHAT_PROMPT.to_owned();
             settings
                 .corpus_dirs
                 .retain(|entry| !entry.starts_with(&format!("{}=", workspace::CORPUS_DIR)));
@@ -1603,7 +1603,7 @@ impl AppState {
         }
     }
 
-    /// Turn Scico's conversation memory on or off and rebuild the agent.
+    /// Turn the chat's conversation memory on or off and rebuild the agent.
     ///
     /// Off clears the transcript and the query rewriter. Switching it back on
     /// restores the strategy that was active before.
@@ -2239,19 +2239,19 @@ fn toggled_memory(
     }
 }
 
-/// Give a workspace `Scico.md` precedence. Without one, keep a prompt chosen
+/// Give a workspace `Chat.md` precedence. Without one, keep a prompt chosen
 /// by a config layer, or fall back to the compiled-in prompt.
 fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) {
     if let Some(prompt) = &report.prompt {
         settings.system_prompt_path = workspace::PROMPT_FILE.to_owned();
         settings.system_prompt =
-            fs::read_to_string(prompt).unwrap_or_else(|_| SCICO_PROMPT.to_owned());
+            fs::read_to_string(prompt).unwrap_or_else(|_| CHAT_PROMPT.to_owned());
     } else {
         let missing = settings.system_prompt_path.trim().is_empty()
             || settings.prompt_path().is_none_or(|path| !path.is_file());
         if missing {
             settings.system_prompt_path.clear();
-            settings.system_prompt = SCICO_PROMPT.to_owned();
+            settings.system_prompt = CHAT_PROMPT.to_owned();
         }
     }
 }
@@ -2433,7 +2433,7 @@ mod tests {
 
     #[test]
     fn replacement_blocks_round_trip() {
-        let answer = "Done.\n\n```sciscraper:v1:replace target=\"2..4\"\nbetter\n```";
+        let answer = "Done.\n\n```scico:v1:replace target=\"2..4\"\nbetter\n```";
         let (prose, blocks) = replacement_from_answer(answer).expect("block");
         assert_eq!(prose, "Done.");
         assert_eq!(blocks[0].target, Some(2..4));
@@ -2449,7 +2449,7 @@ mod tests {
     fn a_copy_block_names_its_target() {
         assert_eq!(
             replacement_block(2..4, "better"),
-            "```sciscraper:v1:replace target=\"2..4\"\nbetter\n```"
+            "```scico:v1:replace target=\"2..4\"\nbetter\n```"
         );
     }
 

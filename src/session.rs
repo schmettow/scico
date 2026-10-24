@@ -40,7 +40,7 @@ pub struct SessionState {
     pub active: usize,
     /// Show the library pane.
     pub show_library: bool,
-    /// Show the Scico pane.
+    /// Show the Chat pane.
     pub show_agent: bool,
     /// Show the rendered preview beside the source editor.
     pub show_preview: bool,
@@ -50,7 +50,7 @@ pub struct SessionState {
     pub raw_mode: bool,
     /// Width of the library pane.
     pub library_width: f32,
-    /// Width of the Scico pane.
+    /// Width of the Chat pane.
     pub agent_width: f32,
 }
 
@@ -73,7 +73,7 @@ impl Default for SessionState {
 impl SessionState {
     /// The conventional session path for a settings file.
     ///
-    /// Keeping the two next to each other means `SCISCRAPER_SETTINGS` also
+    /// Keeping the two next to each other means `SCICO_SETTINGS` also
     /// isolates test and development data.
     pub fn path_for_settings(settings_path: &Path) -> PathBuf {
         settings_path.with_file_name("session.json")
@@ -148,10 +148,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "sciscraper-gpui-session-{}-{unique}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("scico-session-{}-{unique}", std::process::id()));
         fs::create_dir_all(&dir).expect("scratch dir");
         dir
     }

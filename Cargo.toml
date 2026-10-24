@@ -1,12 +1,12 @@
 [package]
-name = "sciscraper-gpui"
+name = "scico"
 version = "0.3.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 description = "A scientific Markdown editor with integrated RAG co-writing and reference management"
 readme = "README.md"
-repository = "https://github.com/schmettow/sciscraper-gpui"
+repository = "https://github.com/schmettow/scico"
 keywords = ["markdown", "editor", "rag", "llm", "gpui"]
 categories = ["text-editors", "gui"]
 
