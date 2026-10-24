@@ -5,6 +5,7 @@
 //! prompt is compiled in as `Scico.md`; an empty `system_prompt_path` means
 //! "use the built-in one".
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -109,12 +110,16 @@ pub struct PersistedSettings {
     pub corpus: String,
     /// Bibliography the library pane shows.
     pub bibliography: String,
-    /// Chat provider label (`Ollama` / `DeepSeek`).
+    /// Chat provider label (`Ollama` / `DeepSeek` / `OpenAI` / `Claude` /
+    /// `Mistral` / `OpenRouter`).
     pub provider: String,
     /// Ollama chat model.
     pub ollama_model: String,
     /// DeepSeek chat model.
     pub deepseek_model: String,
+    /// Models for the cloud providers without a legacy field, keyed by
+    /// provider label.
+    pub provider_models: BTreeMap<String, String>,
     /// Sampling temperature.
     pub temperature: f64,
     /// Maximum generated tokens.
@@ -201,8 +206,9 @@ impl Default for PersistedSettings {
             corpus: String::new(),
             bibliography: String::new(),
             provider: provider.label().to_owned(),
-            ollama_model: rag.ollama_model,
-            deepseek_model: rag.deepseek_model,
+            ollama_model: rag.model_for(ChatProvider::Ollama).to_owned(),
+            deepseek_model: rag.model_for(ChatProvider::DeepSeek).to_owned(),
+            provider_models: BTreeMap::new(),
             temperature: rag.temperature,
             max_tokens: rag.max_tokens,
             context_tokens: rag.context_tokens,
@@ -288,12 +294,21 @@ impl PersistedSettings {
             settings.workspace = self.workspace.trim().to_owned();
         }
         settings.bibliography = self.bibliography.trim().to_owned();
-        settings.provider = ChatProvider::options()
-            .iter()
-            .find(|(_, label)| *label == self.provider)
-            .map_or(settings.provider, |(provider, _)| *provider);
-        settings.ollama_model = self.ollama_model.clone();
-        settings.deepseek_model = self.deepseek_model.clone();
+        settings.provider = ChatProvider::from_label(&self.provider).unwrap_or(settings.provider);
+        if !self.ollama_model.trim().is_empty() {
+            settings.set_model_for(ChatProvider::Ollama, self.ollama_model.clone());
+        }
+        if !self.deepseek_model.trim().is_empty() {
+            settings.set_model_for(ChatProvider::DeepSeek, self.deepseek_model.clone());
+        }
+        for (label, model) in &self.provider_models {
+            if model.trim().is_empty() {
+                continue;
+            }
+            if let Some(provider) = ChatProvider::from_label(label) {
+                settings.set_model_for(provider, model.clone());
+            }
+        }
         settings.temperature = self.temperature;
         settings.max_tokens = self.max_tokens;
         settings.context_tokens = self.context_tokens;
@@ -339,8 +354,23 @@ impl PersistedSettings {
         self.workspace = settings.workspace.clone();
         self.bibliography = settings.bibliography.clone();
         self.provider = settings.provider.label().to_owned();
-        self.ollama_model = settings.ollama_model.clone();
-        self.deepseek_model = settings.deepseek_model.clone();
+        self.ollama_model = settings.model_for(ChatProvider::Ollama).to_owned();
+        self.deepseek_model = settings.model_for(ChatProvider::DeepSeek).to_owned();
+        self.provider_models = ChatProvider::options()
+            .iter()
+            .filter(|(provider, _)| {
+                provider.env_var().is_some()
+                    && *provider != ChatProvider::DeepSeek
+                    && !settings.model_for(*provider).trim().is_empty()
+                    && settings.model_for(*provider) != provider.default_model()
+            })
+            .map(|(provider, _)| {
+                (
+                    provider.label().to_owned(),
+                    settings.model_for(*provider).to_owned(),
+                )
+            })
+            .collect();
         self.temperature = settings.temperature;
         self.max_tokens = settings.max_tokens;
         self.context_tokens = settings.context_tokens;
@@ -477,6 +507,7 @@ mod tests {
         rag.workspace = "/tmp/workspace".to_owned();
         rag.bibliography = "/tmp/library.bib".to_owned();
         rag.provider = ChatProvider::DeepSeek;
+        rag.set_model_for(ChatProvider::OpenAi, "gpt-4o-mini");
         rag.top_k = 42;
         rag.memory = MemoryChoice::Transcript;
         rag.system_prompt_path = "/tmp/Scico.md".to_owned();
@@ -496,6 +527,7 @@ mod tests {
         assert_eq!(restored.workspace, "/tmp/workspace");
         assert_eq!(restored.bibliography, "/tmp/library.bib");
         assert_eq!(restored.provider, ChatProvider::DeepSeek);
+        assert_eq!(restored.model_for(ChatProvider::OpenAi), "gpt-4o-mini");
         assert_eq!(restored.top_k, 42);
         assert_eq!(restored.memory, MemoryChoice::Transcript);
         assert_eq!(restored.system_prompt_path, "/tmp/Scico.md");
