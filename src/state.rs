@@ -66,13 +66,13 @@ pub struct AppState {
     /// The bibliography shown by the library.
     pub bibliography: Option<PathBuf>,
     /// Bumped when the bibliography document is saved or closed, so the
-    /// Library pane reloads its rows.
+    /// Library section reloads its rows.
     pub references_revision: u64,
     /// Attach the active document to each question.
     pub document_attached: bool,
     /// Attach the bibliography to each question.
     pub library_attached: bool,
-    /// Show the library pane.
+    /// Show the workspace pane.
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
@@ -80,7 +80,7 @@ pub struct AppState {
     pub show_preview: bool,
     /// Keep the source editor and the preview scrolled together.
     pub sync_scroll: bool,
-    /// Width of the library pane in pixels.
+    /// Width of the workspace pane in pixels.
     pub library_width: f32,
     /// Width of the Chat pane in pixels.
     pub agent_width: f32,
@@ -102,6 +102,10 @@ pub struct AppState {
     session_generation: u64,
     /// Render raw Markdown instead of the live preview.
     pub raw_mode: bool,
+    /// Whether the New-profile name field is open in Settings.
+    pub creating_profile: bool,
+    /// Validation message for the New-profile field.
+    pub profile_draft_error: Option<SharedString>,
     /// The status bar text.
     pub status: SharedString,
     style: SyntaxStyle,
@@ -206,6 +210,17 @@ impl AppState {
         }
         if let Some(report) = &workspace_report {
             apply_workspace_prompt(&mut rag_values, report);
+        }
+        // Profile bookkeeping is host state; a layered config resets it.
+        rag_values.profile_name.clear();
+        rag_values.refresh_profiles();
+        let saved_profile = persisted.profile_name.trim().to_owned();
+        if rag_values
+            .profiles
+            .iter()
+            .any(|name| name == &saved_profile)
+        {
+            rag_values.profile_name = saved_profile;
         }
         if let Some(bibliography) = &bibliography {
             rag_values.bibliography = bibliography.display().to_string();
@@ -336,6 +351,8 @@ impl AppState {
             scroll_generation: 0,
             session_generation: 0,
             raw_mode,
+            creating_profile: false,
+            profile_draft_error: None,
             status,
             style,
         };
@@ -810,7 +827,7 @@ impl AppState {
         Ok(())
     }
 
-    /// Ask the Library pane to reload the bibliography rows.
+    /// Ask the Library section to reload the bibliography rows.
     fn references_changed(&mut self, cx: &mut Context<Self>) {
         self.references_revision = self.references_revision.wrapping_add(1);
         cx.notify();
@@ -940,29 +957,47 @@ impl AppState {
 
     /// Close the active tab. A dirty document is kept until saved.
     pub fn close_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(document) = self.active_document() else {
+        let Some((id, dirty, title)) = self
+            .active_document()
+            .map(|document| (document.id, document.dirty, document.title.clone()))
+        else {
             return;
         };
-        if document.dirty {
-            let title = document.title.clone();
+        if dirty {
             self.set_status(
                 format!("{title} has unsaved changes — save it before closing"),
                 cx,
             );
             return;
         }
-        let closed_bibliography =
-            is_bibliography_path(document.path.as_deref(), self.bibliography.as_deref());
-        self.documents.remove(self.active);
+        self.close_document(id, window, cx);
+    }
+
+    /// Remove a document by identity, regardless of its dirty state.
+    ///
+    /// Callers that close a dirty document must obtain the author's consent
+    /// first; [`Self::close_active`] keeps the dirty guard for the ordinary
+    /// path.
+    pub fn close_document(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.documents.iter().position(|document| document.id == id) else {
+            return;
+        };
+        let closed_bibliography = is_bibliography_path(
+            self.documents[index].path.as_deref(),
+            self.bibliography.as_deref(),
+        );
+        self.documents.remove(index);
         if closed_bibliography {
             self.references_changed(cx);
         }
         if self.documents.is_empty() {
             self.active = 0;
-            // The caller supplies the window in the normal path; a closed last
-            // tab leaves an empty state rather than creating an editor here.
         } else {
-            self.active = self.active.min(self.documents.len() - 1);
+            if index < self.active {
+                self.active -= 1;
+            } else if self.active >= self.documents.len() {
+                self.active = self.documents.len() - 1;
+            }
             window.focus(
                 &self.documents[self.active].editor.read(cx).focus_handle(cx),
                 cx,
@@ -1455,6 +1490,7 @@ impl AppState {
         self.ragrig_dir = report.ragrig_dir.clone();
 
         let layered = RagSettings::from_layers_over(&report.root, &self.rag.read(cx).clone());
+        let previous_profile = self.rag.read(cx).profile_name.trim().to_owned();
         self.rag.update(cx, |settings, cx| {
             if let Some(mut layered) = layered {
                 layered.built_in_prompt = CHAT_PROMPT.to_owned();
@@ -1472,6 +1508,16 @@ impl AppState {
                 report.root.join(workspace::CORPUS_DIR).display()
             ));
             apply_workspace_prompt(settings, &report);
+            settings.profile_name.clear();
+            settings.refresh_profiles();
+            if !previous_profile.is_empty()
+                && settings
+                    .profiles
+                    .iter()
+                    .any(|name| name == &previous_profile)
+            {
+                settings.profile_name = previous_profile;
+            }
             cx.notify();
         });
         self.apply_rag(cx);
@@ -1710,6 +1756,110 @@ impl AppState {
         self.settings_gutter = gutter_width(gutter);
         self.persist(cx);
         cx.notify();
+    }
+
+    /// Load a saved profile into the settings form.
+    pub fn load_profile(&mut self, name: &str, cx: &mut Context<Self>) {
+        let name = name.trim().to_owned();
+        let result = self.rag.update(cx, |rag, cx| {
+            let result = rag.load_profile(&name);
+            cx.notify();
+            result
+        });
+        match result {
+            Ok(()) => {
+                self.persist(cx);
+                self.set_status(format!("Loaded profile '{name}'"), cx);
+            }
+            Err(error) => self.set_status(error, cx),
+        }
+    }
+
+    /// Save the current settings under the selected profile name.
+    pub fn save_profile(&mut self, cx: &mut Context<Self>) {
+        let result = self.rag.update(cx, |rag, cx| {
+            let result = rag.save_profile();
+            cx.notify();
+            result
+        });
+        match result {
+            Ok(()) => {
+                self.persist(cx);
+                cx.notify();
+            }
+            Err(error) => self.set_status(error, cx),
+        }
+    }
+
+    /// Open the name field for a new profile.
+    pub fn begin_new_profile(&mut self, cx: &mut Context<Self>) {
+        self.creating_profile = true;
+        self.profile_draft_error = None;
+        cx.notify();
+    }
+
+    /// Close the New-profile field without creating anything.
+    pub fn cancel_new_profile(&mut self, cx: &mut Context<Self>) {
+        if self.creating_profile {
+            self.creating_profile = false;
+            self.profile_draft_error = None;
+            cx.notify();
+        }
+    }
+
+    /// Save a new profile under `name` and select it.
+    ///
+    /// The name is checked against the existing profiles first, so **New**
+    /// never silently overwrites one; **Update Profile** remains the way to
+    /// overwrite.
+    pub fn create_profile(&mut self, name: impl Into<String>, cx: &mut Context<Self>) {
+        let name = name.into().trim().to_owned();
+        if name.is_empty() {
+            self.profile_draft_error = Some("Enter a profile name first.".into());
+            cx.notify();
+            return;
+        }
+        if self
+            .rag
+            .read(cx)
+            .profiles
+            .iter()
+            .any(|profile| profile == &name)
+        {
+            self.profile_draft_error =
+                Some(format!("A profile named '{name}' already exists.").into());
+            cx.notify();
+            return;
+        }
+        let previous = self.rag.read(cx).profile_name.clone();
+        let result = self.rag.update(cx, |rag, cx| {
+            rag.profile_name = name.clone();
+            let result = rag.save_profile();
+            if result.is_err() {
+                rag.profile_name = previous;
+            }
+            cx.notify();
+            result
+        });
+        match result {
+            Ok(()) => {
+                self.persist(cx);
+                self.creating_profile = false;
+                self.profile_draft_error = None;
+                self.set_status(format!("Created profile '{name}'"), cx);
+            }
+            Err(error) => {
+                self.profile_draft_error = Some(error.into());
+                cx.notify();
+            }
+        }
+    }
+
+    /// Clear a validation message while the user edits the new name.
+    pub fn clear_profile_error(&mut self, cx: &mut Context<Self>) {
+        if self.profile_draft_error.take().is_some() {
+            cx.notify();
+        }
     }
 
     /// Accept the GROBID source, URL, and image chosen by the service page.

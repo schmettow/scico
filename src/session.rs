@@ -38,7 +38,7 @@ pub struct SessionState {
     pub documents: Vec<SessionDocument>,
     /// Index into [`Self::documents`].
     pub active: usize,
-    /// Show the library pane.
+    /// Show the workspace pane.
     pub show_library: bool,
     /// Show the Chat pane.
     pub show_agent: bool,
@@ -48,7 +48,7 @@ pub struct SessionState {
     pub sync_scroll: bool,
     /// Render raw Markdown rather than the live preview.
     pub raw_mode: bool,
-    /// Width of the library pane.
+    /// Width of the workspace pane.
     pub library_width: f32,
     /// Width of the Chat pane.
     pub agent_width: f32,

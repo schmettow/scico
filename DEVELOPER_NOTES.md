@@ -190,11 +190,17 @@ my-paper/
   document. `![](paper.pdf)`, `.epub`, `.docx`, `.html`, and `.txt` lines render
   as clickable file chips and open in the configured viewer (zorite).
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
-  `Ctrl+W` closes. A dirty tab is kept until it is saved.
+  `Ctrl+W` closes. Closing a dirty tab asks **Cancel / Don't save / Save** first;
+  `Ctrl+W` on a clean tab opens a fresh scratch tab instead.
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
 - `PageUp` / `PageDown` move by a viewport; add `Shift` to extend the
   selection.
-- **Library** (top left) and **Chat** (top right) toggle their panes. Both
+- The left **Workspace** panel is the persistence and synchronization layer:
+  it shows the project root and its `.scico/workspace.toml` status, and holds
+  **New workspace** / **Open workspace**. The **Library** section underneath is
+  one pipeline over that workspace — corpus, index, and references — so further
+  pipelines can share the same project shell.
+- The toolbar toggles **Workspace** (left pane) and **Chat** (right pane). Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
@@ -254,7 +260,7 @@ target stays bound to the tab the passage came from.
   or the corpus and attached as one-shot context. Up to three papers per
   question; misses are reported in the transcript.
 
-### Library and references
+### Library pipeline and references
 
 - **Add PDFs** copies PDFs into the corpus, runs GROBID, merges the records
   into the bibliography, and then indexes the corpus. Originals stay where they
@@ -277,7 +283,7 @@ target stays bound to the tab the passage came from.
   `EditorSurface::reveal`. Saving or closing the bibliography bumps
   `references_revision`; the Library observes it and calls
   `refresh_references`, so the rows reflect the edited `.bib`.
-- The open action uses the viewer assigned in **Settings → Library → External
+- The open action uses the viewer assigned in **Settings → Workspace → External
   viewers** (PDF, EPUB, and HTML), or the platform default when the field is
   empty.
 - The filter field matches keys, authors, years, titles, and venues; its **X**
@@ -301,16 +307,18 @@ target stays bound to the tab the passage came from.
 `Ctrl+,` opens the settings surface. The divider on the right adjusts the width
 of the controls column and the chosen width is remembered.
 
-- **Overview** — profile picker and name, a per-section count of pending
-  changes, and the action row: **Apply**, **Profile Defaults**, **Update
-  Profile**, and **Load profile**. Apply is disabled (grey) while nothing is
-  pending and violet when a rebuild is due. Profile Defaults re-reads the
-  selected profile, or the built-in defaults when none exists; Update Profile
-  writes the current values to the name above (creating the profile when the
-  name is new); Load profile reads the selected profile from disk.
-- **Library** — workspace, corpus folder, bibliography, pane visibility,
-  external viewers for PDF/EPUB/HTML, the default library attachment, and
-  reference processing (renaming, OpenAlex, `@key` citations). Every path
+- **Overview** — a single profile row with the picker and **New**.
+  Choosing a profile in the picker loads it immediately; **New** opens a name
+  field and **Create** snapshots the current settings under that name. Below
+  sit a per-section count of pending changes and the action row: **Apply**,
+  **Profile Defaults**, and **Update Profile**. Apply is disabled (grey) while
+  nothing is pending and violet when a rebuild is due. Profile Defaults
+  re-reads the selected profile, or the built-in defaults when none exists;
+  Update Profile writes the current values to the selected name. The last
+  selected profile persists in `settings.json`.
+- **Workspace** — workspace folder, corpus folder, bibliography, pane
+  visibility, external viewers for PDF/EPUB/HTML, the default library
+  attachment, and reference processing (renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
   and creates the corpus folder when it is opened.
 - **External services** — source (existing server or managed Docker
@@ -380,9 +388,10 @@ scico
   document.rs     EditorState and TextViewState per tab, save, selection, images
   highlight.rs    incremental Syntect highlighter and Markdown/BibTeX grammars
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
-  library.rs      bibliography rows, corpus indexing, GROBID, Add PDFs
+  workspace_pane.rs Workspace shell: status, New/Open workspace, Library section
+  library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Add PDFs
   workspace.rs    workspace scaffold, descriptor, defaults
-  app_settings.rs Overview, Library, and Editor settings pages; External services lives in ragrig-gpui
+  app_settings.rs Overview, Workspace, and Editor settings pages; External services lives in ragrig-gpui
   settings.rs     persisted JSON settings, viewer programs, and the Chat prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
@@ -508,8 +517,9 @@ their colour retention, and the window icon.
   the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the
   path environment variables.
-- Closing a dirty tab is still refused with a status message; the window-close
-  path has the modal Save all / Discard / Cancel dialog.
+- Closing a dirty tab opens the tab-local Cancel / Don't save / Save dialog;
+  the window-close path keeps its separate modal Save all / Discard / Cancel
+  dialog.
 - Images load synchronously on first paint and are cached per document; very
   large images can hitch the first frame.
 

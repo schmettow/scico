@@ -108,7 +108,7 @@ pub struct PersistedSettings {
     pub workspace: String,
     /// Corpus folder indexed by the agent.
     pub corpus: String,
-    /// Bibliography the library pane shows.
+    /// Bibliography the Library section shows.
     pub bibliography: String,
     /// Chat provider label (`Ollama` / `DeepSeek` / `OpenAI` / `Claude` /
     /// `Mistral` / `OpenRouter`).
@@ -120,6 +120,8 @@ pub struct PersistedSettings {
     /// Models for the cloud providers without a legacy field, keyed by
     /// provider label.
     pub provider_models: BTreeMap<String, String>,
+    /// Last selected profile; empty when none is selected.
+    pub profile_name: String,
     /// Sampling temperature.
     pub temperature: f64,
     /// Maximum generated tokens.
@@ -169,7 +171,7 @@ pub struct PersistedSettings {
     pub document_attached: bool,
     /// Attach the bibliography to every question.
     pub library_attached: bool,
-    /// Show the library pane.
+    /// Show the workspace pane.
     pub show_library: bool,
     /// Show the agent pane.
     pub show_agent: bool,
@@ -177,7 +179,7 @@ pub struct PersistedSettings {
     pub show_preview: bool,
     /// Keep the source editor and the preview scrolled together.
     pub sync_scroll: bool,
-    /// Width of the library pane in pixels.
+    /// Width of the workspace pane in pixels.
     pub library_width: f32,
     /// Width of the Chat pane in pixels.
     pub agent_width: f32,
@@ -209,6 +211,7 @@ impl Default for PersistedSettings {
             ollama_model: rag.model_for(ChatProvider::Ollama).to_owned(),
             deepseek_model: rag.model_for(ChatProvider::DeepSeek).to_owned(),
             provider_models: BTreeMap::new(),
+            profile_name: String::new(),
             temperature: rag.temperature,
             max_tokens: rag.max_tokens,
             context_tokens: rag.context_tokens,
@@ -295,6 +298,7 @@ impl PersistedSettings {
         }
         settings.bibliography = self.bibliography.trim().to_owned();
         settings.provider = ChatProvider::from_label(&self.provider).unwrap_or(settings.provider);
+        settings.profile_name = self.profile_name.trim().to_owned();
         if !self.ollama_model.trim().is_empty() {
             settings.set_model_for(ChatProvider::Ollama, self.ollama_model.clone());
         }
@@ -354,6 +358,7 @@ impl PersistedSettings {
         self.workspace = settings.workspace.clone();
         self.bibliography = settings.bibliography.clone();
         self.provider = settings.provider.label().to_owned();
+        self.profile_name = settings.profile_name.trim().to_owned();
         self.ollama_model = settings.model_for(ChatProvider::Ollama).to_owned();
         self.deepseek_model = settings.model_for(ChatProvider::DeepSeek).to_owned();
         self.provider_models = ChatProvider::options()
@@ -507,6 +512,7 @@ mod tests {
         rag.workspace = "/tmp/workspace".to_owned();
         rag.bibliography = "/tmp/library.bib".to_owned();
         rag.provider = ChatProvider::DeepSeek;
+        rag.profile_name = "openrouter".to_owned();
         rag.set_model_for(ChatProvider::OpenAi, "gpt-4o-mini");
         rag.top_k = 42;
         rag.memory = MemoryChoice::Transcript;
@@ -527,6 +533,7 @@ mod tests {
         assert_eq!(restored.workspace, "/tmp/workspace");
         assert_eq!(restored.bibliography, "/tmp/library.bib");
         assert_eq!(restored.provider, ChatProvider::DeepSeek);
+        assert_eq!(restored.profile_name, "openrouter");
         assert_eq!(restored.model_for(ChatProvider::OpenAi), "gpt-4o-mini");
         assert_eq!(restored.top_k, 42);
         assert_eq!(restored.memory, MemoryChoice::Transcript);
@@ -535,6 +542,27 @@ mod tests {
         assert_eq!(restored.grobid_source, GrobidSource::Managed);
         assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
         assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
+    }
+
+    #[test]
+    fn profile_bookkeeping_round_trips() {
+        let mut persisted = PersistedSettings {
+            profile_name: "openrouter".to_owned(),
+            ..PersistedSettings::default()
+        };
+        let text = serde_json::to_string(&persisted).expect("serialize");
+        let loaded: PersistedSettings = serde_json::from_str(&text).expect("deserialize");
+        assert_eq!(loaded.profile_name, "openrouter");
+
+        let mut rag = RagSettings {
+            profile_name: "openrouter".to_owned(),
+            ..RagSettings::default()
+        };
+        persisted.capture(&rag);
+        assert_eq!(persisted.profile_name, "openrouter");
+        rag.profile_name.clear();
+        persisted.apply_to(&mut rag);
+        assert_eq!(rag.profile_name, "openrouter");
     }
 
     #[test]

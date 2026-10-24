@@ -8,24 +8,34 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::{
-    App, Entity, FontWeight, IntoElement, ParentElement as _, SharedString, Styled as _,
+    App, AppContext as _, Entity, FontWeight, IntoElement, ParentElement as _, SharedString,
+    Styled as _, Subscription,
+    assets::IconName,
     component::{
         ActiveTheme as _, Disableable as _, Sizable as _,
-        button::Button,
+        button::{Button, ButtonVariants as _},
         h_flex,
+        input::{Input, InputEvent, InputState},
         setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage},
         v_flex,
     },
     div,
     prelude::FluentBuilder as _,
+    px,
 };
 
 use crate::settings::{CHAT_PROMPT_FILE, ViewerKind};
 use crate::state::AppState;
 use ragrig_gpui::{
-    Changes, RagChanges, RagField, RagSection, SettingRow, dirty_color, dirty_header,
-    dropdown_control, number_control, path_control, path_setting, text_control,
+    Changes, Control, RagChanges, RagField, RagSection, SettingRow, control, dirty_color,
+    dirty_header, dropdown_control, number_control, path_control, path_setting,
 };
+
+/// The name field shown by **New**.
+struct ProfileNameInput {
+    input: Entity<InputState>,
+    _subscription: Subscription,
+}
 
 /// A live view of the unsaved RAG settings.
 fn changes_of(state: &Entity<AppState>) -> Changes {
@@ -43,60 +53,12 @@ fn page_title(label: &str, dirty: bool) -> SharedString {
 
 /// The Overview page: profiles and the Apply row.
 ///
-/// Apply, Profile Defaults, Update Profile, and Load profile sit together in
-/// the footer so the profile workflow stays in one place.
+/// Apply, Profile Defaults, and Update Profile sit together in the footer so
+/// the profile workflow stays in one place.
 pub fn app_overview_page(state: Entity<AppState>, changes: &RagChanges, cx: &App) -> SettingPage {
-    let profile = SettingRow::new(
-        "Profile",
-        dropdown_control(
-            "overview-profile",
-            {
-                let state = state.clone();
-                move |cx| profile_options(&state, cx)
-            },
-            {
-                let state = state.clone();
-                move |cx| state.read(cx).rag.read(cx).profile_name.clone()
-            },
-            {
-                let state = state.clone();
-                move |value, cx| {
-                    state.update(cx, |state, cx| {
-                        state.rag.update(cx, |rag, cx| {
-                            rag.profile_name = value;
-                            cx.notify();
-                        });
-                        cx.notify();
-                    });
-                }
-            },
-        ),
-    )
-    .description("Load and Update Profile act on this profile.");
-
-    let profile_name = SettingRow::new(
-        "Profile name",
-        text_control(
-            "overview-profile-name",
-            {
-                let state = state.clone();
-                move |cx| state.read(cx).rag.read(cx).profile_name.clone()
-            },
-            {
-                let state = state.clone();
-                move |value, cx| {
-                    state.update(cx, |state, cx| {
-                        state.rag.update(cx, |rag, cx| {
-                            rag.profile_name = value;
-                            cx.notify();
-                        });
-                        cx.notify();
-                    });
-                }
-            },
-        ),
-    )
-    .description("Update Profile writes the current values here; a new name creates a profile.");
+    let profile = SettingRow::new("Profile", profile_control(state.clone())).description(
+        "Choosing a profile loads it; Update Profile saves to it. New asks for a name.",
+    );
 
     let summary = SettingItem::render({
         let state = state.clone();
@@ -145,7 +107,6 @@ pub fn app_overview_page(state: Entity<AppState>, changes: &RagChanges, cx: &App
     let profile_group = SettingGroup::new()
         .title("Profiles")
         .item(profile.into_item())
-        .item(profile_name.into_item())
         .footer({
             let state = state.clone();
             move |_, cx| {
@@ -230,38 +191,7 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
             .small()
             .outline()
             .on_click(move |_, _, cx| {
-                state.update(cx, |state, cx| {
-                    state.rag.update(cx, |rag, cx| {
-                        if let Err(message) = rag.save_profile() {
-                            rag.status = Some(message);
-                        }
-                        cx.notify();
-                    });
-                    state.persist(cx);
-                    cx.notify();
-                });
-            })
-    };
-    let load = {
-        let state = state.clone();
-        Button::new("overview-profile-load")
-            .label("Load profile")
-            .icon(gpui_kit::assets::IconName::FolderOpen)
-            .small()
-            .outline()
-            .on_click(move |_, _, cx| {
-                state.update(cx, |state, cx| {
-                    state.rag.update(cx, |rag, cx| {
-                        let name = rag.profile_name.trim().to_owned();
-                        if name.is_empty() {
-                            rag.status = Some("choose a profile first".to_owned());
-                        } else if let Err(message) = rag.load_profile(&name) {
-                            rag.status = Some(message);
-                        }
-                        cx.notify();
-                    });
-                    cx.notify();
-                });
+                state.update(cx, |state, cx| state.save_profile(cx));
             })
     };
 
@@ -288,11 +218,126 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
                 .items_center()
                 .child(apply)
                 .child(defaults)
-                .child(update)
-                .child(load),
+                .child(update),
         )
         .child(div().text_xs().text_color(color).child(status))
         .into_any_element()
+}
+
+/// The profile picker and **New** in one row.
+///
+/// **New** swaps the picker for a name field with **Create** and **Cancel**.
+/// The name is checked against existing profiles before the settings are
+/// snapshotted, so creating never overwrites one.
+fn profile_control(state: Entity<AppState>) -> Control {
+    let picker = dropdown_control(
+        "overview-profile",
+        {
+            let state = state.clone();
+            move |cx| profile_options(&state, cx)
+        },
+        {
+            let state = state.clone();
+            move |cx| state.read(cx).rag.read(cx).profile_name.clone()
+        },
+        {
+            let state = state.clone();
+            move |value, cx| {
+                state.update(cx, |state, cx| state.load_profile(&value, cx));
+            }
+        },
+    );
+    control(move |options, window, cx| {
+        let (creating, error) = {
+            let state = state.read(cx);
+            (state.creating_profile, state.profile_draft_error.clone())
+        };
+        let draft = window.use_keyed_state(SharedString::from("overview-profile-new-input"), cx, {
+            let state = state.clone();
+            move |window, cx| {
+                let input = cx.new(|cx| InputState::new(window, cx).placeholder("Profile name"));
+                let subscription =
+                    cx.subscribe(
+                        &input,
+                        move |_, input, event: &InputEvent, cx| match event {
+                            InputEvent::Change => {
+                                state.update(cx, |state, cx| state.clear_profile_error(cx));
+                            }
+                            InputEvent::PressEnter { .. } if state.read(cx).creating_profile => {
+                                let name = input.read(cx).value().to_string();
+                                state.update(cx, |state, cx| state.create_profile(name, cx));
+                            }
+                            _ => {}
+                        },
+                    );
+                ProfileNameInput {
+                    input,
+                    _subscription: subscription,
+                }
+            }
+        });
+        let input = draft.read(cx).input.clone();
+
+        let mut row = h_flex().flex_wrap().gap_2().items_center();
+
+        if creating {
+            let state_for_create = state.clone();
+            let input_for_create = input.clone();
+            let create = Button::new("overview-profile-create")
+                .label("Create")
+                .small()
+                .primary()
+                .disabled(options.is_disabled())
+                .on_click(move |_, _, cx| {
+                    let name = input_for_create.read(cx).value().to_string();
+                    state_for_create.update(cx, |state, cx| state.create_profile(name, cx));
+                });
+            let state_for_cancel = state.clone();
+            let cancel = Button::new("overview-profile-cancel")
+                .label("Cancel")
+                .small()
+                .outline()
+                .on_click(move |_, _, cx| {
+                    state_for_cancel.update(cx, |state, cx| state.cancel_new_profile(cx));
+                });
+            row = row
+                .child(
+                    div().w(px(180.)).child(
+                        Input::new(&input)
+                            .with_size(options.size())
+                            .disabled(options.is_disabled())
+                            .w_full(),
+                    ),
+                )
+                .child(create)
+                .child(cancel);
+        } else {
+            let state_for_new = state.clone();
+            let input_for_new = input.clone();
+            let new = Button::new("overview-profile-new")
+                .label("New")
+                .icon(IconName::Plus)
+                .small()
+                .outline()
+                .tooltip("Create a profile from the current settings")
+                .on_click(move |_, window, cx| {
+                    state_for_new.update(cx, |state, cx| state.begin_new_profile(cx));
+                    input_for_new.update(cx, |input, cx| {
+                        input.set_value("", window, cx);
+                        input.focus(window, cx);
+                    });
+                });
+            row = row.child(picker(options, window, cx)).child(new);
+        }
+
+        v_flex()
+            .gap_1()
+            .child(row)
+            .when_some(error.filter(|_| creating), |this, error| {
+                this.child(div().text_xs().text_color(cx.theme().danger).child(error))
+            })
+            .into_any_element()
+    })
 }
 
 fn profile_options(state: &Entity<AppState>, cx: &App) -> Vec<(SharedString, SharedString)> {
@@ -336,12 +381,12 @@ pub fn prompt_actions(state: Entity<AppState>) -> ragrig_gpui::PromptActions {
     }
 }
 
-/// The Library page: paths, viewers, and library context.
-pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
+/// The Workspace page: folders, viewers, and library context.
+pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
     let now = state.read(cx).rag_changes(cx);
     let changes = changes_of(&state);
     let dirty = now.section(RagSection::Workspace) || now.section(RagSection::References);
-    let title = page_title("Library", dirty);
+    let title = page_title("Workspace", dirty);
 
     let workspace = path_control(
         "app-workspace",
@@ -506,13 +551,16 @@ pub fn app_library_page(state: Entity<AppState>, cx: &App) -> SettingPage {
     };
     page.group(
         SettingGroup::new()
-            .title(page_title("Workspace", now.section(RagSection::Workspace)))
+            .title(page_title(
+                "Workspace layout",
+                now.section(RagSection::Workspace),
+            ))
             .item(workspace_row.into_item())
             .item(corpus_row.into_item())
             .item(bibliography_row.into_item())
             .item(
-                SettingItem::new("Show library pane", show_library)
-                    .description("Left pane with references and corpus actions."),
+                SettingItem::new("Show workspace pane", show_library)
+                    .description("Left pane with the workspace, references, and corpus actions."),
             ),
     )
     .group(viewers)

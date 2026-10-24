@@ -21,6 +21,10 @@ stabilised.
   parity for exotic Markdown next.
 - Keep the editor usable without the mouse: smooth scrolling, word-wise
   movement, and reliable pane toggles.
+- The left panel is now the **Workspace** super container, with **New
+  workspace** and **Open workspace** at the top and the **Library** as one
+  pipeline. Next: add further pipelines (web corpora, notes, or a second index)
+  under the same workspace shell.
 
 - Edit and Enrich targets now keep a persistent range decoration, and the
   target document is read-only while the agent writes (`gpuikit`). Next: add a

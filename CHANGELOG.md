@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Profiles row.** The separate **Profile** and **Profile name** fields are
+  one row: choosing a profile in the picker loads it immediately, and **New**
+  opens a name field with **Create** and **Cancel**. **Create** snapshots the
+  current settings under the typed name and refuses duplicates; **Update
+  Profile** saves the current settings to the selected profile. The separate
+  **Load profile** button is gone.
+- **Confirmation before closing a modified tab.** The tab's × and `Ctrl+W` now
+  ask **Cancel / Don't save / Save** instead of silently refusing to close a
+  dirty document. **Save** writes through the path dialog for untitled buffers
+  and closes the tab only after the write succeeds; **Don't save** discards the
+  buffer; **Cancel** (or `Escape`) leaves the tab untouched. The window-close
+  path keeps its own Save all / Discard / Cancel dialog.
+- **Workspace super container.** The left dock is now the **Workspace** — the
+  project's persistence and synchronization layer. It shows the project root
+  and whether `.scico/workspace.toml` is present, and its controls **New
+  workspace** and **Open workspace** moved here from the toolbar. The
+  **Library** is now a section and one pipeline over the workspace (corpus,
+  index, and references). The toolbar toggle and the Settings page now say
+  Workspace, and **Show workspace pane** replaces **Show library pane**.
 - **Scico rebrand.** The application is now **Scico**. The crate and binary are
   `scico`, the workspace metadata folder is `.scico/`, environment variables
   use the `SCICO_` prefix, and the platform settings directory is `scico`.
@@ -17,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Chat. The roundtrip protocol is namespaced `scico:v1`. This is a breaking
   rename: existing workspace markers, prompt files, environment variables, and
   platform settings paths are not migrated automatically.
+
+### Fixed
+
+- **Saved profiles are listed after a restart.** The profile list is now read
+  from `.ragrig/profiles` and `~/.ragrig/profiles` at startup and whenever a
+  workspace is adopted, and the selected profile is persisted in
+  `settings.json`. Previously the picker stayed empty until a profile was saved
+  in the same session, so an existing profile could not be selected on the next
+  launch.
 
 ### Added
 
@@ -159,9 +187,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PageUp` / `PageDown` (and `Shift` variants) navigate the editor by a
   viewport, using the editor’s own goal-column movement.
 - **Settings → Overview**: profile picker and name, per-section pending-change
-  counts, and a single action row with **Apply**, **Profile Defaults**,
-  **Update Profile**, and **Load profile**. Apply is disabled while nothing is
-  pending and violet when a rebuild is due.
+  counts, and a single action row with **Apply**, **Profile Defaults**, and
+  **Update Profile**. Apply is disabled while nothing is pending and violet
+  when a rebuild is due.
 - Field-level unsaved marks: RAG settings that differ from the running agent are
   bold violet, their sections and pages carry `●` in the sidebar, and changed
   sections show an “Unsaved changes” line.

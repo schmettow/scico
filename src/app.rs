@@ -24,10 +24,11 @@ use gpui_kit::{
 };
 
 use crate::agent::{AgentPane, AgentPaneEvent};
-use crate::app_settings::{app_editor_page, app_library_page, app_overview_page, prompt_actions};
-use crate::library::{LibraryEvent, LibraryPane};
+use crate::app_settings::{app_editor_page, app_overview_page, app_workspace_page, prompt_actions};
+use crate::library::LibraryPane;
 use crate::session::SessionState;
 use crate::state::AppState;
+use crate::workspace_pane::{WorkspaceEvent, WorkspacePane};
 
 actions!(
     scico,
@@ -40,7 +41,7 @@ actions!(
         SaveFileAs,
         CloseTab,
         ToggleAgent,
-        ToggleLibrary,
+        ToggleWorkspace,
         TogglePreview,
         ToggleSettings,
         FocusSelection,
@@ -73,8 +74,8 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("ctrl-shift-a", ToggleAgent, None),
         KeyBinding::new("cmd-shift-a", ToggleAgent, None),
-        KeyBinding::new("ctrl-shift-l", ToggleLibrary, None),
-        KeyBinding::new("cmd-shift-l", ToggleLibrary, None),
+        KeyBinding::new("ctrl-shift-l", ToggleWorkspace, None),
+        KeyBinding::new("cmd-shift-l", ToggleWorkspace, None),
         KeyBinding::new("ctrl-shift-e", TogglePreview, None),
         KeyBinding::new("cmd-shift-e", TogglePreview, None),
         KeyBinding::new("ctrl-shift-p", FocusSelection, None),
@@ -112,13 +113,23 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
     ]);
 }
 
+/// A tab close waiting for the unsaved-changes decision.
+#[derive(Clone, Debug)]
+struct TabClosePrompt {
+    id: u64,
+    title: SharedString,
+    /// Ctrl+W opens a fresh scratch tab when the last document closes.
+    replace_empty: bool,
+}
+
 /// The root view.
 pub struct ScicoApp {
     state: Entity<AppState>,
     agent: Entity<AgentPane>,
-    library: Entity<LibraryPane>,
+    workspace: Entity<WorkspacePane>,
     show_settings: bool,
     close_prompt: bool,
+    tab_close: Option<TabClosePrompt>,
     allow_close: bool,
     resizable: Entity<ResizableState>,
     settings_resizable: Entity<ResizableState>,
@@ -188,6 +199,7 @@ impl ScicoApp {
         }
         let agent = cx.new(|cx| AgentPane::new(window, cx, state.clone()));
         let library = cx.new(|cx| LibraryPane::new(window, cx, state.clone(), agent.clone()));
+        let workspace = cx.new(|_| WorkspacePane::new(state.clone(), library));
         let initial_panes = {
             let state = state.read(cx);
             (state.show_library, state.show_agent)
@@ -220,12 +232,22 @@ impl ScicoApp {
                 }
             },
         ));
-        subscriptions.push(cx.subscribe(&library, |this, _, event: &LibraryEvent, cx| {
-            if matches!(event, LibraryEvent::OpenSettings) {
-                this.show_settings = true;
-                cx.notify();
-            }
-        }));
+        subscriptions.push(cx.subscribe_in(
+            &workspace,
+            window,
+            |this, _, event: &WorkspaceEvent, window, cx| match event {
+                WorkspaceEvent::OpenSettings => {
+                    this.show_settings = true;
+                    cx.notify();
+                }
+                WorkspaceEvent::NewWorkspace => {
+                    this.new_workspace(&NewWorkspace, window, cx);
+                }
+                WorkspaceEvent::OpenWorkspace => {
+                    this.open_workspace(&OpenWorkspace, window, cx);
+                }
+            },
+        ));
         let grobid = state.read(cx).grobid.clone();
         subscriptions.push(cx.subscribe(
             &grobid,
@@ -256,9 +278,10 @@ impl ScicoApp {
         let this = Self {
             state,
             agent,
-            library,
+            workspace,
             show_settings: false,
             close_prompt: false,
+            tab_close: None,
             allow_close: false,
             resizable: cx.new(|_| ResizableState::default()),
             settings_resizable: cx.new(|_| ResizableState::default()),
@@ -423,12 +446,143 @@ impl ScicoApp {
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
+        let id = self
+            .state
+            .read(cx)
+            .active_document()
+            .map(|document| document.id);
+        match id {
+            Some(id) => self.request_close_document(id, true, window, cx),
+            None => {
+                self.state
+                    .update(cx, |state, cx| state.new_document(window, cx));
+            }
+        }
+    }
+
+    /// Close a document, asking first when it has unsaved changes.
+    fn request_close_document(
+        &mut self,
+        id: u64,
+        replace_empty: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((dirty, title)) = self
+            .state
+            .read(cx)
+            .document(id)
+            .map(|document| (document.dirty, document.title.clone()))
+        else {
+            return;
+        };
+        if !dirty {
+            self.close_document(id, replace_empty, window, cx);
+            return;
+        }
+        self.close_prompt = false;
+        self.tab_close = Some(TabClosePrompt {
+            id,
+            title,
+            replace_empty,
+        });
+        cx.notify();
+    }
+
+    /// Remove the tab and optionally open a fresh scratch document.
+    fn close_document(
+        &mut self,
+        id: u64,
+        replace_empty: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_close = None;
         self.state.update(cx, |state, cx| {
-            state.close_active(window, cx);
-            if state.documents.is_empty() {
+            state.close_document(id, window, cx);
+            if replace_empty && state.documents.is_empty() {
                 state.new_document(window, cx);
             }
         });
+        cx.notify();
+    }
+
+    /// Discard the tab named by [`Self::tab_close`] and close it.
+    fn discard_tab_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = self.tab_close.take() else {
+            return;
+        };
+        self.close_document(prompt.id, prompt.replace_empty, window, cx);
+    }
+
+    /// Save the tab named by [`Self::tab_close`], then close it.
+    ///
+    /// Untitled documents ask for a path; cancelling that dialog leaves the tab
+    /// open and the confirmation in place.
+    fn save_tab_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(prompt) = self.tab_close.clone() else {
+            return;
+        };
+        let Some((path, title)) = self
+            .state
+            .read(cx)
+            .document(prompt.id)
+            .map(|document| (document.path.clone(), document.title.to_string()))
+        else {
+            self.tab_close = None;
+            cx.notify();
+            return;
+        };
+        if path.is_some() {
+            let saved = self
+                .state
+                .update(cx, |state, cx| state.save_document(prompt.id, cx));
+            match saved {
+                Ok(()) => self.close_document(prompt.id, prompt.replace_empty, window, cx),
+                Err(error) => self
+                    .state
+                    .update(cx, |state, cx| state.set_status(error, cx)),
+            }
+            return;
+        }
+
+        let directory = self
+            .state
+            .read(cx)
+            .workspace
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let receiver = cx.prompt_for_new_path(&directory, Some(&title));
+        let state = self.state.clone();
+        let id = prompt.id;
+        let replace_empty = prompt.replace_empty;
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(path))) = receiver.await else {
+                return;
+            };
+            let result = state.update_in(cx, |state, _window, cx| {
+                state.save_document_as(id, path, cx)
+            });
+            match result {
+                Ok(Ok(())) => {
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        this.close_document(id, replace_empty, window, cx);
+                    });
+                }
+                Ok(Err(error)) => {
+                    state.update(cx, |state, cx| state.set_status(error, cx));
+                }
+                Err(_) => {}
+            }
+        })
+        .detach();
+    }
+
+    fn cancel_tab_close(&mut self, cx: &mut Context<Self>) {
+        if self.tab_close.take().is_some() {
+            cx.notify();
+        }
     }
 
     fn editor_page_up(&mut self, _: &EditorPageUp, window: &mut Window, cx: &mut Context<Self>) {
@@ -518,7 +672,7 @@ impl ScicoApp {
         });
     }
 
-    fn toggle_library(&mut self, _: &ToggleLibrary, _: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_workspace(&mut self, _: &ToggleWorkspace, _: &mut Window, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| {
             state.show_library = !state.show_library;
             state.persist(cx);
@@ -565,8 +719,15 @@ impl ScicoApp {
     }
 
     fn cancel_close(&mut self, _: &CancelClose, _: &mut Window, cx: &mut Context<Self>) {
+        let mut changed = false;
         if self.close_prompt {
             self.close_prompt = false;
+            changed = true;
+        }
+        if self.tab_close.take().is_some() {
+            changed = true;
+        }
+        if changed {
             cx.notify();
         }
     }
@@ -591,6 +752,7 @@ impl ScicoApp {
         }
         if !self.close_prompt {
             self.close_prompt = true;
+            self.tab_close = None;
             cx.notify();
         }
         false
@@ -750,6 +912,74 @@ impl ScicoApp {
             )
     }
 
+    fn tab_close_dialog(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let title = self
+            .tab_close
+            .as_ref()
+            .map(|prompt| prompt.title.clone())
+            .unwrap_or_default();
+        div()
+            .absolute()
+            .top(px(0.))
+            .left(px(0.))
+            .size_full()
+            .occlude()
+            .bg(theme.background.opacity(0.55))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                v_flex()
+                    .w(px(420.))
+                    .p_5()
+                    .gap_4()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.background)
+                    .child(div().text_lg().child("Save changes before closing?"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("“{title}” has unsaved changes.")),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                Button::new("tab-close-cancel")
+                                    .label("Cancel")
+                                    .small()
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cancel_tab_close(cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("tab-close-discard")
+                                    .label("Don't save")
+                                    .small()
+                                    .outline()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.discard_tab_and_close(window, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("tab-close-save")
+                                    .label("Save")
+                                    .small()
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.save_tab_and_close(window, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
     fn dock(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (show_library, show_agent, library_width, agent_width) = {
             let state = self.state.read(cx);
@@ -799,7 +1029,7 @@ impl ScicoApp {
                 resizable_panel()
                     .size(px(library_width))
                     .size_range(px(200.)..px(720.))
-                    .child(self.library.clone()),
+                    .child(self.workspace.clone()),
             );
         }
         dock = dock.child(
@@ -825,7 +1055,7 @@ impl ScicoApp {
     }
 
     fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (preview_on, show_library, show_agent) = {
+        let (preview_on, show_workspace, show_agent) = {
             let state = self.state.read(cx);
             #[cfg(editor_gpuikit)]
             let preview_on = state.show_preview;
@@ -848,23 +1078,23 @@ impl ScicoApp {
             .border_color(theme.border)
             .bg(theme.title_bar)
             .child(
-                Button::new("toolbar-library")
-                    .label("Library")
-                    .icon(if show_library {
+                Button::new("toolbar-workspace")
+                    .label("Workspace")
+                    .icon(if show_workspace {
                         IconName::PanelLeftClose
                     } else {
                         IconName::PanelLeftOpen
                     })
                     .small()
                     .ghost()
-                    .selected(show_library)
-                    .tooltip(if show_library {
-                        "Hide the library (Ctrl+Shift+L)"
+                    .selected(show_workspace)
+                    .tooltip(if show_workspace {
+                        "Hide the workspace (Ctrl+Shift+L)"
                     } else {
-                        "Show the library (Ctrl+Shift+L)"
+                        "Show the workspace (Ctrl+Shift+L)"
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_library(&ToggleLibrary, window, cx);
+                        this.toggle_workspace(&ToggleWorkspace, window, cx);
                     })),
             )
             .child(div().mr_3().text_color(theme.primary).child("Scico"))
@@ -887,26 +1117,6 @@ impl ScicoApp {
                     .tooltip("Open (Ctrl+O)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_file(&OpenFile, window, cx);
-                    })),
-            )
-            .child(
-                Button::new("toolbar-new-workspace")
-                    .icon(IconName::FolderPlus)
-                    .small()
-                    .ghost()
-                    .tooltip("New workspace (Ctrl+Shift+N)")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.new_workspace(&NewWorkspace, window, cx);
-                    })),
-            )
-            .child(
-                Button::new("toolbar-folder")
-                    .icon(IconName::Folder)
-                    .small()
-                    .ghost()
-                    .tooltip("Open workspace (Ctrl+Shift+O)")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_workspace(&OpenWorkspace, window, cx);
                     })),
             )
             .child(
@@ -1092,12 +1302,21 @@ impl ScicoApp {
                             .tooltip("Close")
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
-                                this.state.update(cx, |state, cx| {
-                                    if state.active != index {
+                                let Some(id) = this
+                                    .state
+                                    .read(cx)
+                                    .documents
+                                    .get(index)
+                                    .map(|document| document.id)
+                                else {
+                                    return;
+                                };
+                                if this.state.read(cx).active != index {
+                                    this.state.update(cx, |state, cx| {
                                         state.select_tab(index, window, cx);
-                                    }
-                                    state.close_active(window, cx);
-                                });
+                                    });
+                                }
+                                this.request_close_document(id, false, window, cx);
                             })),
                     ),
             );
@@ -1460,7 +1679,7 @@ impl ScicoApp {
         let settings =
             gpui_kit::component::setting::Settings::new(ElementId::Name("scico-settings".into()))
                 .page(app_overview_page(self.state.clone(), &now, cx))
-                .page(app_library_page(self.state.clone(), cx))
+                .page(app_workspace_page(self.state.clone(), cx))
                 .page(app_editor_page(self.state.clone()))
                 .page(ragrig_gpui::external_services_page(
                     rag.clone(),
@@ -1557,7 +1776,7 @@ impl Render for ScicoApp {
             .on_action(cx.listener(Self::save_file_as))
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::toggle_agent))
-            .on_action(cx.listener(Self::toggle_library))
+            .on_action(cx.listener(Self::toggle_workspace))
             .on_action(cx.listener(Self::toggle_preview))
             .on_action(cx.listener(Self::toggle_settings))
             .on_action(cx.listener(Self::focus_selection))
@@ -1570,6 +1789,9 @@ impl Render for ScicoApp {
             .on_action(cx.listener(Self::editor_select_page_down))
             .child(body)
             .when(self.close_prompt, |this| this.child(self.close_dialog(cx)))
+            .when(self.tab_close.is_some(), |this| {
+                this.child(self.tab_close_dialog(cx))
+            })
     }
 }
 
@@ -2223,6 +2445,24 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn the_new_profile_name_field_renders(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        cx.simulate_keystrokes("ctrl-,");
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| state.begin_new_profile(cx));
+        });
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            assert!(state.creating_profile);
+            assert!(state.profile_draft_error.is_none());
+        });
+    }
+
+    #[gpui_kit::test]
     fn undo_returns_the_buffer_to_clean(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let editor = cx.update(|_, cx| {
@@ -2732,6 +2972,113 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn closing_a_dirty_tab_asks_before_discarding(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        type_into_active(cx, &app, "unsaved draft");
+        let id = cx.update(|_, cx| {
+            app.read(cx)
+                .state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .id
+        });
+
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.request_close_document(id, false, window, cx);
+            });
+        });
+        cx.update(|window, cx| {
+            let app = app.read(cx);
+            assert!(app.tab_close.is_some(), "the tab asks before closing");
+            assert_eq!(app.state.read(cx).documents.len(), 1);
+            let _ = window;
+        });
+
+        // Cancel keeps the tab and its text.
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.cancel_close(&CancelClose, window, cx);
+            });
+        });
+        cx.update(|_, cx| {
+            let app = app.read(cx);
+            assert!(app.tab_close.is_none());
+            assert_eq!(app.state.read(cx).documents.len(), 1);
+            assert_eq!(
+                app.state
+                    .read(cx)
+                    .active_document()
+                    .expect("a document")
+                    .text(cx),
+                "unsaved draft"
+            );
+        });
+
+        // Don't save closes without writing.
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.request_close_document(id, false, window, cx);
+                app.discard_tab_and_close(window, cx);
+            });
+        });
+        cx.update(|_, cx| {
+            let app = app.read(cx);
+            assert!(app.tab_close.is_none());
+            assert!(app.state.read(cx).documents.is_empty());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn closing_a_dirty_tab_can_save_first(cx: &mut TestAppContext) {
+        let (settings, session) = scratch_paths();
+        let (app, cx) = mount_at(cx, settings.clone(), session);
+        let directory = settings.parent().expect("scratch directory").to_path_buf();
+        let path = directory.join("paper.md");
+        std::fs::write(&path, "original").expect("seed the document");
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state
+                    .open_path(&path, window, cx)
+                    .expect("open the document");
+            });
+        });
+        type_into_active(cx, &app, " changed");
+        let (id, expected) = cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            let document = state.active_document().expect("a document");
+            (document.id, document.text(cx))
+        });
+
+        cx.update(|window, cx| {
+            app.update(cx, |app, cx| {
+                app.request_close_document(id, false, window, cx);
+                app.save_tab_and_close(window, cx);
+            });
+        });
+        cx.update(|_, cx| {
+            let app = app.read(cx);
+            assert!(app.tab_close.is_none(), "the prompt is resolved");
+            assert!(
+                app.state
+                    .read(cx)
+                    .documents
+                    .iter()
+                    .all(|document| document.path.as_deref() != Some(path.as_path())),
+                "the saved tab is closed"
+            );
+        });
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read the saved document"),
+            expected
+        );
+
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[gpui_kit::test]
     fn unsaved_text_comes_back_from_the_session(cx: &mut TestAppContext) {
         let (settings, session) = scratch_paths();
         let (app, cx) = mount_at(cx, settings.clone(), session.clone());
@@ -3021,6 +3368,95 @@ mod tests {
             forward > settled,
             "the editor must still drive the preview after a preview-driven move"
         );
+    }
+
+    #[gpui_kit::test]
+    fn creating_a_profile_rejects_a_duplicate_name(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-profile-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let (settings, session) = scratch_paths();
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            provider: "Ollama".to_owned(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings, session);
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| {
+                state.begin_new_profile(cx);
+                assert!(state.creating_profile);
+                state.create_profile("openrouter", cx);
+                assert!(!state.creating_profile);
+                assert!(
+                    state
+                        .rag
+                        .read(cx)
+                        .profiles
+                        .iter()
+                        .any(|name| name == "openrouter")
+                );
+
+                // New refuses an existing name and keeps the form open.
+                state.begin_new_profile(cx);
+                state.create_profile("openrouter", cx);
+                assert!(state.creating_profile);
+                assert!(state.profile_draft_error.is_some());
+                state.cancel_new_profile(cx);
+                assert!(!state.creating_profile);
+            });
+        });
+        assert!(report.ragrig_dir.join("profiles/openrouter.json").is_file());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
+    fn a_saved_profile_is_listed_and_selected_on_launch(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-profile-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let mut rag = ragrig_gpui::RagSettings {
+            workspace: report.root.display().to_string(),
+            profile_name: "openrouter".to_owned(),
+            ..ragrig_gpui::RagSettings::default()
+        };
+        rag.save_profile().expect("profile");
+        rag.profile_name = "lab".to_owned();
+        rag.save_profile().expect("profile");
+
+        let (settings, session) = scratch_paths();
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            provider: "Ollama".to_owned(),
+            profile_name: "openrouter".to_owned(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings, session);
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.read(cx);
+            let rag = state.rag.read(cx);
+            assert_eq!(rag.profile_name, "openrouter");
+            assert!(
+                rag.profiles.iter().any(|name| name == "openrouter"),
+                "profiles after launch: {:?}",
+                rag.profiles
+            );
+            assert!(rag.profiles.iter().any(|name| name == "lab"));
+        });
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[gpui_kit::test]

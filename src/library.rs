@@ -1,12 +1,11 @@
-//! The reference and corpus pane.
+//! The library pipeline: bibliography rows, corpus actions, and status.
 
 use std::path::{Path, PathBuf};
 
 use gpui_kit::{
-    AnyElement, AppContext as _, ClipboardItem, Context, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement as _,
-    PathPromptOptions, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    AppContext as _, ClipboardItem, Context, ElementId, Entity, FocusHandle, Focusable,
+    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, Render,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
     assets::IconName,
     component::{
         ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _,
@@ -24,14 +23,7 @@ use ragrig_gpui::prelude::*;
 use crate::agent::AgentPane;
 use crate::state::AppState;
 
-/// What the library asks the host to do beyond updating shared state.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LibraryEvent {
-    /// The user asked for the settings surface.
-    OpenSettings,
-}
-
-/// The left dock: bibliography rows, corpus actions, and status.
+/// The library pipeline: bibliography rows, corpus actions, and status.
 pub struct LibraryPane {
     state: Entity<AppState>,
     agent: Entity<AgentPane>,
@@ -476,12 +468,6 @@ impl Render for LibraryPane {
             .ghost()
             .tooltip("Reload the bibliography")
             .on_click(cx.listener(|this, _, _, cx| this.refresh_references(cx)));
-        let settings = Button::new("library-settings")
-            .icon(IconName::Settings)
-            .small()
-            .ghost()
-            .tooltip("Settings")
-            .on_click(cx.listener(|_, _, _, cx| cx.emit(LibraryEvent::OpenSettings)));
 
         let mut body = v_flex().gap_2();
         body = body.child(
@@ -490,9 +476,7 @@ impl Render for LibraryPane {
                 .child(add_pdfs)
                 .child(grobid)
                 .child(index)
-                .child(refresh)
-                .child(div().flex_1())
-                .child(settings),
+                .child(refresh),
         );
         body = body.child(
             div().text_xs().text_color(theme.muted_foreground).child(
@@ -767,21 +751,16 @@ impl Render for LibraryPane {
                 .text_color(theme.muted_foreground)
                 .child(self.status.clone()),
         );
+        body = body.child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child("Click a row to insert @key; + selects for bulk actions."),
+        );
 
-        let footer: AnyElement = div()
-            .text_xs()
-            .text_color(theme.muted_foreground)
-            .child("Click a row to insert @key; + selects for bulk actions.")
-            .into_any_element();
-
-        SidePanel::new("library-panel", "Library")
-            .subtitle("References and corpus")
-            .child(body)
-            .footer(footer)
+        body
     }
 }
-
-impl EventEmitter<LibraryEvent> for LibraryPane {}
 
 impl Focusable for LibraryPane {
     fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {

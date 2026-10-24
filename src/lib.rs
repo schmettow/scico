@@ -35,3 +35,5 @@ pub mod state;
 pub mod theme;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod workspace;
+#[cfg(any(editor_zorite, editor_gpuikit))]
+pub mod workspace_pane;

@@ -26,8 +26,9 @@ runs on your own machine; no account and no cloud upload.
   and a live preview. Use Quarto or Pandoc when it is time to make the PDF.
 - **Local or hosted.** Ollama by default; DeepSeek when you want a larger
   model. You choose per profile.
-- **One workspace, one folder.** Paper, sources, bibliography, and index live
-  together, so a project is easy to back up, share, or archive.
+- **One workspace, one folder.** Paper, sources, bibliography, index, and
+  sessions live together, so a project is easy to back up, share, version with
+  Git, or archive.
 
 > Scico is the writing and retrieval front end. The RAG engine underneath is
 > the open-source [Ragrig](https://crates.io/crates/ragrig) library. If you
@@ -79,9 +80,9 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
 1. **New workspace** (`Ctrl+Shift+N`) — pick an empty folder. Scico creates a
    place for the paper, your sources (`corpus/`), a bibliography, and the
    project index, then opens `Untitled-1.md`.
-2. **Add PDFs** in the Library. Scico copies them into the corpus, reads their
-   metadata, merges them into your `.bib`, and indexes them. Originals are left
-   where they are.
+2. **Add PDFs** in the Library section of the Workspace panel. Scico copies
+   them into the corpus, reads their metadata, merges them into your `.bib`,
+   and indexes them. Originals are left where they are.
 3. **Write** in the left pane. The right pane previews Markdown, tables, and
    images. Drag the divider if you want more room.
 4. **Ask Chat** a question such as *“What do these papers report about
@@ -181,6 +182,13 @@ my-paper/
 - Settings are layered: your global preferences first, then the workspace's
   own `.ragrig/config.json`. The status-bar switches for **Chat memory** and
   **Hybrid retrieval** are saved with the workspace.
+- **Profiles** live in `.ragrig/profiles`. In *Settings → Overview*, choosing
+  a profile in the picker loads it; **New** asks for a name before snapshotting
+  the current settings, and **Update Profile** saves to the selected profile.
+- The left **Workspace** panel is the project's persistence and synchronization
+  layer. It shows the project root and whether `.scico/workspace.toml` exists;
+  the **Library** is one pipeline over it (corpus, index, and references), and
+  further pipelines can join the same workspace shell.
 
 ---
 
@@ -192,14 +200,14 @@ my-paper/
 | `Ctrl+Shift+P` | Ask about the marked selection |
 | `Ctrl+Shift+D` | Edit the marked selection |
 | `Ctrl+Shift+R` | Enrich and edit the marked selection |
-| `Ctrl+Shift+L` | Show or hide the Library |
+| `Ctrl+Shift+L` | Show or hide the Workspace |
 | `Ctrl+Shift+A` | Show or hide Chat |
 | `Ctrl+Shift+E` | Show or hide the preview |
 | `Ctrl+,` | Settings |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
 | `Ctrl+O` | Open a document |
 | `Ctrl+Shift+N` / `Ctrl+Shift+O` | New / Open workspace |
-| `Ctrl+W` | Close the tab |
+| `Ctrl+W` | Close the tab (asks before discarding changes) |
 | `Ctrl+←` / `Ctrl+→` | Move by word (add `Shift` to select) |
 | `PageUp` / `PageDown` | Move by a screen (add `Shift` to select) |
 | `Ctrl` + wheel | Zoom the editor font |
@@ -229,10 +237,10 @@ free, and confirm the model names in **Settings → RAG → Chat**. If you pulle
 model with an older Ollama, use its full name (`nomic-embed-text:latest`).
 
 **Answers ignore my library.** Check that the corpus has been indexed
-(**Library → Index**), that **Hybrid retrieval** is on in the Chat status bar,
-and that the question is specific enough to match a passage. With hybrid
-retrieval off, the chat agent uses BM25 only; with no index at all it answers as a plain
-chat model.
+(**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Chat
+status bar, and that the question is specific enough to match a passage. With
+hybrid retrieval off, the chat agent uses BM25 only; with no index at all it
+answers as a plain chat model.
 
 **GROBID is not running.** That is fine. PDFs are still indexed; only the
 automatic author/title/year extraction is skipped. Use **Settings → External
