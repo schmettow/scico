@@ -49,7 +49,7 @@ not stabilised.
 
 ## Requirements
 
-- Rust 1.88 or newer.
+- Rust 1.97.1 or newer.
 - On Linux, GPUI links `libxkbcommon` and `libxkbcommon-x11`; the runtime
   libraries alone are not sufficient:
 

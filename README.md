@@ -54,19 +54,19 @@ Run `ollama serve` if the desktop app is not already doing it for you.
 
 ### Get Scico
 
-Scico is not on crates.io yet. Build it from a checkout:
+Install the binary from crates.io:
+
+```bash
+cargo install scico
+scico
+```
+
+Or build it from a checkout:
 
 ```bash
 git clone https://github.com/schmettow/scico
 cd scico
 cargo run
-```
-
-Or install the binary into `~/.cargo/bin`:
-
-```bash
-cargo install --path .
-scico
 ```
 
 On Linux, the window toolkit needs two system libraries:

@@ -61,5 +61,6 @@ stabilised.
 
 ## Later
 
-- Prepare `scico` and the supporting crates for publication.
+- Publish `scico` and `ragrig-gpui` from the `gpui_kit` and `dev` branches,
+  keeping the crates.io checklist in `CHANGELOG.md` green.
 - Reach functional parity with the earlier egui prototype and retire it.

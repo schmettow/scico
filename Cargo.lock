@@ -6522,6 +6522,8 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "ragrig"
 version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7190c51cc1d46463c9a10d84f00c457ce83a300a5b5f744bed837da6b877a98"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6552,7 +6554,7 @@ dependencies = [
 
 [[package]]
 name = "ragrig-gpui"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-channel",
  "biblatex",
@@ -7446,7 +7448,7 @@ dependencies = [
 
 [[package]]
 name = "scico"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "blake3",
  "comrak",

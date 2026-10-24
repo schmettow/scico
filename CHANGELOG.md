@@ -5,7 +5,9 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.5.0 — 2026-10-24
+
+First publication on crates.io.
 
 ### Changed
 
@@ -279,3 +281,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and CornerDownLeft resolved to names outside that bundle. The app and demos
   now register `AllAssets`; a rasteriser regression test covers every agent-bar
   component icon.
+
+### Quality
+
+- `cargo llvm-cov --all-features`: 66.88% regions, 58.02% functions, 68.51%
+  lines (14,395 regions, 1,072 functions, 8,240 lines). Because `build.rs`
+  selects one editor backend, `--all-features` measures the zorite backend;
+  the default gpuikit configuration measures 71.19% regions, 63.64%
+  functions, and 72.37% lines (16,338 regions, 1,224 functions, 9,358
+  lines). Doctests are not measured on stable Rust. `app.rs`, `state.rs`,
+  `settings.rs`, `workspace.rs`, and `workspace_pane.rs` are the
+  best-covered modules; the async worker in `agent.rs` and the library
+  ingestion in `library.rs` carry most of the remainder.
+- `cargo test --all-features`: 65 passed, 0 failed, 0 ignored (64 library
+  tests and one integration test, zorite backend). The default gpuikit
+  build runs 77 tests (76 library tests and one integration test), also
+  green.
+- `cargo fmt --check`, `cargo check --all-targets --all-features`,
+  `cargo clippy --all-targets --all-features -- -D warnings`,
+  `cargo doc --no-deps --all-features`, and `cargo package --list` are green
+  (34 files).
+- `cargo publish --dry-run` currently stops at dependency resolution because
+  `ragrig-gpui 0.5.0` is not on crates.io yet. Publish that crate first, then
+  rerun the dry run for `scico`.
+- The declared MSRV is 1.97.1, matching `ragrig-gpui 0.5.0` and `ragrig` 1.2.
