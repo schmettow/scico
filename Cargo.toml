@@ -26,7 +26,7 @@ dirs = "5"
 gpui-kit = "0.7.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 open = "5"
-ragrig-gpui = { path = "../ragrig-gpui", version = "0.5.0", features = ["grobid"] }
+ragrig-gpui = {version = "0.5.0", features = ["grobid"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
