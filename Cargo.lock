@@ -6555,6 +6555,8 @@ dependencies = [
 [[package]]
 name = "ragrig-gpui"
 version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "542c43451f44111bdba3e2a2cf9d99804d9fce7b2b8b972ad696aeb3c918329c"
 dependencies = [
  "async-channel",
  "biblatex",
