@@ -10,6 +10,8 @@ use gpui_kit::base::input::RopeExt as _;
 #[cfg(editor_gpuikit)]
 use gpui_kit::base::text::TextViewState;
 use gpui_kit::component::ActiveTheme as _;
+#[cfg(editor_gpuikit)]
+use gpui_kit::{Bounds, Pixels};
 use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{point, px};
@@ -372,7 +374,7 @@ impl AppState {
         }
         if requested_by_cli && let Some(report) = workspace_report.as_ref() {
             let (_, kept) = state.retain_workspace_tabs(&report.root, cx);
-            state.open_workspace_files(&report.homepage, &report.bibliography, window, cx);
+            state.open_workspace_files(&report.homepage, window, cx);
             opened = true;
             workspace_status = workspace_status.map(|status| with_kept_tabs(status, kept));
         }
@@ -437,6 +439,17 @@ impl AppState {
     /// The active document, if any.
     pub fn active_document(&self) -> Option<&Document> {
         self.documents.get(self.active)
+    }
+
+    /// Whether the workspace bibliography is open in an editor tab.
+    ///
+    /// GROBID rewrites the bibliography behind the editor's back, so a run
+    /// must wait until the raw bibliography tab is closed.
+    pub fn bibliography_open(&self) -> bool {
+        let bibliography = self.bibliography.as_deref();
+        self.documents
+            .iter()
+            .any(|document| is_bibliography_path(document.path.as_deref(), bibliography))
     }
 
     /// The active document mutably, if any.
@@ -872,6 +885,8 @@ impl AppState {
         self.documents[index].reveal(offset, window, cx);
         self.active = index;
         self.follow_caret(id, cx);
+        #[cfg(editor_gpuikit)]
+        self.settle_bibliography_scroll(id, cx);
         self.sync_active_preview(cx);
         self.persist_session(cx);
         cx.notify();
@@ -1533,10 +1548,9 @@ impl AppState {
         let status = report.status(created);
         let root = report.root.clone();
         let homepage = report.homepage.clone();
-        let bibliography = report.bibliography.clone();
         self.adopt_workspace(report, cx);
         let (_, kept) = self.retain_workspace_tabs(&root, cx);
-        self.open_workspace_files(&homepage, &bibliography, window, cx);
+        self.open_workspace_files(&homepage, window, cx);
         let status = with_kept_tabs(status, kept);
         self.set_status(status.clone(), cx);
         status
@@ -1581,26 +1595,19 @@ impl AppState {
         (removed, kept_dirty)
     }
 
-    /// Open the paper and its bibliography; the paper takes focus.
+    /// Open the workspace paper; the paper takes focus.
+    ///
+    /// The bibliography stays closed on purpose: the Library opens it on
+    /// demand, so entering a workspace never leaves an editable `.bib` tab
+    /// that GROBID would have to write around.
     pub(crate) fn open_workspace_files(
         &mut self,
         homepage: &Path,
-        bibliography: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Err(error) = self.open_path(homepage, window, cx) {
             self.set_status(error, cx);
-        }
-        if let Err(error) = self.open_path(bibliography, window, cx) {
-            self.set_status(error, cx);
-        }
-        if let Some(index) = self
-            .documents
-            .iter()
-            .position(|document| document.path.as_deref() == Some(homepage))
-        {
-            self.select_tab(index, window, cx);
         }
     }
 
@@ -2092,6 +2099,64 @@ impl AppState {
     #[cfg(editor_gpuikit)]
     fn follow_caret(&mut self, _id: u64, _cx: &mut Context<Self>) {}
 
+    /// Place a revealed bibliography key two lines below the viewport top.
+    ///
+    /// The editor scrolls a moved caret minimally into view during its own
+    /// paint, which leaves an entry near the end of the file at the bottom
+    /// edge. Once that layout exists, this recentres the viewport with a short
+    /// reading margin above the entry. The retries cover the frame between the
+    /// cursor move and the first paint that reports the caret's bounds.
+    #[cfg(editor_gpuikit)]
+    fn settle_bibliography_scroll(&mut self, id: u64, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            for _ in 0..4 {
+                cx.background_executor()
+                    .timer(Duration::from_millis(16))
+                    .await;
+                let done = this
+                    .update(cx, |this, cx| {
+                        if this.active_document().map(|document| document.id) != Some(id) {
+                            return true;
+                        }
+                        let Some(document) = this.document(id) else {
+                            return true;
+                        };
+                        let editor = document.editor.clone();
+                        let (delta, offset) = {
+                            let editor = editor.read(cx);
+                            let Some(line_height) = editor.line_height() else {
+                                return false;
+                            };
+                            let caret = editor.cursor();
+                            let Some(caret_bounds) = editor.range_to_bounds(&(caret..caret)) else {
+                                return false;
+                            };
+                            (
+                                bibliography_top_shift(
+                                    caret_bounds,
+                                    editor.input_bounds().top(),
+                                    line_height,
+                                ),
+                                editor.scroll_offset(),
+                            )
+                        };
+                        if delta.abs() <= px(0.5) {
+                            return true;
+                        }
+                        let mut offset = offset;
+                        offset.y -= delta;
+                        editor.update(cx, |editor, cx| editor.set_scroll_offset(offset, cx));
+                        false
+                    })
+                    .unwrap_or(true);
+                if done {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
     fn subscribe_editor(
         &mut self,
         editor: &Entity<EditorState>,
@@ -2406,10 +2471,28 @@ fn apply_workspace_prompt(settings: &mut RagSettings, report: &WorkspaceReport) 
     }
 }
 
+/// How far the caret's top edge sits below the desired two-line top margin.
+///
+/// Subtracting this from the scroll offset moves the caret up to that margin.
+#[cfg(editor_gpuikit)]
+fn bibliography_top_shift(
+    caret: Bounds<Pixels>,
+    viewport_top: Pixels,
+    line_height: Pixels,
+) -> Pixels {
+    caret.top() - (viewport_top + line_height + line_height)
+}
+
 /// Whether `path` is the workspace bibliography.
 fn is_bibliography_path(path: Option<&Path>, bibliography: Option<&Path>) -> bool {
-    path.zip(bibliography)
-        .is_some_and(|(path, bibliography)| path == bibliography)
+    let Some((path, bibliography)) = path.zip(bibliography) else {
+        return false;
+    };
+    path == bibliography
+        || std::fs::canonicalize(path)
+            .ok()
+            .zip(std::fs::canonicalize(bibliography).ok())
+            .is_some_and(|(path, bibliography)| path == bibliography)
 }
 
 fn with_kept_tabs(status: String, kept: usize) -> String {
@@ -2579,6 +2662,22 @@ mod tests {
         ));
         assert!(!is_bibliography_path(None, Some(bibliography)));
         assert!(!is_bibliography_path(Some(bibliography), None));
+    }
+
+    #[cfg(editor_gpuikit)]
+    #[test]
+    fn a_bibliography_caret_sits_two_lines_below_the_top() {
+        let caret = gpui_kit::bounds(
+            gpui_kit::point(px(4.), px(120.)),
+            gpui_kit::size(px(200.), px(20.)),
+        );
+        assert_eq!(bibliography_top_shift(caret, px(0.), px(20.)), px(80.));
+
+        let aligned = gpui_kit::bounds(
+            gpui_kit::point(px(4.), px(40.)),
+            gpui_kit::size(px(200.), px(20.)),
+        );
+        assert_eq!(bibliography_top_shift(aligned, px(0.), px(20.)), px(0.));
     }
 
     #[test]

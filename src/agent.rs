@@ -155,7 +155,7 @@ impl AgentPane {
             chat.set_empty_state(
                 EmptyState {
                     icon: ChatIcon::png(CHAT_MARK),
-                    title: "Chat knows your library.".into(),
+                    title: "Scico knows your library.".into(),
                     description: "Index a corpus in the Library, attach your draft, \
                                   then ask a question. Chat answers with the documents \
                                   it used, and you can send its answer straight back \
