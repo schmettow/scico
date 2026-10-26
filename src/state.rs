@@ -10,9 +10,9 @@ use gpui_kit::base::input::RopeExt as _;
 #[cfg(editor_gpuikit)]
 use gpui_kit::base::text::TextViewState;
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 #[cfg(editor_gpuikit)]
 use gpui_kit::{Bounds, Pixels};
-use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{point, px};
 pub use ragrig_gpui::editor::ReplacementOutcome;

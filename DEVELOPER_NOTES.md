@@ -64,7 +64,8 @@ not stabilised.
     environment and never persisted.
 - Optional: **GROBID** for parsing PDFs into the bibliography. Either point
   **Settings → External services** at a running server, or let Scico pull and
-  run the container. The default is the full image
+  run the container. **Auto start** (managed source only) starts the container
+  when the app opens. The default is the full image
   (`grobid/grobid:0.9.1-full`, about 8 GB); the CRF-only variant is smaller.
   Docker Desktop or the Docker daemon must be running. A manual start that
   matches the managed container is:
@@ -138,17 +139,18 @@ my-paper/
   missing path is ignored.
 - **Workspace entry closes outside tabs.** New workspace, Open workspace, and
   the command-line directory prune every tab whose path lies outside the new
-  root, then open the homepage and the workspace bibliography with the
-  homepage active. A dirty outside tab is kept and named in the status line;
-  the session journal never loses unsaved text on a workspace switch.
+  root, then open only the homepage, with the homepage active. The
+  bibliography opens on demand from the Library. A dirty outside tab is kept
+  and named in the status line; the session journal never loses unsaved text on
+  a workspace switch.
 - **Open workspace** (`Ctrl+Shift+O`, folder button) adopts an existing
   directory and adds only what is missing: `corpus/`, `.ragrig/` with
   `profiles/` and `sessions/`, a `.bib` when the workspace has none, and
   `Untitled-1.md` when it has no document. A legacy `.ragrig_store` at the
   workspace root is moved into `.ragrig/` on the first open.
 - Both commands list everything they created and end with
-  **Add PDFs to the library and chat about them.** The Chat header repeats the
-  message so the full list stays readable when the status bar truncates.
+  **Import PDFs into the library and chat about them.** The Chat header repeats
+  the message so the full list stays readable when the status bar truncates.
 - `.scico/workspace.toml` records the discovered `bibtex` and `document`
   lists, the `ragrig = "./.ragrig"` data folder, and the `homepage`. It is
   rewritten on each open when the directory contents changed.
@@ -262,11 +264,16 @@ target stays bound to the tab the passage came from.
 
 ### Library pipeline and references
 
-- **Add PDFs** copies PDFs into the corpus, runs GROBID, merges the records
-  into the bibliography, and then indexes the corpus. Originals stay where they
-  are; duplicate names get a suffix.
-- **GROBID** parses the corpus folder without indexing. **Index** runs an
-  incremental index update; it turns into **Stop** while running.
+- **Import PDFs** copies PDFs into the canonical `<workspace>/corpus`, runs
+  GROBID, merges the records into the bibliography, and then indexes the
+  corpus. It needs a workspace and makes that folder the active corpus;
+  originals stay where they are and duplicate names get a suffix.
+- **GROBID** parses the corpus folder without indexing. It is blocked while
+  the `.bib` tab is open, because the pre-pass writes that file directly. The
+  **BibTeX** button opens the raw bibliography and disables GROBID until the
+  tab closes; while GROBID runs, the BibTeX action is disabled.
+- **Index** runs an incremental index update; it turns into **Stop** while
+  running.
 - Click a reference row to insert `@key` at the cursor. `+` selects a row;
   select several and use the action bar at the top of the list to **Insert**
   `[@Key1, @Key2]`, **Attach** the PDFs to the next question, **Clear** the
@@ -280,8 +287,9 @@ target stays bound to the tab the passage came from.
   `AgentPane::edit_reference` → `Roundtrip::edit_reference` →
   `AppStateHost::edit_reference` → `AppState::open_bibliography_entry`. The key
   lookup lives in `ragrig_gpui::editor::bibtex_entry_offset`; the editor side is
-  `EditorSurface::reveal`. Saving or closing the bibliography bumps
-  `references_revision`; the Library observes it and calls
+  `EditorSurface::reveal`, followed by `AppState::settle_bibliography_scroll`,
+  which places the key two lines below the viewport top. Saving or closing the
+  bibliography bumps `references_revision`; the Library observes it and calls
   `refresh_references`, so the rows reflect the edited `.bib`.
 - The open action uses the viewer assigned in **Settings → Workspace → External
   viewers** (PDF, EPUB, and HTML), or the platform default when the field is
@@ -322,9 +330,10 @@ of the controls column and the chosen width is remembered.
   field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
   and creates the corpus folder when it is opened.
 - **External services** — source (existing server or managed Docker
-  container), server URL with **Test** and **Discover on localhost**, and the
-  managed image with **Pull and start**, **Cancel**, **Stop**, **Remove
-  container**, and **Refresh**. The managed container binds
+  container), server URL with **Test** and **Discover on localhost**, the
+  managed image with **Auto start**, **Pull and start**, **Cancel**, **Stop**,
+  **Remove container**, and **Refresh**. **Auto start** starts the managed
+  container whenever the app opens. The managed container binds
   `127.0.0.1:8070`; Scico stops it on quit. Discovery checks ports 8070 and
   8080. Full images are pulled as `linux/amd64` (the official full image is
   not multi-architecture); `-crf` images run natively.
@@ -389,7 +398,7 @@ scico
   highlight.rs    incremental Syntect highlighter and Markdown/BibTeX grammars
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   workspace_pane.rs Workspace shell: status, New/Open workspace, Library section
-  library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Add PDFs
+  library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Import PDFs
   workspace.rs    workspace scaffold, descriptor, defaults
   app_settings.rs Overview, Workspace, and Editor settings pages; External services lives in ragrig-gpui
   settings.rs     persisted JSON settings, viewer programs, and the Chat prompt path
@@ -422,7 +431,10 @@ The following were fixed in `ragrig-gpui` during development:
   through verbatim instead of wrapping them in a second `document` element.
 - `RagSetup` and `RagSettings` carry an explicit bibliography path; the worker
   uses it for reference rows, GROBID merging, and `@key` resolution (default
-  remains `<workspace>/.ragrig/references.bib`).
+  remains `<workspace>/.ragrig/references.bib`). `RagSettings` also carries
+  `grobid_auto_start`, shown as **Auto start** on the managed container page;
+  `GrobidService::new` sends a start command when the source is managed and the
+  flag is on.
 - `ChatView::set_message_text` updates a finished message in place, so the host
   can lift a replacement block out of the transcript without rebuilding it.
 - `path_setting` adds a **Browse…** button to every path field, and
@@ -483,14 +495,15 @@ plus the protocol integration test, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, command-line workspace adoption and
-scaffolding, workspace tab pruning and opening the paper plus bibliography,
+scaffolding, workspace tab pruning and opening only the paper,
 window mounting, typing, Ctrl+Arrow
 word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, persistent edit decorations
 with the read-only guard, the Library's BibTeX jump and bibliography file
-lookup, incremental Markdown/BibTeX highlighting, editor font
+lookup, the open-bibliography GROBID guard, canonical PDF imports,
+incremental Markdown/BibTeX highlighting, editor font
 defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
 both directions (including soft-wrapped paragraphs), and the Chat marks,
 their colour retention, and the window icon.

@@ -35,3 +35,9 @@ zorite-editor = { version = "0.11.2", optional = true }
 
 [dev-dependencies]
 gpui-kit = { version = "0.7.3", features = ["test-support"] }
+
+# Development against the sibling checkouts. Remove these before publishing and
+# let Cargo resolve the released versions instead.
+[patch.crates-io]
+grobid-bibtex = { path = "../grobid-bibtex" }
+ragrig-gpui = { path = "../ragrig-gpui" }

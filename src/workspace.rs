@@ -37,7 +37,7 @@ pub const PROMPT_FILE: &str = "Chat.md";
 /// The document opened when a workspace has none.
 pub const DEFAULT_DOCUMENT: &str = "Untitled-1.md";
 /// What to tell the user after a workspace is ready.
-pub const INSTRUCTION: &str = "Add PDFs to the library and chat about them.";
+pub const INSTRUCTION: &str = "Import PDFs into the library and chat about them.";
 
 /// The first command-line argument when it names an existing directory.
 ///

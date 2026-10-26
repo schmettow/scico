@@ -80,9 +80,9 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
 1. **New workspace** (`Ctrl+Shift+N`) — pick an empty folder. Scico creates a
    place for the paper, your sources (`corpus/`), a bibliography, and the
    project index, then opens `Untitled-1.md`.
-2. **Add PDFs** in the Library section of the Workspace panel. Scico copies
-   them into the corpus, reads their metadata, merges them into your `.bib`,
-   and indexes them. Originals are left where they are.
+2. **Import PDFs** in the Library section of the Workspace panel. Scico copies
+   them into the workspace's `corpus/`, reads their metadata, merges them into
+   your `.bib`, and indexes them. Originals are left where they are.
 3. **Write** in the left pane. The right pane previews Markdown, tables, and
    images. Drag the divider if you want more room.
 4. **Ask Chat** a question such as *“What do these papers report about
@@ -141,14 +141,18 @@ instead, so nothing is lost.
   with **+** to insert a citation group such as `[@Kano2025, @Mila2023]`,
   attach the PDFs to your next question, or copy keys and file paths.
 - The **pencil** action opens the workspace bibliography at that entry. Save
-  or close the `.bib` file and the Library reloads the changed metadata.
+  or close the `.bib` file and the Library reloads the changed metadata. The
+  Library's **BibTeX** button opens the same file directly. While it is open,
+  GROBID is blocked so a run cannot overwrite the tab; the button is disabled
+  while GROBID is working.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
 - **GROBID** (optional) reads PDF headers and fills in authors, title, year,
   and DOI. Open **Settings → External services** to discover a server that is
   already running, enter its URL, or let Scico pull and run the official
-  Docker image. The full image is the default (about 8 GB); the image field is
-  editable if you prefer the smaller CRF-only image. Scico stops a container it
-  started when the app quits. See the
+  Docker image. With **Docker container** selected, **Auto start** starts the
+  managed container whenever Scico opens. The full image is the default (about
+  8 GB); the image field is editable if you prefer the smaller CRF-only image.
+  Scico stops a container it started when the app quits. See the
   [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
 - **Your bibliography stays yours.** Scico merges new records into the `.bib`
   file in the workspace; it does not lock you into a database.
@@ -172,9 +176,9 @@ my-paper/
 - **New workspace** creates the whole set in an empty folder.
 - **Open workspace** adopts an existing folder and adds only what is missing.
   A folder that already contains a paper and a `.bib` is adopted as it is.
-- Entering a workspace closes tabs from other folders and opens the paper and
-  its bibliography, with the paper in front. Unsaved tabs are never discarded
-  silently.
+- Entering a workspace closes tabs from other folders and opens the paper,
+  with the paper in front. The bibliography opens on demand from the Library.
+  Unsaved tabs are never discarded silently.
 - **From a terminal**, `scico ~/my-paper` does the same: it opens that
   folder as a workspace, creating the missing pieces on the first visit.
 - **Nothing is hidden in a cloud account.** Copy the folder to a backup drive,
@@ -246,8 +250,9 @@ answers as a plain chat model.
 automatic author/title/year extraction is skipped. Use **Settings → External
 services → Discover on localhost**, enter a URL, or press **Pull and start**
 under **Docker container**. Docker Desktop (or the Docker daemon) must be
-running. You can also fill in the `.bib` by hand and re-run **Add PDFs**
-after a server is available.
+running. You can also fill in the `.bib` by hand and re-run **Import PDFs**
+after a server is available. If the `.bib` tab is open, close it before
+starting GROBID.
 
 **I need a PDF with a journal template.** The chat agent writes Markdown and Quarto, not
 a typeset page. Export or continue in Quarto/Pandoc, or paste the text into

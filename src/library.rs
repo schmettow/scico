@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui_kit::{
-    AppContext as _, ClipboardItem, Context, ElementId, Entity, FocusHandle, Focusable,
+    App, AppContext as _, ClipboardItem, Context, ElementId, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, Render,
     SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
     assets::IconName,
@@ -22,6 +22,7 @@ use ragrig_gpui::prelude::*;
 
 use crate::agent::AgentPane;
 use crate::state::AppState;
+use crate::workspace;
 
 /// The library pipeline: bibliography rows, corpus actions, and status.
 pub struct LibraryPane {
@@ -172,7 +173,32 @@ impl LibraryPane {
         });
     }
 
+    /// Make the canonical workspace corpus the folder extraction and indexing use.
+    fn activate_corpus(&mut self, corpus: PathBuf, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| {
+            state.corpus = Some(corpus.clone());
+            let entry = format!("{}={}", workspace::CORPUS_DIR, corpus.display());
+            state.rag.update(cx, |settings, _| {
+                settings.corpus_dirs.retain(|existing| {
+                    existing
+                        .split_once('=')
+                        .map(|(name, _)| name != workspace::CORPUS_DIR)
+                        .unwrap_or(true)
+                });
+                settings.corpus_dirs.push(entry);
+            });
+            state.persist(cx);
+        });
+    }
+
     fn extract_references(&mut self, index_after: bool, cx: &mut Context<Self>) {
+        if self.state.read(cx).bibliography_open() {
+            self.set_status(
+                "Close the BibTeX tab before GROBID updates the bibliography",
+                cx,
+            );
+            return;
+        }
         let folder = self.folder(cx);
         if !folder.is_dir() {
             self.set_status(format!("'{}' is not a folder", folder.display()), cx);
@@ -191,27 +217,32 @@ impl LibraryPane {
         }
     }
 
-    fn add_pdfs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(corpus) = self.state.read(cx).corpus.clone() else {
-            self.set_status("Choose a corpus folder first", cx);
-            return;
+    fn import_pdfs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = self.state.read(cx).workspace.clone();
+        let corpus = match import_folder(workspace.as_deref()) {
+            Ok(corpus) => corpus,
+            Err(error) => {
+                self.set_status(error, cx);
+                return;
+            }
         };
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Add PDFs to the library".into()),
+            prompt: Some("Import PDFs into the workspace corpus".into()),
         });
         let this = cx.entity();
         cx.spawn_in(window, async move |_, cx| {
             let Ok(Ok(Some(paths))) = receiver.await else {
                 return;
             };
-            let corpus = corpus.clone();
+            let target = corpus.clone();
             let result = cx
-                .background_spawn(async move { copy_pdfs(&paths, &corpus) })
+                .background_spawn(async move { copy_pdfs(&paths, &target) })
                 .await;
             let _ = this.update_in(cx, |this, _window, cx| {
+                this.activate_corpus(corpus, cx);
                 this.on_pdfs_copied(result, cx);
             });
         })
@@ -225,16 +256,20 @@ impl LibraryPane {
     ) {
         match result {
             Ok((copied, errors)) => {
+                let bibliography_open = self.state.read(cx).bibliography_open();
                 let mut message = if copied.is_empty() {
-                    "Nothing new to add".to_owned()
+                    "Nothing new to import".to_owned()
                 } else {
-                    format!("Copied {} PDF(s) into the corpus", copied.len())
+                    format!("Imported {} PDF(s) into corpus/", copied.len())
                 };
                 if !errors.is_empty() {
                     message.push_str(&format!(" · {} skipped", errors.len()));
                 }
+                if !copied.is_empty() && bibliography_open {
+                    message.push_str(" · close the BibTeX tab before GROBID can parse them");
+                }
                 self.set_status(message, cx);
-                if !copied.is_empty() {
+                if !copied.is_empty() && !bibliography_open {
                     self.extract_references(true, cx);
                 }
             }
@@ -393,12 +428,60 @@ impl LibraryPane {
 }
 
 impl LibraryPane {
+    /// Whether a GROBID reference run currently owns the bibliography.
+    fn extracting(&self, cx: &App) -> bool {
+        self.state
+            .read(cx)
+            .controller
+            .read(cx)
+            .is_extracting_references()
+    }
+
     /// Open the bibliography at this key through the roundtrip host.
     fn edit_in_bibtex(&mut self, key: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.extracting(cx) {
+            self.set_status(
+                "GROBID is updating the bibliography — wait for it to finish",
+                cx,
+            );
+            return;
+        }
         let agent = self.agent.clone();
         let result = agent.update(cx, |agent, cx| agent.edit_reference(&key, window, cx));
         match result {
             Ok(()) => self.set_status(format!("Editing @{key} in the bibliography"), cx),
+            Err(error) => self.set_status(error, cx),
+        }
+    }
+
+    /// Open the raw bibliography in the editor.
+    fn open_bibtex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.extracting(cx) {
+            self.set_status(
+                "GROBID is updating the bibliography — wait for it to finish",
+                cx,
+            );
+            return;
+        }
+        let path = self.state.read(cx).bibliography.clone();
+        let Some(path) = path else {
+            self.set_status(
+                "No bibliography configured. Choose a workspace in Settings.",
+                cx,
+            );
+            return;
+        };
+        let result = self
+            .state
+            .update(cx, |state, cx| state.open_path(&path, window, cx));
+        match result {
+            Ok(()) => self.set_status(
+                format!(
+                    "Editing {} — GROBID is blocked while this tab is open",
+                    path.display()
+                ),
+                cx,
+            ),
             Err(error) => self.set_status(error, cx),
         }
     }
@@ -418,6 +501,10 @@ impl Render for LibraryPane {
             )
         };
         let folder = self.folder(cx);
+        let (bibliography, bibliography_open) = {
+            let state = self.state.read(cx);
+            (state.bibliography.clone(), state.bibliography_open())
+        };
         let filter = self.filter.read(cx).value().trim().to_lowercase();
         let selected_entries: Vec<ReferenceEntry> = self
             .selected
@@ -426,22 +513,43 @@ impl Render for LibraryPane {
             .cloned()
             .collect();
 
-        let add_pdfs = Button::new("library-add-pdfs")
-            .label("Add PDFs")
+        let import_pdfs = Button::new("library-import-pdfs")
+            .label("Import PDFs")
             .icon(IconName::FolderPlus)
             .small()
             .outline()
             .disabled(extracting)
-            .tooltip("Copy PDFs into the corpus, parse them, and index them")
-            .on_click(cx.listener(|this, _, window, cx| this.add_pdfs(window, cx)));
+            .tooltip("Copy PDFs into the workspace corpus, parse them, and index them")
+            .on_click(cx.listener(|this, _, window, cx| this.import_pdfs(window, cx)));
         let grobid = Button::new("library-grobid")
             .label("GROBID")
             .icon(IconName::BookOpen)
             .small()
             .outline()
-            .disabled(extracting)
-            .tooltip("Parse this folder's PDFs into the bibliography")
+            .disabled(extracting || bibliography_open)
+            .tooltip(if bibliography_open {
+                "Close the BibTeX tab to update the bibliography"
+            } else {
+                "Parse this folder's PDFs into the bibliography"
+            })
             .on_click(cx.listener(|this, _, _, cx| this.extract_references(false, cx)));
+        let bibtex = Button::new("library-bibtex")
+            .label("BibTeX")
+            .icon(IconName::FileText)
+            .small()
+            .outline()
+            .selected(bibliography_open)
+            .disabled(extracting || bibliography.is_none())
+            .tooltip(if extracting {
+                "GROBID is updating the bibliography — wait for it to finish"
+            } else if bibliography_open {
+                "The raw bibliography is open; GROBID stays blocked until it closes"
+            } else if bibliography.is_none() {
+                "No bibliography configured. Choose a workspace in Settings."
+            } else {
+                "Open the raw bibliography; GROBID is blocked while it is open"
+            })
+            .on_click(cx.listener(|this, _, window, cx| this.open_bibtex(window, cx)));
         let index = Button::new("library-index")
             .label(if ingesting { "Stop" } else { "Index" })
             .icon(if ingesting {
@@ -473,8 +581,9 @@ impl Render for LibraryPane {
         body = body.child(
             h_flex()
                 .gap_1()
-                .child(add_pdfs)
+                .child(import_pdfs)
                 .child(grobid)
+                .child(bibtex)
                 .child(index)
                 .child(refresh),
         );
@@ -552,7 +661,7 @@ impl Render for LibraryPane {
                     .text_sm()
                     .text_color(theme.muted_foreground)
                     .child(if self.bibliography.is_some() {
-                        "No references yet. Press GROBID to parse this folder's PDFs, or add PDFs above."
+                        "No references yet. Press GROBID to parse this folder's PDFs, or import PDFs above."
                     } else {
                         "No bibliography configured. Choose a workspace in Settings."
                     }),
@@ -768,6 +877,16 @@ impl Focusable for LibraryPane {
     }
 }
 
+/// The canonical import target: the workspace's own `corpus/` folder.
+fn import_folder(workspace: Option<&Path>) -> Result<PathBuf, String> {
+    workspace
+        .map(|root| root.join(workspace::CORPUS_DIR))
+        .ok_or_else(|| {
+            "Open or create a workspace first — PDFs are imported into its corpus/ folder"
+                .to_owned()
+        })
+}
+
 /// Copy PDFs into `corpus`, skipping identical names. Returns the copies and
 /// human-readable skip reasons.
 fn copy_pdfs(paths: &[PathBuf], corpus: &Path) -> Result<(Vec<PathBuf>, Vec<String>), String> {
@@ -827,6 +946,18 @@ fn copy_pdfs(paths: &[PathBuf], corpus: &Path) -> Result<(Vec<PathBuf>, Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imports_land_in_the_workspace_corpus() {
+        let workspace = Path::new("/tmp/scico-paper");
+        assert_eq!(
+            import_folder(Some(workspace)).expect("workspace"),
+            workspace.join("corpus")
+        );
+
+        let error = import_folder(None).expect_err("no workspace");
+        assert!(error.contains("Open or create a workspace first"));
+    }
 
     #[test]
     fn only_pdfs_are_copied_and_name_clashes_get_a_suffix() {

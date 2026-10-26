@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- **Import PDFs.** The Library's **Add PDFs** action is now **Import PDFs**.
+  Copies always land in the canonical `<workspace>/corpus/`; importing now
+  requires a workspace and reports a clear error when none is configured. That
+  folder becomes the active corpus for extraction and indexing even when
+  Settings names another corpus.
+- **Workspace entry opens only the paper.** Creating or entering a workspace
+  no longer opens its `.bib`. A new **BibTeX** action in the Library header
+  opens the raw bibliography on demand, and the workspace instruction now says
+  “Import PDFs into the library and chat about them.”
+- **Managed GROBID auto start.** Settings → External services → managed
+  container now has an **Auto start** switch. When it is on, Scico starts the
+  managed container (pulling the image when necessary) as the app opens. The
+  preference is persisted in `settings.json`.
+
+### Fixed
+
+- **GROBID waits for the bibliography tab.** GROBID no longer updates the
+  bibliography while the `.bib` is open; the Library explains why and disables
+  the GROBID button. The new BibTeX action is disabled while a GROBID run is
+  active, and an import that lands while the tab is open tells the user to
+  close it before parsing.
+- **BibTeX jumps place the key two lines below the viewport top.** Opening an
+  entry from a reference row's pencil now corrects the editor's minimal
+  bottom-edge auto-scroll after the first paint, instead of leaving the entry
+  at the bottom of the viewport.
+
 ## v0.5.0 — 2026-10-24
 
 First publication on crates.io.

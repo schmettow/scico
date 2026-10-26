@@ -161,6 +161,8 @@ pub struct PersistedSettings {
     pub grobid_url: String,
     /// Docker image for the managed GROBID container.
     pub grobid_image: String,
+    /// Start the managed GROBID container when Scico opens.
+    pub grobid_auto_start: bool,
     /// Rename parsed PDFs.
     pub rename_pdfs: bool,
     /// Complete records from OpenAlex.
@@ -231,6 +233,7 @@ impl Default for PersistedSettings {
             grobid_source: rag.grobid_source.label().to_owned(),
             grobid_url: rag.grobid_url,
             grobid_image: rag.grobid_image,
+            grobid_auto_start: rag.grobid_auto_start,
             rename_pdfs: rag.rename_pdfs,
             openalex: rag.openalex,
             resolve_citations: rag.resolve_citations,
@@ -348,6 +351,7 @@ impl PersistedSettings {
             GrobidSource::from_label(&self.grobid_source).unwrap_or(settings.grobid_source);
         settings.grobid_url = self.grobid_url.clone();
         settings.grobid_image = self.grobid_image.clone();
+        settings.grobid_auto_start = self.grobid_auto_start;
         settings.rename_pdfs = self.rename_pdfs;
         settings.openalex = self.openalex;
         settings.resolve_citations = self.resolve_citations;
@@ -394,6 +398,7 @@ impl PersistedSettings {
         self.grobid_source = settings.grobid_source.label().to_owned();
         self.grobid_url = settings.grobid_url.clone();
         self.grobid_image = settings.grobid_image.clone();
+        self.grobid_auto_start = settings.grobid_auto_start;
         self.rename_pdfs = settings.rename_pdfs;
         self.openalex = settings.openalex;
         self.resolve_citations = settings.resolve_citations;
@@ -520,6 +525,7 @@ mod tests {
         rag.grobid_source = GrobidSource::Managed;
         rag.grobid_url = "http://127.0.0.1:8070".to_owned();
         rag.grobid_image = "grobid/grobid:0.9.1-crf".to_owned();
+        rag.grobid_auto_start = true;
 
         persisted.capture(&rag);
         assert_eq!(persisted.provider, "DeepSeek");
@@ -542,6 +548,7 @@ mod tests {
         assert_eq!(restored.grobid_source, GrobidSource::Managed);
         assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
         assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
+        assert!(restored.grobid_auto_start);
     }
 
     #[test]

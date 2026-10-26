@@ -2141,7 +2141,7 @@ mod tests {
             assert!(root.join("corpus").is_dir());
             assert!(root.join(".ragrig").is_dir());
             assert!(root.join("Untitled-1.md").is_file());
-            assert_eq!(state.documents.len(), 2, "paper and bibliography");
+            assert_eq!(state.documents.len(), 1, "only the paper opens");
             assert!(
                 state.documents.iter().all(|document| document
                     .path
@@ -2150,11 +2150,14 @@ mod tests {
                 "tabs outside the workspace are closed"
             );
             assert!(
-                state.documents.iter().any(|document| document
-                    .path
-                    .as_deref()
-                    .is_some_and(|path| path.extension().is_some_and(|ext| ext == "bib"))),
-                "the workspace bibliography is open"
+                state
+                    .documents
+                    .iter()
+                    .all(|document| document.path.as_deref().is_none_or(|path| path
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .is_none_or(|extension| extension != "bib"))),
+                "the workspace bibliography stays closed"
             );
             let document = state.active_document().expect("the homepage is open");
             assert_eq!(
@@ -2227,7 +2230,7 @@ mod tests {
                     .any(|document| document.path.as_deref() == Some(outside.as_path())),
                 "unsaved work outside the workspace stays open"
             );
-            assert_eq!(state.documents.len(), 3, "outside + paper + bibliography");
+            assert_eq!(state.documents.len(), 2, "outside + paper");
             assert_eq!(
                 state
                     .active_document()
@@ -2281,14 +2284,14 @@ mod tests {
         cx.update(|window, cx| {
             state.update(cx, |state, cx| {
                 state.retain_workspace_tabs(&second.root, cx);
-                state.open_workspace_files(&second.homepage, &second.bibliography, window, cx);
+                state.open_workspace_files(&second.homepage, window, cx);
             });
         });
         cx.update(|window, cx| window.draw(cx).clear(cx));
 
         cx.update(|_, cx| {
             let state = state.read(cx);
-            assert_eq!(state.documents.len(), 2, "paper and bibliography");
+            assert_eq!(state.documents.len(), 1, "only the new paper opens");
             assert!(
                 state.documents.iter().all(|document| document
                     .path
