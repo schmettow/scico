@@ -47,6 +47,9 @@ stabilised.
 
 ## Next
 
+- Add **Save as** to write the current buffer to a new path, and prompt for a
+  real file name when saving an `Untitled-x.md` buffer instead of keeping the
+  placeholder name.
 - Bring the `gpuikit` backend to functional parity: inline images and tables in
   the source surface where feasible, and PDF chips. Highlighting is already
   provided by the language-independent Syntect adapter (Markdown, BibTeX,
