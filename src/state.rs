@@ -942,6 +942,8 @@ impl AppState {
         path: PathBuf,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let old_path = self.document(id).and_then(|document| document.path.clone());
+        let new_path = path.clone();
         let result = match self.document_mut(id) {
             Some(document) => document.save_as(path, cx),
             None => Err("that document is no longer open".to_owned()),
@@ -950,11 +952,29 @@ impl AppState {
             Ok(()) => {
                 self.refresh_prompt_from_document(id, cx);
                 self.note_saved_document(id, cx);
+                let old_removed = old_path.as_deref().is_some_and(|old| {
+                    if crate::document::is_placeholder_path(old) {
+                        remove_redundant_placeholder(old, &new_path)
+                    } else {
+                        !old.exists()
+                    }
+                });
                 let name = self
                     .document(id)
                     .map(|document| document.title.clone())
                     .unwrap_or_default();
-                self.set_status(format!("Saved {name}"), cx);
+                let mut message = format!("Saved {name}");
+                if let Some(root) = self.workspace.clone()
+                    && let Err(error) = workspace::record_saved_document(
+                        &root,
+                        old_path.as_deref(),
+                        &new_path,
+                        old_removed,
+                    )
+                {
+                    message = format!("Saved {name} — {error}");
+                }
+                self.set_status(message, cx);
                 self.persist_session(cx);
             }
             Err(error) => self.set_status(error.clone(), cx),
@@ -2481,6 +2501,30 @@ fn bibliography_top_shift(
     line_height: Pixels,
 ) -> Pixels {
     caret.top() - (viewport_top + line_height + line_height)
+}
+
+/// Remove a placeholder file that is empty or identical to the saved copy.
+///
+/// Returns whether the old path is gone. A placeholder with different content
+/// is kept: Save As must not destroy a file it cannot account for.
+fn remove_redundant_placeholder(old: &Path, new: &Path) -> bool {
+    if same_file(old, new) {
+        return false;
+    }
+    let Ok(old_bytes) = fs::read(old) else {
+        return !old.exists();
+    };
+    let redundant =
+        old_bytes.is_empty() || fs::read(new).is_ok_and(|new_bytes| new_bytes == old_bytes);
+    redundant && fs::remove_file(old).is_ok()
+}
+
+fn same_file(left: &Path, right: &Path) -> bool {
+    left == right
+        || fs::canonicalize(left)
+            .ok()
+            .zip(fs::canonicalize(right).ok())
+            .is_some_and(|(left, right)| left == right)
 }
 
 /// Whether `path` is the workspace bibliography.

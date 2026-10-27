@@ -218,6 +218,11 @@ my-paper/
 
 On macOS, use `⌘` in place of `Ctrl`.
 
+The first save of an `Untitled-x.md` placeholder asks for a real file name,
+replaces the placeholder in the workspace, and makes the renamed paper the
+workspace homepage. **Save as** is also available as a toolbar button next to
+**Save**.
+
 ---
 
 ## Where your words go

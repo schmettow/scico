@@ -399,13 +399,15 @@ impl ScicoApp {
         .detach();
     }
 
+    /// Save the active document, asking for a real name when it is still
+    /// called `Untitled-x.md` or has never been written.
     fn save_file(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
-        let needs_path = self
+        let needs_name = self
             .state
             .read(cx)
             .active_document()
-            .is_some_and(|document| document.path.is_none());
-        if needs_path {
+            .is_some_and(|document| document.needs_name());
+        if needs_name {
             self.save_file_as(&SaveFileAs, window, cx);
             return;
         }
@@ -416,20 +418,24 @@ impl ScicoApp {
         });
     }
 
+    /// Ask for a path and save the active document there.
+    ///
+    /// A placeholder suggests `paper.md`; a named document suggests its
+    /// current title.
     fn save_file_as(&mut self, _: &SaveFileAs, window: &mut Window, cx: &mut Context<Self>) {
-        let directory = self
-            .state
-            .read(cx)
-            .workspace
-            .clone()
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let suggested = self
-            .state
-            .read(cx)
-            .active_document()
-            .map(|document| document.title.to_string())
-            .unwrap_or_else(|| "paper.md".to_owned());
+        let (directory, suggested) = {
+            let state = self.state.read(cx);
+            let directory = state
+                .workspace
+                .clone()
+                .or_else(|| std::env::current_dir().ok())
+                .unwrap_or_else(|| PathBuf::from("."));
+            let suggested = state
+                .active_document()
+                .map(|document| document.suggested_save_name())
+                .unwrap_or_else(|| "paper.md".to_owned());
+            (directory, suggested)
+        };
         let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
         let state = self.state.clone();
         cx.spawn_in(window, async move |_, cx| {
@@ -517,23 +523,24 @@ impl ScicoApp {
 
     /// Save the tab named by [`Self::tab_close`], then close it.
     ///
-    /// Untitled documents ask for a path; cancelling that dialog leaves the tab
-    /// open and the confirmation in place.
+    /// Documents that still carry a placeholder name ask for a real path;
+    /// cancelling that dialog leaves the tab open and the confirmation in
+    /// place.
     fn save_tab_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(prompt) = self.tab_close.clone() else {
             return;
         };
-        let Some((path, title)) = self
+        let Some((needs_name, suggested)) = self
             .state
             .read(cx)
             .document(prompt.id)
-            .map(|document| (document.path.clone(), document.title.to_string()))
+            .map(|document| (document.needs_name(), document.suggested_save_name()))
         else {
             self.tab_close = None;
             cx.notify();
             return;
         };
-        if path.is_some() {
+        if !needs_name {
             let saved = self
                 .state
                 .update(cx, |state, cx| state.save_document(prompt.id, cx));
@@ -553,7 +560,7 @@ impl ScicoApp {
             .clone()
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        let receiver = cx.prompt_for_new_path(&directory, Some(&title));
+        let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
         let state = self.state.clone();
         let id = prompt.id;
         let replace_empty = prompt.replace_empty;
@@ -765,12 +772,13 @@ impl ScicoApp {
         window.remove_window();
     }
 
-    /// Save every dirty buffer, then close. Untitled buffers ask for a path one
-    /// at a time; cancelling any of those dialogs leaves the window open.
+    /// Save every dirty buffer, then close. Documents that still carry a
+    /// placeholder name ask for a real path one at a time; cancelling any of
+    /// those dialogs leaves the window open.
     fn save_all_and_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let mut failure = None;
-        let untitled = state.update(cx, |state, cx| {
+        let pending = state.update(cx, |state, cx| {
             let dirty: Vec<u64> = state
                 .documents
                 .iter()
@@ -780,7 +788,7 @@ impl ScicoApp {
             for id in dirty {
                 if state
                     .document(id)
-                    .is_some_and(|document| document.path.is_some())
+                    .is_some_and(|document| !document.needs_name())
                     && let Err(error) = state.save_document(id, cx)
                 {
                     failure = Some(error);
@@ -791,13 +799,13 @@ impl ScicoApp {
                 .documents
                 .iter()
                 .find(|document| document.dirty)
-                .map(|document| (document.id, document.title.to_string()))
+                .map(|document| (document.id, document.suggested_save_name()))
         });
         if let Some(error) = failure {
             state.update(cx, |state, cx| state.set_status(error, cx));
             return;
         }
-        let Some((id, title)) = untitled else {
+        let Some((id, suggested)) = pending else {
             self.finish_close(window, cx);
             return;
         };
@@ -807,7 +815,7 @@ impl ScicoApp {
             .clone()
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        let receiver = cx.prompt_for_new_path(&directory, Some(&title));
+        let receiver = cx.prompt_for_new_path(&directory, Some(&suggested));
         cx.spawn_in(window, async move |this, cx| {
             let Ok(Ok(Some(path))) = receiver.await else {
                 return;
@@ -1127,6 +1135,16 @@ impl ScicoApp {
                     .tooltip("Save (Ctrl+S)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.save_file(&SaveFile, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("toolbar-save-as")
+                    .label("Save as")
+                    .small()
+                    .ghost()
+                    .tooltip("Save under a new name (Ctrl+Shift+S)")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.save_file_as(&SaveFileAs, window, cx);
                     })),
             )
             .child(div().w(px(1.)).h(px(20.)).mx_2().bg(theme.border))
@@ -2082,6 +2100,74 @@ mod tests {
             );
             assert_eq!(state.ragrig_dir, report.root.join(".ragrig"));
         });
+
+        let _ = std::fs::remove_dir_all(report.root);
+    }
+
+    #[gpui_kit::test]
+    fn saving_a_placeholder_asks_for_and_adopts_a_real_name(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        let root = std::env::temp_dir().join(format!(
+            "scico-save-as-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            bibliography: String::new(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings_path).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings_path, session_path);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let id = cx.update(|_, cx| {
+            let state = state.read(cx);
+            let document = state.active_document().expect("homepage");
+            assert_eq!(document.path.as_deref(), Some(report.homepage.as_path()));
+            assert!(
+                document.needs_name(),
+                "the placeholder must need a real name"
+            );
+            assert_eq!(document.suggested_save_name(), "paper.md");
+            document.id
+        });
+
+        let refused = cx.update(|_, cx| state.update(cx, |state, cx| state.save_document(id, cx)));
+        assert!(
+            refused.is_err(),
+            "a plain save must not write the placeholder in place"
+        );
+
+        type_into_active(cx, &app, "A real paper");
+        let target = report.root.join("paper.md");
+        let saved = cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.save_document_as(id, target.clone(), cx)
+            })
+        });
+        assert!(saved.is_ok(), "{saved:?}");
+
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            let document = state.document(id).expect("still open");
+            assert_eq!(document.path.as_deref(), Some(target.as_path()));
+            assert_eq!(document.title.as_ref(), "paper.md");
+            assert!(!document.needs_name());
+        });
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("saved paper"),
+            "A real paper"
+        );
+        assert!(!report.homepage.exists(), "the placeholder was moved");
+
+        let descriptor =
+            std::fs::read_to_string(report.root.join(".scico/workspace.toml")).expect("descriptor");
+        let settings: crate::workspace::WorkspaceSettings =
+            toml::from_str(&descriptor).expect("descriptor parses");
+        assert_eq!(settings.document, vec!["paper.md".to_owned()]);
+        assert_eq!(settings.homepage.as_deref(), Some("paper.md"));
 
         let _ = std::fs::remove_dir_all(report.root);
     }

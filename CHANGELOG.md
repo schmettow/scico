@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Save as and real names for new papers.** The toolbar now has a **Save as**
+  action next to **Save**. Saving an `Untitled-x.md` placeholder asks for a real
+  file name, removes the empty placeholder, and updates the workspace
+  descriptor so the renamed paper becomes the homepage.
+
 ## v0.5.1 — 2026-10-27
 
 ### Changed

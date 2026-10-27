@@ -367,6 +367,59 @@ fn relative(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
+/// Update the workspace descriptor after a document is saved under a new path.
+///
+/// `old` is the path the document had before the save. `old_removed` says
+/// whether that file is gone (a renamed placeholder) or still on disk (a
+/// normal Save as). The new path is listed when it lies inside `root`, and the
+/// homepage follows the document when it pointed at `old`.
+pub fn record_saved_document(
+    root: &Path,
+    old: Option<&Path>,
+    new: &Path,
+    old_removed: bool,
+) -> Result<(), String> {
+    let settings_path = root.join(WORKSPACE_DIR).join(WORKSPACE_FILE);
+    if !settings_path.is_file() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(&settings_path)
+        .map_err(|error| format!("cannot read '{}': {error}", settings_path.display()))?;
+    let mut settings = toml::from_str::<WorkspaceSettings>(&text).map_err(|error| {
+        format!(
+            "cannot parse '{}': {error} — fix or remove the file",
+            settings_path.display()
+        )
+    })?;
+
+    let old_name = old.map(|path| relative(root, path));
+    if old_removed && let Some(old_name) = old_name.as_deref() {
+        settings.document.retain(|entry| entry != old_name);
+    }
+
+    let new_name = new.strip_prefix(root).ok().map(|_| relative(root, new));
+    if let Some(new_name) = &new_name
+        && !settings.document.contains(new_name)
+    {
+        settings.document.push(new_name.clone());
+    }
+    settings.document.sort();
+    settings.document.dedup();
+
+    if old_name.as_deref() == settings.homepage.as_deref() {
+        if let Some(new_name) = &new_name {
+            settings.homepage = Some(new_name.clone());
+        } else if old_removed {
+            settings.homepage = None;
+        }
+    }
+
+    let text = toml::to_string_pretty(&settings)
+        .map_err(|error| format!("cannot serialize the workspace settings: {error}"))?;
+    fs::write(&settings_path, text)
+        .map_err(|error| format!("cannot write '{}': {error}", settings_path.display()))
+}
+
 fn bibliography_name(root: &Path) -> String {
     let name = root
         .file_name()
@@ -546,6 +599,22 @@ mod tests {
         let second = prepare(&root, false).expect("workspace");
         assert_eq!(second.homepage, first.homepage);
         assert!(second.created.is_empty(), "nothing is created twice");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_renamed_placeholder_updates_the_descriptor() {
+        let root = scratch("rename");
+        let report = prepare(&root, true).expect("workspace");
+        let target = root.join("paper.md");
+
+        record_saved_document(&root, Some(&report.homepage), &target, true).expect("descriptor");
+
+        let text = fs::read_to_string(&report.settings_path).expect("descriptor");
+        let settings: WorkspaceSettings = toml::from_str(&text).expect("parse");
+        assert_eq!(settings.document, vec!["paper.md".to_owned()]);
+        assert_eq!(settings.homepage.as_deref(), Some("paper.md"));
 
         let _ = fs::remove_dir_all(root);
     }

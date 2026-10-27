@@ -193,7 +193,11 @@ my-paper/
   as clickable file chips and open in the configured viewer (zorite).
 - Tabs show unsaved changes with `•`; `Ctrl+S` saves, `Ctrl+Shift+S` saves as,
   `Ctrl+W` closes. Closing a dirty tab asks **Cancel / Don't save / Save** first;
-  `Ctrl+W` on a clean tab opens a fresh scratch tab instead.
+  `Ctrl+W` on a clean tab opens a fresh scratch tab instead. A document whose
+  file name is `Untitled-<n>.md` (the workspace scaffold) is treated as
+  unnamed: `Document::save` refuses to write in place, Save/Save as asks for a
+  real name, and `AppState::save_document_as` removes the empty placeholder and
+  updates `.scico/workspace.toml` (`document` and `homepage`).
 - `Ctrl+←` / `Ctrl+→` move by word; add `Shift` to select word by word.
 - `PageUp` / `PageDown` move by a viewport; add `Shift` to extend the
   selection.

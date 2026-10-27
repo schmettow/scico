@@ -492,8 +492,24 @@ impl Document {
         self.readonly = readonly;
     }
 
+    /// Whether saving must ask for a real file name first.
+    ///
+    /// True for a buffer that has never been written and for the
+    /// `Untitled-<n>.md` placeholder a new workspace scaffolds.
+    pub fn needs_name(&self) -> bool {
+        self.path.as_deref().is_none_or(is_placeholder_path)
+    }
+
+    /// The name a Save As dialog should propose.
+    pub fn suggested_save_name(&self) -> String {
+        suggested_save_name(self.path.as_deref(), &self.title)
+    }
+
     /// Save to the existing path.
     pub fn save(&mut self, cx: &App) -> Result<(), String> {
+        if self.needs_name() {
+            return Err("this document still has a placeholder name; use Save as…".to_owned());
+        }
         let Some(path) = self.path.clone() else {
             return Err("this document has no path yet; use Save as…".to_owned());
         };
@@ -593,6 +609,39 @@ pub fn title_for(path: &Path) -> SharedString {
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
         .into()
+}
+
+/// Whether `name` is one of Scico's generated placeholder names.
+///
+/// Accepts the workspace's `Untitled-1.md`, the `Untitled-2-3.md` collision
+/// variants made by [`AppState::new_document`](crate::state::AppState::new_document),
+/// and the extensionless `Untitled-2` title older sessions stored. A `.md`
+/// suffix is accepted when present; the check is case-sensitive.
+pub fn is_placeholder_name(name: &str) -> bool {
+    let stem = name.strip_suffix(".md").unwrap_or(name);
+    let Some(rest) = stem.strip_prefix("Untitled-") else {
+        return false;
+    };
+    !rest.is_empty()
+        && rest
+            .split('-')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Whether `path` carries a generated [`is_placeholder_name`] file name.
+pub fn is_placeholder_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(is_placeholder_name)
+}
+
+/// The name a Save As dialog proposes for `title` at `path`.
+fn suggested_save_name(path: Option<&Path>, title: &str) -> String {
+    match path {
+        Some(path) if !is_placeholder_path(path) => title.to_owned(),
+        _ if is_placeholder_name(title) => "paper.md".to_owned(),
+        _ => title.to_owned(),
+    }
 }
 
 /// Read a Markdown document, accepting any UTF-8 text file.
@@ -722,5 +771,31 @@ mod tests {
         assert_eq!(line_column("é😀\nx", 7), (1, 0));
         assert_eq!(line_column("é😀\nx", 4), (0, 1));
         assert_eq!(line_column("abc", 99), (0, 3));
+    }
+
+    #[test]
+    fn placeholder_names_are_recognised() {
+        assert!(is_placeholder_name("Untitled-1.md"));
+        assert!(is_placeholder_name("Untitled-12-3.md"));
+        assert!(is_placeholder_name("Untitled-2"));
+        assert!(!is_placeholder_name("Untitled-.md"));
+        assert!(!is_placeholder_name("Untitled-1.markdown"));
+        assert!(!is_placeholder_name("Untitled-1-notes.md"));
+        assert!(!is_placeholder_name("notes.md"));
+        assert!(!is_placeholder_name("MyUntitled-1.md"));
+    }
+
+    #[test]
+    fn save_as_suggests_a_real_name_for_placeholders() {
+        assert_eq!(suggested_save_name(None, "Untitled-1.md"), "paper.md");
+        assert_eq!(suggested_save_name(None, "Chat.md"), "Chat.md");
+        assert_eq!(
+            suggested_save_name(Some(Path::new("/tmp/Untitled-1.md")), "Untitled-1.md"),
+            "paper.md"
+        );
+        assert_eq!(
+            suggested_save_name(Some(Path::new("/tmp/notes.md")), "notes.md"),
+            "notes.md"
+        );
     }
 }
