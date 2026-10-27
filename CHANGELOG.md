@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.5.1 — 2026-10-27
 
 ### Changed
 
@@ -34,6 +34,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry from a reference row's pencil now corrects the editor's minimal
   bottom-edge auto-scroll after the first paint, instead of leaving the entry
   at the bottom of the viewport.
+
+### Quality
+
+Release validation on 2026-10-27 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` selects the
+zorite backend because `build.rs` prefers it when both editor features are
+enabled (doctests are not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 9,668 | 14,590 | 66.26% |
+| Functions | 626 | 1,087 | 57.59% |
+| Lines | 5,675 | 8,356 | 67.92% |
+
+The default gpuikit build, which is what ships, measures higher:
+`cargo llvm-cov --summary-only` reports 70.42% regions, 63.21% functions and
+71.59% lines (78 unit tests + 1 integration test). The least covered areas
+are the new Library UI (`src/library.rs` 45.88%; its pure helpers are unit
+tested) and the agent (`src/agent.rs` 38.80%).
+
+**Tests.** `cargo test --all-features`: 65 unit tests + 1 integration test —
+**66 passed, 0 failed**. The default feature set (`cargo test --all-targets`,
+gpuikit): 78 unit tests + 1 integration test — **79 passed, 0 failed**. No
+doctests. One earlier run, executed concurrently with the ragrig-gpui suite,
+had a single transient failure; it did not reproduce in three consecutive
+isolated reruns or a repeated parallel run.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo doc --no-deps --all-features`, and `cargo package --list` are green.
+
+**Release blocker.** `cargo publish --dry-run` cannot verify scico 0.5.1
+until `ragrig-gpui 0.5.1` is on crates.io (`candidate versions found which
+didn't match: 0.5.0, 0.2.0`). `grobid-bibtex 0.3.1` is also still unreleased;
+scico 0.5.1 must be packaged after both, or it will keep resolving
+`grobid-bibtex 0.3.0`, which lacks the 255-byte PDF filename cap. Publish
+grobid-bibtex 0.3.1, then ragrig-gpui 0.5.1, then remove scico's
+`[patch.crates-io]`, update the lock, and re-run the dry run.
 
 ## v0.5.0 — 2026-10-24
 

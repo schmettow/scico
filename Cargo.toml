@@ -1,6 +1,6 @@
 [package]
 name = "scico"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.97.1"
 license = "MIT"
@@ -26,7 +26,7 @@ dirs = "5"
 gpui-kit = "0.7.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 open = "5"
-ragrig-gpui = {version = "0.5.0", features = ["grobid"] }
+ragrig-gpui = {version = "0.5.1", features = ["grobid"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
