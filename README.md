@@ -2,7 +2,7 @@
   <img src="assets/logo/Scico%20banner.svg" alt="Scico — scientific writing with your library" width="720">
 </p>
 
-# Scico — write your paper with your library
+# Scico — AI-Enabled Co-Editor for Scientific Writing
 
 Scico is a writing desk for researchers and students. Keep your sources in one
 place, ask questions about them, and let the co-writer turn an answer into a
