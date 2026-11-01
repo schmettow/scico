@@ -3771,8 +3771,6 @@ dependencies = [
 [[package]]
 name = "grobid-bibtex"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80b024603fd6b702aeaa34a05dbcd67474017177149ea3bd5f3d858a520f8c07"
 dependencies = [
  "biblatex",
  "grobid",
@@ -7456,7 +7454,7 @@ dependencies = [
 
 [[package]]
 name = "scico"
-version = "0.5.2"
+version = "0.5.1"
 dependencies = [
  "blake3",
  "comrak",
