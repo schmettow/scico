@@ -1782,8 +1782,10 @@ impl Render for ScicoApp {
                 .into_any_element()
         };
 
-        div()
+        let mut root = div()
             .relative()
+            .flex()
+            .flex_col()
             .size_full()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::new_document))
@@ -1804,13 +1806,45 @@ impl Render for ScicoApp {
             .on_action(cx.listener(Self::editor_page_up))
             .on_action(cx.listener(Self::editor_page_down))
             .on_action(cx.listener(Self::editor_select_page_up))
-            .on_action(cx.listener(Self::editor_select_page_down))
-            .child(body)
+            .on_action(cx.listener(Self::editor_select_page_down));
+
+        #[cfg(target_os = "linux")]
+        if needs_client_title_bar(window.window_decorations(), window.is_fullscreen()) {
+            root = root.child(client_title_bar(&format!("Scico — {active_title}"), cx));
+        }
+
+        root.child(div().flex_1().min_h(px(0.)).child(body))
             .when(self.close_prompt, |this| this.child(self.close_dialog(cx)))
             .when(self.tab_close.is_some(), |this| {
                 this.child(self.tab_close_dialog(cx))
             })
     }
+}
+
+/// Whether Scico must draw its own title bar.
+///
+/// GNOME's Wayland session does not support server-side decorations, so GPUI
+/// reports [`gpui_kit::Decorations::Client`] and leaves dragging and the window
+/// controls to the application. X11 and Windows report server decorations and
+/// keep the native frame; adding a second title bar there would duplicate the
+/// controls. Fullscreen has no frame in either mode, so the content owns the
+/// whole surface.
+#[cfg(target_os = "linux")]
+fn needs_client_title_bar(decorations: gpui_kit::Decorations, fullscreen: bool) -> bool {
+    !fullscreen && matches!(decorations, gpui_kit::Decorations::Client { .. })
+}
+
+#[cfg(target_os = "linux")]
+fn client_title_bar(title: &str, cx: &mut App) -> impl IntoElement {
+    gpui_kit::component::TitleBar::new().child(
+        div()
+            .flex()
+            .items_center()
+            .h_full()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(title.to_owned()),
+    )
 }
 
 impl Focusable for ScicoApp {
@@ -1835,6 +1869,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("scico-app-{}-{unique}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         (dir.join("settings.json"), dir.join("session.json"))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_client_decorated_windows_get_the_app_title_bar() {
+        let client = gpui_kit::Decorations::Client {
+            tiling: Default::default(),
+        };
+
+        assert!(needs_client_title_bar(client, false));
+        assert!(!needs_client_title_bar(client, true));
+        assert!(!needs_client_title_bar(
+            gpui_kit::Decorations::Server,
+            false
+        ));
     }
 
     fn mount(cx: &mut TestAppContext) -> (Entity<ScicoApp>, &mut VisualTestContext) {
