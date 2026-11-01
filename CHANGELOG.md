@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **llama.cpp chat provider.** Scico now builds against `ragrig-gpui` 0.6.1,
+  so *Settings → RAG → Chat → Provider* offers the local **llama.cpp** option
+  and its **llama.cpp URL** row. The URL is persisted in `settings.json`, so a
+  server on a non-default port survives restarts. Previously the crate stayed
+  on the published `ragrig-gpui` 0.5.x and Cargo ignored the local patch.
 - **Save as and real names for new papers.** The toolbar now has a **Save as**
   action next to **Save**. Saving an `Untitled-x.md` placeholder asks for a real
   file name, removes the empty placeholder, and updates the workspace

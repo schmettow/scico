@@ -110,8 +110,8 @@ pub struct PersistedSettings {
     pub corpus: String,
     /// Bibliography the Library section shows.
     pub bibliography: String,
-    /// Chat provider label (`Ollama` / `DeepSeek` / `OpenAI` / `Claude` /
-    /// `Mistral` / `OpenRouter`).
+    /// Chat provider label (`Ollama` / `llama.cpp` / `DeepSeek` / `OpenAI` /
+    /// `Claude` / `Mistral` / `OpenRouter`).
     pub provider: String,
     /// Ollama chat model.
     pub ollama_model: String,
@@ -120,6 +120,8 @@ pub struct PersistedSettings {
     /// Models for the cloud providers without a legacy field, keyed by
     /// provider label.
     pub provider_models: BTreeMap<String, String>,
+    /// Base URL of the local llama.cpp server.
+    pub llamacpp_url: String,
     /// Last selected profile; empty when none is selected.
     pub profile_name: String,
     /// Sampling temperature.
@@ -213,6 +215,7 @@ impl Default for PersistedSettings {
             ollama_model: rag.model_for(ChatProvider::Ollama).to_owned(),
             deepseek_model: rag.model_for(ChatProvider::DeepSeek).to_owned(),
             provider_models: BTreeMap::new(),
+            llamacpp_url: rag.llamacpp_url.clone(),
             profile_name: String::new(),
             temperature: rag.temperature,
             max_tokens: rag.max_tokens,
@@ -316,6 +319,9 @@ impl PersistedSettings {
                 settings.set_model_for(provider, model.clone());
             }
         }
+        if !self.llamacpp_url.trim().is_empty() {
+            settings.llamacpp_url = self.llamacpp_url.trim().to_owned();
+        }
         settings.temperature = self.temperature;
         settings.max_tokens = self.max_tokens;
         settings.context_tokens = self.context_tokens;
@@ -365,6 +371,7 @@ impl PersistedSettings {
         self.profile_name = settings.profile_name.trim().to_owned();
         self.ollama_model = settings.model_for(ChatProvider::Ollama).to_owned();
         self.deepseek_model = settings.model_for(ChatProvider::DeepSeek).to_owned();
+        self.llamacpp_url = settings.llamacpp_url.clone();
         self.provider_models = ChatProvider::options()
             .iter()
             .filter(|(provider, _)| {
@@ -549,6 +556,27 @@ mod tests {
         assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
         assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
         assert!(restored.grobid_auto_start);
+    }
+
+    #[test]
+    fn the_llamacpp_provider_and_url_round_trip() {
+        let rag = RagSettings {
+            provider: ChatProvider::LlamaCpp,
+            llamacpp_url: "http://gpu-box:9000/v1".to_owned(),
+            ..RagSettings::default()
+        };
+
+        let mut persisted = PersistedSettings::default();
+        persisted.capture(&rag);
+        assert_eq!(persisted.provider, "llama.cpp");
+        assert_eq!(persisted.llamacpp_url, "http://gpu-box:9000/v1");
+
+        let text = serde_json::to_string(&persisted).expect("serialize");
+        let loaded: PersistedSettings = serde_json::from_str(&text).expect("deserialize");
+        let mut restored = RagSettings::default();
+        loaded.apply_to(&mut restored);
+        assert_eq!(restored.provider, ChatProvider::LlamaCpp);
+        assert_eq!(restored.llamacpp_url, "http://gpu-box:9000/v1");
     }
 
     #[test]

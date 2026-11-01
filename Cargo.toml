@@ -26,7 +26,7 @@ dirs = "5"
 gpui-kit = "0.7.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 open = "5"
-ragrig-gpui = {version = "0.5.1", features = ["grobid"] }
+ragrig-gpui = { version = "0.6.1", features = ["grobid"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
@@ -40,4 +40,4 @@ gpui-kit = { version = "0.7.3", features = ["test-support"] }
 # let Cargo resolve the released versions instead.
 [patch.crates-io]
 # grobid-bibtex = { path = "../grobid-bibtex" }
-# ragrig-gpui = { path = "../ragrig-gpui" }
+ragrig-gpui = { path = "../ragrig-gpui" }

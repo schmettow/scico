@@ -24,8 +24,9 @@ runs on your own machine; no account and no cloud upload.
   sentence, caret, and pane layout — even after a crash or a forced shutdown.
 - **Write, don't typeset.** Markdown and Quarto with inline images, tables,
   and a live preview. Use Quarto or Pandoc when it is time to make the PDF.
-- **Local or hosted.** Ollama by default; DeepSeek & Co when you want a larger
-  model. Choose your favorite provider and create a profile.
+- **Local or hosted.** Ollama or a local llama.cpp server by default;
+  DeepSeek & Co when you want a larger model. Choose your favorite provider
+  and create a profile.
 - **One workspace, one folder.** Paper, sources, bibliography, index, and
   sessions live together, so a project is easy to back up, share, version with
   Git, or archive.
@@ -43,7 +44,8 @@ runs on your own machine; no account and no cloud upload.
 1. **Rust** — [rustup.rs](https://rustup.rs)
 2. An **LLM provider**: 
   a. **Ollama** — [ollama.com/download](https://ollama.com/download) is required for retrieval,  and also is the default provider for the chat agent. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM.
-  b. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
+  b. **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it.
+  c. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
 3. **A chat model and an embedding model.** For example:
 
 ```bash
@@ -231,6 +233,9 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 
 - **Ollama** keeps the chat model and the index on your machine. Nothing is
   uploaded.
+- **llama.cpp** keeps the chat model on the machine running `llama-server`.
+  Point the provider at that server in Settings; a server started with
+  `--api-key` reads its key from `LLAMACPP_API_KEY`.
 - **DeepSeek** is a hosted option. Prompts and attached context are sent to
   the API; set `DEEPSEEK_API_KEY` in your environment. The key is read from the
   environment and never written to a profile or the workspace.
@@ -246,6 +251,10 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 **“Ollama unreachable.”** Start `ollama serve`, check that port `11434` is
 free, and confirm the model names in **Settings → RAG → Chat**. If you pulled a
 model with an older Ollama, use its full name (`nomic-embed-text:latest`).
+
+**“llama.cpp connection refused.”** Check that `llama-server` is running and
+that the URL in **Settings → RAG → Chat → llama.cpp URL** matches its port and
+path (`/v1` is added automatically when omitted).
 
 **Answers ignore my library.** Check that the corpus has been indexed
 (**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Chat
