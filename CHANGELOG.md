@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.5.2 — 2026-11-01
 
 ### Added
 
@@ -28,6 +28,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `app_id` / X11 `WM_CLASS` to `scico`. The GNOME dash, the app switcher, and
   the X11 task bar show the Scico mark and group the window under the app
   instead of a generic executable.
+
+### Quality
+
+Release validation on 2026-11-01 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 10,365 | 15,312 | 67.69% |
+| Functions | 669 | 1,135 | 58.94% |
+| Lines | 6,021 | 8,719 | 69.06% |
+
+The least covered files are the binary entry point (`src/main.rs`, 0%), the
+RAG worker (`src/agent.rs` 42.02%), the library pane (`src/library.rs`
+48.31%), the persisted-settings surface (`src/app_settings.rs` 56.67%), and
+the application state (`src/state.rs` 65.65%).  The window-driving entry point
+is exercised by running the application rather than by headless tests.
+
+`--all-features` selects the zorite editor in `build.rs`, so the gpuikit-only
+test set does not run under that configuration.  The default-feature run is
+included below to cover it.
+
+**Tests.** `cargo test --all-features`: 74 library tests and 1 integration
+test — **75 passed, 0 failed, 0 ignored**.  `cargo test` (default `gpuikit`
+feature): 87 library tests and 1 integration test — **88 passed, 0 failed, 0
+ignored**.  There are no doctests.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo test --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`, and
+`cargo doc --no-deps --all-features` are green.  `cargo package --list --allow-dirty`
+lists 35 files.
+
+**Release blocker.** `cargo publish --dry-run --allow-dirty` cannot verify
+scico 0.6.0 until `ragrig-gpui 0.6.1` is on crates.io (`candidate versions
+found which didn't match: 0.5.1, 0.5.0, 0.2.0`).  Publish `ragrig 1.3.0`,
+then `ragrig-gpui 0.6.1`, then remove scico's development
+`[patch.crates-io]` and re-run the dry run.
 
 ## v0.5.1 — 2026-10-27
 
