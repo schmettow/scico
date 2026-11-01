@@ -30,12 +30,16 @@ fn main() {
     // scaffolds anything it is missing. Other arguments are left alone.
     let initial_workspace = workspace::directory_argument(std::env::args_os());
 
+    #[cfg(target_os = "linux")]
+    scico::desktop::install();
+
     gpui_kit::application()
         // The complete Lucide catalog: the default `Assets` bundle omits many
         // icons the UI uses (Store, Chunker, Save, Sparkles, Pencil, X, …).
         .with_assets(gpui_kit::assets::AllAssets)
         .run(|cx| {
             ragrig_gpui::init(cx);
+            cx.set_app_identity(scico::APP_ID, "Scico");
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
             app::bind_keys(cx);
@@ -44,6 +48,10 @@ fn main() {
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 icon: window_icon(),
+                // Wayland launchers group the window by this id and look up
+                // `scico.desktop` for its name and icon; X11 stores it as the
+                // `WM_CLASS` that `StartupWMClass` matches.
+                app_id: Some(scico::APP_ID.to_owned()),
                 titlebar: Some(gpui_kit::TitlebarOptions {
                     title: Some("Scico — scientific Markdown".into()),
                     ..Default::default()

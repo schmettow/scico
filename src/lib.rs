@@ -13,12 +13,18 @@
 #[cfg(not(any(editor_zorite, editor_gpuikit)))]
 compile_error!("enable an editor backend: `zorite` or `gpuikit`");
 
+/// The application id shared by the Wayland surface, the X11 `WM_CLASS`, and
+/// the installed `.desktop` file name.
+pub const APP_ID: &str = "scico";
+
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod agent;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod app;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod app_settings;
+#[cfg(all(target_os = "linux", any(editor_zorite, editor_gpuikit)))]
+pub mod desktop;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod document;
 #[cfg(editor_gpuikit)]

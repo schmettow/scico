@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   action next to **Save**. Saving an `Untitled-x.md` placeholder asks for a real
   file name, removes the empty placeholder, and updates the workspace
   descriptor so the renamed paper becomes the homepage.
+- **GNOME and other client-decorated Wayland sessions get a title bar.** When
+  the compositor does not draw server-side decorations, Scico now renders its
+  own title bar with the document title, drag-to-move, double-click maximize,
+  and minimize/maximize/close controls. KDE, X11, Windows, and macOS keep the
+  native frame, so no second bar appears there.
+- **Linux launchers recognize Scico.** On first launch Scico installs
+  `scico.desktop` and its icons below `XDG_DATA_HOME` and sets the Wayland
+  `app_id` / X11 `WM_CLASS` to `scico`. The GNOME dash, the app switcher, and
+  the X11 task bar show the Scico mark and group the window under the app
+  instead of a generic executable.
 
 ## v0.5.1 — 2026-10-27
 

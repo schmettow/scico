@@ -2,7 +2,7 @@
   <img src="assets/logo/Scico%20banner.svg" alt="Scico — scientific writing with your library" width="720">
 </p>
 
-# Scico — AI-Enabled Scientific Co-Writing Editor
+# Scico — Talk to your Library!
 
 Scico is a writing desk for researchers and students. Keep your sources in one
 place, ask questions about them, and let the co-writer turn an answer into a
@@ -24,8 +24,8 @@ runs on your own machine; no account and no cloud upload.
   sentence, caret, and pane layout — even after a crash or a forced shutdown.
 - **Write, don't typeset.** Markdown and Quarto with inline images, tables,
   and a live preview. Use Quarto or Pandoc when it is time to make the PDF.
-- **Local or hosted.** Ollama by default; DeepSeek when you want a larger
-  model. You choose per profile.
+- **Local or hosted.** Ollama by default; DeepSeek & Co when you want a larger
+  model. Choose your favorite provider and create a profile.
 - **One workspace, one folder.** Paper, sources, bibliography, index, and
   sessions live together, so a project is easy to back up, share, version with
   Git, or archive.
@@ -41,13 +41,15 @@ runs on your own machine; no account and no cloud upload.
 ### You need three things
 
 1. **Rust** — [rustup.rs](https://rustup.rs)
-2. **Ollama** — [ollama.com/download](https://ollama.com/download)
+2. An **LLM provider**: 
+  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is required for retrieval,  and also is the default provider for the chat agent. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM.
+  b. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
 3. **A chat model and an embedding model.** For example:
 
 ```bash
-ollama pull qwen3.5:9b          # chat and writing
 ollama pull nomic-embed-text    # retrieval
 ollama pull qwen2.5:1.5b        # optional: memory and query rewriting
+ollama pull qwen3.5:9b          # chat agent
 ```
 
 Run `ollama serve` if the desktop app is not already doing it for you.

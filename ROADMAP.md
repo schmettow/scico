@@ -7,8 +7,9 @@ stabilised.
 ## Now
 
 - Scico branding is in place: banner, desktop mark, welcome state, and the
-  assistant/chat/send marks. Next: ship packaging icons (`.desktop`, `.icns`,
-  `.ico`).
+  assistant/chat/send marks. Linux now installs a `.desktop` entry with the
+  hicolor icons on first launch. Next: ship the macOS `.icns` and Windows
+  `.ico` packaging assets.
 - Documentation is split: `README.md` speaks to writers and students,
   `DEVELOPER_NOTES.md` keeps the architecture and protocol notes, and
   `UPSTREAM.md` tracks requests to Ragrig.
