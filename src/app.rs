@@ -29,6 +29,7 @@ use crate::library::LibraryPane;
 use crate::session::SessionState;
 use crate::state::AppState;
 use crate::workspace_pane::{WorkspaceEvent, WorkspacePane};
+use ragrig_gpui::prompt_for_paths_at;
 
 actions!(
     scico,
@@ -315,15 +316,20 @@ impl ScicoApp {
     }
 
     fn open_file(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Open Markdown or Quarto documents".into()),
-        });
+        let start = self.state.read(cx).workspace.clone();
+        let receiver = prompt_for_paths_at(
+            cx,
+            start,
+            PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: Some("Open Markdown or Quarto documents".into()),
+            },
+        );
         let state = self.state.clone();
         cx.spawn_in(window, async move |_, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Ok(Some(paths)) = receiver.await else {
                 return;
             };
             let _ = state.update_in(cx, |state, window, cx| {
@@ -338,16 +344,32 @@ impl ScicoApp {
     }
 
     fn open_workspace(&mut self, _: &OpenWorkspace, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Open a Scico workspace".into()),
-        });
+        let start = {
+            let state = self.state.read(cx);
+            let parent = if state.workspace_explicit {
+                state
+                    .workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.parent().map(std::path::Path::to_path_buf))
+            } else {
+                None
+            };
+            parent.or_else(dirs::home_dir)
+        };
+        let receiver = prompt_for_paths_at(
+            cx,
+            start,
+            PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some("Open a Scico workspace".into()),
+            },
+        );
         let state = self.state.clone();
         let agent = self.agent.clone();
         cx.spawn_in(window, async move |_, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Ok(Some(paths)) = receiver.await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {

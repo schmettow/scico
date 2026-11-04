@@ -28,7 +28,7 @@ use crate::settings::{CHAT_PROMPT_FILE, ViewerKind};
 use crate::state::AppState;
 use ragrig_gpui::{
     Changes, Control, RagChanges, RagField, RagSection, SettingRow, control, dirty_color,
-    dirty_header, dropdown_control, number_control, path_control, path_setting,
+    dirty_header, dropdown_control, number_control, path_control_home, path_setting,
 };
 
 /// The name field shown by **New**.
@@ -388,11 +388,12 @@ pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
     let dirty = now.section(RagSection::Workspace) || now.section(RagSection::References);
     let title = page_title("Workspace", dirty);
 
-    let workspace = path_control(
+    let workspace = path_control_home(
         "app-workspace",
         "Choose the workspace folder",
         true,
         false,
+        px(510.),
         {
             let state = state.clone();
             move |cx| {
@@ -424,11 +425,12 @@ pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
             move |cx| state.read(cx).rag_changes(cx).contains(RagField::Workspace)
         });
 
-    let corpus = path_control(
+    let corpus = path_control_home(
         "app-corpus",
         "Choose the corpus folder",
         true,
         false,
+        px(340.),
         {
             let state = state.clone();
             move |cx| {
@@ -456,11 +458,12 @@ pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
     let corpus_row = SettingRow::new("Corpus folder", corpus)
         .description("Source documents; workspaces default to <workspace>/corpus.");
 
-    let bibliography = path_control(
+    let bibliography = path_control_home(
         "app-bibliography",
         "Choose the bibliography file",
         false,
         true,
+        px(340.),
         {
             let state = state.clone();
             move |cx| {

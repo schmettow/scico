@@ -226,15 +226,19 @@ impl LibraryPane {
                 return;
             }
         };
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Import PDFs into the workspace corpus".into()),
-        });
+        let receiver = prompt_for_paths_at(
+            cx,
+            workspace.clone().or_else(dirs::home_dir),
+            PathPromptOptions {
+                files: true,
+                directories: false,
+                multiple: true,
+                prompt: Some("Import PDFs into the workspace corpus".into()),
+            },
+        );
         let this = cx.entity();
         cx.spawn_in(window, async move |_, cx| {
-            let Ok(Ok(Some(paths))) = receiver.await else {
+            let Ok(Some(paths)) = receiver.await else {
                 return;
             };
             let target = corpus.clone();

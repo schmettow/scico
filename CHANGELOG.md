@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Open dialogs start in the workspace.** **Open file** (Ctrl+O), **Open
+  workspace** (Ctrl+Shift+O), and **Import PDFs** now pass their starting
+  folder to the platform chooser. On Linux this uses the XDG portal's
+  `current_folder`; GPUI's default prompt has no such option. The workspace
+  layout **Browse…** buttons start at the current path in each field.
 - **The working directory follows the workspace.** Whenever a workspace is
   open, Scico changes the process working directory to its root; a plain
   launch without a workspace uses the home directory. Relative paths in file
@@ -17,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The implicit workspace fallback is the home directory**, not the launch
   directory. It is still never persisted or scaffolded. A relative path passed
   to the editor is now resolved against the open workspace.
+- **Workspace layout shows `~/…` paths.** The workspace, corpus, and
+  bibliography fields abbreviate paths below the home directory and expand a
+  typed `~` back to an absolute path. The **Workspace folder** field is 150%
+  of its previous width (510 px instead of 340 px), and its edits apply on
+  Enter or blur so a half-typed `~` cannot scaffold the home directory.
 - **Bibliography links are portable.** With `ragrig-gpui` 0.7, GROBID writes
   `file` fields relative to the workspace (home when no workspace is open),
   and the Library and `@key` citations read absolute, workspace-relative,
