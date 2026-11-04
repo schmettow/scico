@@ -43,8 +43,8 @@ runs on your own machine; no account and no cloud upload.
 
 1. **Rust** — [rustup.rs](https://rustup.rs)
 2. An **LLM provider**: 
-  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is required for retrieval,  and also is the default provider for the chat agent. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM.
-  b. **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it.
+  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is required for retrieval,  and also is the default provider for the chat agent. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM. Scico can also pull and run the official Ollama container from *Settings → External services*.
+  b. **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it. *Settings → External services* can also run the official llama.cpp container with a Hugging Face model or a local `.gguf` file.
   c. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
 3. **A chat model and an embedding model.** For example:
 
@@ -151,14 +151,26 @@ instead, so nothing is lost.
   blocked so a run cannot overwrite the tab; the button is disabled while
   GROBID is working.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
-- **GROBID** (optional) reads PDF headers and fills in authors, title, year,
-  and DOI. Open **Settings → External services** to discover a server that is
-  already running, enter its URL, or let Scico pull and run the official
-  Docker image. With **Docker container** selected, **Auto start** starts the
-  managed container whenever Scico opens. The full image is the default (about
-  8 GB); the image field is editable if you prefer the smaller CRF-only image.
-  Scico stops a container it started when the app quits. See the
-  [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
+- **External services** (optional) cover GROBID, Ollama, and llama.cpp.
+  *Settings → External services* has one group per service. Choose **Existing
+  server** to use software you already run, or **Docker container** to pull and
+  run the official image. With a managed source, **Auto start** starts the
+  container whenever Scico opens; **Stop**, **Remove container**, **Cancel**,
+  and pull/start progress are in the same group. Scico stops a container it
+  started when the app quits.
+  - **GROBID** reads PDF headers and fills in authors, title, year, and DOI.
+    The full image is the default (about 8 GB); the field is editable if you
+    prefer the smaller CRF-only image. See the
+    [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
+  - **Ollama** publishes `localhost:11434`. **Pull models** fetches the chat,
+    embedding, and memory models configured in *Settings → RAG*; they stay in
+    the `ragrig-ollama-models` volume when the container is removed.
+  - **llama.cpp** publishes `localhost:8080`. The **Model** field accepts a
+    Hugging Face repository (`owner/repo[:quant]`) or an absolute `.gguf` path;
+    **Extra arguments** are passed to `llama-server`.
+  - All three containers publish on loopback only. The managed Ollama and
+    llama.cpp containers run on CPU; use an existing server when you need GPU
+    acceleration.
 - **Your bibliography stays yours.** Scico merges new records into the `.bib`
   file in the workspace; it does not lock you into a database.
 
@@ -241,10 +253,11 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 ## Where your words go
 
 - **Ollama** keeps the chat model and the index on your machine. Nothing is
-  uploaded.
-- **llama.cpp** keeps the chat model on the machine running `llama-server`.
-  Point the provider at that server in Settings; a server started with
-  `--api-key` reads its key from `LLAMACPP_API_KEY`.
+  uploaded. A managed Ollama container also keeps its models in a local Docker
+  volume.
+- **llama.cpp** keeps the chat model on the machine running the container or
+  `llama-server`. Point the provider at that server in Settings; a server
+  started with `--api-key` reads its key from `LLAMACPP_API_KEY`.
 - **DeepSeek** is a hosted option. Prompts and attached context are sent to
   the API; set `DEEPSEEK_API_KEY` in your environment. The key is read from the
   environment and never written to a profile or the workspace.
@@ -259,11 +272,21 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 
 **“Ollama unreachable.”** Start `ollama serve`, check that port `11434` is
 free, and confirm the model names in **Settings → RAG → Chat**. If you pulled a
-model with an older Ollama, use its full name (`nomic-embed-text:latest`).
+model with an older Ollama, use its full name (`nomic-embed-text:latest`). A
+managed Ollama container shows its state under **Settings → External services**;
+use **Pull models** there to fetch the configured models.
 
 **“llama.cpp connection refused.”** Check that `llama-server` is running and
 that the URL in **Settings → RAG → Chat → llama.cpp URL** matches its port and
-path (`/v1` is added automatically when omitted).
+path (`/v1` is added automatically when omitted). If you use the managed
+container, check the status under **Settings → External services**; a missing
+model or a port conflict is reported there.
+
+**“Docker is not running.”** Start Docker Desktop, or run `sudo systemctl start
+docker` on Linux, then press **Refresh status** under **Settings → External
+services**. If Docker runs but the app reports permission denied, add your user
+to the `docker` group with `sudo usermod -aG docker $USER`, sign out and back in,
+and restart Scico.
 
 **Answers ignore my library.** Check that the corpus has been indexed
 (**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Chat

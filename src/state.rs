@@ -21,7 +21,7 @@ use ragrig_gpui::editor::{
     SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
 };
 use ragrig_gpui::{
-    ChatProvider, GrobidService, MemoryChoice, RagChanges, RagController, RagSettings,
+    ChatProvider, ExternalServices, MemoryChoice, RagChanges, RagController, RagSettings,
 };
 #[cfg(editor_zorite)]
 use zorite_editor::EditorEvent;
@@ -65,8 +65,8 @@ pub struct AppState {
     applied_rag: RagSettings,
     /// The RAG worker controller.
     pub controller: Entity<RagController>,
-    /// The managed GROBID service and Docker lifecycle.
-    pub grobid: Entity<GrobidService>,
+    /// The managed external services and their Docker lifecycle.
+    pub services: Entity<ExternalServices>,
     /// Open documents, in tab order.
     pub documents: Vec<Document>,
     /// Index into [`Self::documents`].
@@ -296,8 +296,8 @@ impl AppState {
         };
         let rag = cx.new(|_| rag_values);
         let applied_rag = rag.read(cx).clone();
-        let grobid = cx.new(|cx| {
-            GrobidService::new(rag.clone(), cx).expect("the GROBID service thread must start")
+        let services = cx.new(|cx| {
+            ExternalServices::new(rag.clone(), cx).expect("the external services thread must start")
         });
         let controller = cx.new(|cx| {
             RagController::new(with_bibliography(setup, bibliography.clone()), cx)
@@ -358,7 +358,7 @@ impl AppState {
             rag,
             applied_rag,
             controller,
-            grobid,
+            services,
             documents: Vec::new(),
             active: 0,
             next_document: 1,
@@ -1989,16 +1989,27 @@ impl AppState {
         }
     }
 
-    /// Accept the GROBID source, URL, and image chosen by the service page.
+    /// Accept the service source, URL, image, and managed-container choices
+    /// made on the External services page.
     ///
     /// Discovery and a successful container start are not pending edits: the
-    /// values are already in effect for the next extraction, so they join the
+    /// values are already in effect for the next request, so they join the
     /// applied snapshot and are persisted immediately.
-    pub fn persist_grobid_service(&mut self, cx: &mut Context<Self>) {
+    pub fn persist_external_services(&mut self, cx: &mut Context<Self>) {
         let current = self.rag.read(cx).clone();
         self.applied_rag.grobid_source = current.grobid_source;
         self.applied_rag.grobid_url = current.grobid_url;
         self.applied_rag.grobid_image = current.grobid_image;
+        self.applied_rag.grobid_auto_start = current.grobid_auto_start;
+        self.applied_rag.ollama_source = current.ollama_source;
+        self.applied_rag.ollama_image = current.ollama_image;
+        self.applied_rag.ollama_auto_start = current.ollama_auto_start;
+        self.applied_rag.llamacpp_source = current.llamacpp_source;
+        self.applied_rag.llamacpp_url = current.llamacpp_url;
+        self.applied_rag.llamacpp_image = current.llamacpp_image;
+        self.applied_rag.llamacpp_model = current.llamacpp_model;
+        self.applied_rag.llamacpp_args = current.llamacpp_args;
+        self.applied_rag.llamacpp_auto_start = current.llamacpp_auto_start;
         self.persist(cx);
     }
 

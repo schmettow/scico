@@ -9,7 +9,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ragrig_gpui::{ChatProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings};
+use ragrig_gpui::{
+    ChatProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings, ServiceSource,
+};
 use serde::{Deserialize, Serialize};
 
 /// The Chat prompt compiled into the binary.
@@ -165,6 +167,22 @@ pub struct PersistedSettings {
     pub grobid_image: String,
     /// Start the managed GROBID container when Scico opens.
     pub grobid_auto_start: bool,
+    /// Where the Ollama server comes from.
+    pub ollama_source: String,
+    /// Docker image for the managed Ollama container.
+    pub ollama_image: String,
+    /// Start the managed Ollama container when Scico opens.
+    pub ollama_auto_start: bool,
+    /// Where the llama.cpp server comes from.
+    pub llamacpp_source: String,
+    /// Docker image for the managed llama.cpp container.
+    pub llamacpp_image: String,
+    /// Hugging Face model or GGUF path for the managed llama.cpp container.
+    pub llamacpp_model: String,
+    /// Extra llama-server arguments for the managed container.
+    pub llamacpp_args: String,
+    /// Start the managed llama.cpp container when Scico opens.
+    pub llamacpp_auto_start: bool,
     /// Rename parsed PDFs.
     pub rename_pdfs: bool,
     /// Complete records from OpenAlex.
@@ -237,6 +255,14 @@ impl Default for PersistedSettings {
             grobid_url: rag.grobid_url,
             grobid_image: rag.grobid_image,
             grobid_auto_start: rag.grobid_auto_start,
+            ollama_source: rag.ollama_source.label().to_owned(),
+            ollama_image: rag.ollama_image,
+            ollama_auto_start: rag.ollama_auto_start,
+            llamacpp_source: rag.llamacpp_source.label().to_owned(),
+            llamacpp_image: rag.llamacpp_image,
+            llamacpp_model: rag.llamacpp_model,
+            llamacpp_args: rag.llamacpp_args,
+            llamacpp_auto_start: rag.llamacpp_auto_start,
             rename_pdfs: rag.rename_pdfs,
             openalex: rag.openalex,
             resolve_citations: rag.resolve_citations,
@@ -358,6 +384,16 @@ impl PersistedSettings {
         settings.grobid_url = self.grobid_url.clone();
         settings.grobid_image = self.grobid_image.clone();
         settings.grobid_auto_start = self.grobid_auto_start;
+        settings.ollama_source =
+            ServiceSource::from_label(&self.ollama_source).unwrap_or(settings.ollama_source);
+        settings.ollama_image = self.ollama_image.clone();
+        settings.ollama_auto_start = self.ollama_auto_start;
+        settings.llamacpp_source =
+            ServiceSource::from_label(&self.llamacpp_source).unwrap_or(settings.llamacpp_source);
+        settings.llamacpp_image = self.llamacpp_image.clone();
+        settings.llamacpp_model = self.llamacpp_model.clone();
+        settings.llamacpp_args = self.llamacpp_args.clone();
+        settings.llamacpp_auto_start = self.llamacpp_auto_start;
         settings.rename_pdfs = self.rename_pdfs;
         settings.openalex = self.openalex;
         settings.resolve_citations = self.resolve_citations;
@@ -406,6 +442,14 @@ impl PersistedSettings {
         self.grobid_url = settings.grobid_url.clone();
         self.grobid_image = settings.grobid_image.clone();
         self.grobid_auto_start = settings.grobid_auto_start;
+        self.ollama_source = settings.ollama_source.label().to_owned();
+        self.ollama_image = settings.ollama_image.clone();
+        self.ollama_auto_start = settings.ollama_auto_start;
+        self.llamacpp_source = settings.llamacpp_source.label().to_owned();
+        self.llamacpp_image = settings.llamacpp_image.clone();
+        self.llamacpp_model = settings.llamacpp_model.clone();
+        self.llamacpp_args = settings.llamacpp_args.clone();
+        self.llamacpp_auto_start = settings.llamacpp_auto_start;
         self.rename_pdfs = settings.rename_pdfs;
         self.openalex = settings.openalex;
         self.resolve_citations = settings.resolve_citations;
@@ -533,6 +577,14 @@ mod tests {
         rag.grobid_url = "http://127.0.0.1:8070".to_owned();
         rag.grobid_image = "grobid/grobid:0.9.1-crf".to_owned();
         rag.grobid_auto_start = true;
+        rag.ollama_source = ServiceSource::Managed;
+        rag.ollama_image = "ollama/ollama:rocm".to_owned();
+        rag.ollama_auto_start = true;
+        rag.llamacpp_source = ServiceSource::Managed;
+        rag.llamacpp_image = "ghcr.io/ggml-org/llama.cpp:server-cuda".to_owned();
+        rag.llamacpp_model = "owner/model:Q4_K_M".to_owned();
+        rag.llamacpp_args = "--n-gpu-layers all".to_owned();
+        rag.llamacpp_auto_start = true;
 
         persisted.capture(&rag);
         assert_eq!(persisted.provider, "DeepSeek");
@@ -540,6 +592,8 @@ mod tests {
         assert_eq!(persisted.memory, "Transcript");
         assert_eq!(persisted.system_prompt_path, "/tmp/Chat.md");
         assert_eq!(persisted.grobid_source, "Docker container");
+        assert_eq!(persisted.ollama_source, "Docker container");
+        assert_eq!(persisted.llamacpp_source, "Docker container");
 
         let mut restored = RagSettings::default();
         persisted.apply_to(&mut restored);
@@ -556,6 +610,45 @@ mod tests {
         assert_eq!(restored.grobid_url, "http://127.0.0.1:8070");
         assert_eq!(restored.grobid_image, "grobid/grobid:0.9.1-crf");
         assert!(restored.grobid_auto_start);
+        assert_eq!(restored.ollama_source, ServiceSource::Managed);
+        assert_eq!(restored.ollama_image, "ollama/ollama:rocm");
+        assert!(restored.ollama_auto_start);
+        assert_eq!(restored.llamacpp_source, ServiceSource::Managed);
+        assert_eq!(
+            restored.llamacpp_image,
+            "ghcr.io/ggml-org/llama.cpp:server-cuda"
+        );
+        assert_eq!(restored.llamacpp_model, "owner/model:Q4_K_M");
+        assert_eq!(restored.llamacpp_args, "--n-gpu-layers all");
+        assert!(restored.llamacpp_auto_start);
+    }
+
+    #[test]
+    fn older_settings_files_get_service_defaults() {
+        let mut value =
+            serde_json::to_value(PersistedSettings::default()).expect("serialize defaults");
+        let object = value.as_object_mut().expect("object");
+        for key in [
+            "ollama_source",
+            "ollama_image",
+            "ollama_auto_start",
+            "llamacpp_source",
+            "llamacpp_image",
+            "llamacpp_model",
+            "llamacpp_args",
+            "llamacpp_auto_start",
+        ] {
+            object.remove(key);
+        }
+        let loaded: PersistedSettings = serde_json::from_value(value).expect("deserialize");
+        assert_eq!(loaded.ollama_source, "Existing server");
+        assert_eq!(loaded.ollama_image, "ollama/ollama:latest");
+        assert!(!loaded.ollama_auto_start);
+        assert_eq!(loaded.llamacpp_source, "Existing server");
+        assert_eq!(loaded.llamacpp_image, "ghcr.io/ggml-org/llama.cpp:server");
+        assert!(loaded.llamacpp_model.is_empty());
+        assert!(loaded.llamacpp_args.is_empty());
+        assert!(!loaded.llamacpp_auto_start);
     }
 
     #[test]

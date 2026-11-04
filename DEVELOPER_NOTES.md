@@ -59,7 +59,10 @@ not stabilised.
 
 - A chat backend:
   - **Ollama** (default): start `ollama serve` and pull the configured chat and
-    embedding models.
+    embedding models, or use the managed Ollama container under **Settings →
+    External services** and press **Pull models** there.
+  - **llama.cpp**: run `llama-server`, or use the managed container with a
+    Hugging Face model or local `.gguf` file.
   - **DeepSeek**: export `DEEPSEEK_API_KEY`; the key is read from the
     environment and never persisted.
 - Optional: **GROBID** for parsing PDFs into the bibliography. Either point
@@ -73,6 +76,11 @@ not stabilised.
   ```sh
   docker run --rm --init --ulimit core=0 -p 127.0.0.1:8070:8070 grobid/grobid:0.9.1-full
   ```
+
+  The same page runs the official Ollama (`ollama/ollama:latest`, port 11434)
+  and llama.cpp (`ghcr.io/ggml-org/llama.cpp:server`, port 8080) containers.
+  Docker errors distinguish a stopped daemon from missing socket permissions;
+  a startup timeout appends the last container log lines.
 
 ## Run
 
@@ -333,14 +341,18 @@ of the controls column and the chosen width is remembered.
   attachment, and reference processing (renaming, OpenAlex, `@key` citations). Every path
   field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
   and creates the corpus folder when it is opened.
-- **External services** — source (existing server or managed Docker
-  container), server URL with **Test** and **Discover on localhost**, the
-  managed image with **Auto start**, **Pull and start**, **Cancel**, **Stop**,
-  **Remove container**, and **Refresh**. **Auto start** starts the managed
-  container whenever the app opens. The managed container binds
-  `127.0.0.1:8070`; Scico stops it on quit. Discovery checks ports 8070 and
-  8080. Full images are pulled as `linux/amd64` (the official full image is
-  not multi-architecture); `-crf` images run natively.
+- **External services** — one group per service (GROBID, Ollama, llama.cpp).
+  Each group offers **Existing server** or **Docker container**, the image with
+  **Auto start**, **Pull and start**, **Cancel**, **Stop**, **Remove
+  container**, and **Refresh**. GROBID additionally has its URL, **Test**, and
+  **Discover on localhost**; Ollama has **Pull models**; llama.cpp has its
+  model and extra arguments. The managed containers bind loopback only
+  (`127.0.0.1:8070`, `:11434`, and `:8080`); Scico stops the ones it started on
+  quit. Containers are recreated when their image or llama.cpp command changes.
+  Model and image progress is reported in the group; a timeout includes the
+  last container log lines. GROBID full images are pulled as `linux/amd64`
+  (the official full image is not multi-architecture); `-crf` images run
+  natively.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
   preview (zorite); editor font family and size; Chat visibility; and the
   default document attachment.
@@ -435,10 +447,12 @@ The following were fixed in `ragrig-gpui` during development:
   through verbatim instead of wrapping them in a second `document` element.
 - `RagSetup` and `RagSettings` carry an explicit bibliography path; the worker
   uses it for reference rows, GROBID merging, and `@key` resolution (default
-  remains `<workspace>/.ragrig/references.bib`). `RagSettings` also carries
-  `grobid_auto_start`, shown as **Auto start** on the managed container page;
-  `GrobidService::new` sends a start command when the source is managed and the
-  flag is on.
+  remains `<workspace>/.ragrig/references.bib`). `RagSettings` also carries the
+  per-service source, image, auto-start, and llama.cpp model/argument fields
+  shown under **External services**; `ExternalServices::new` probes existing
+  sources and starts managed containers when the flag is on. A successful
+  start or adopted server is promoted into the applied configuration and
+  persisted.
 - `ChatView::set_message_text` updates a finished message in place, so the host
   can lift a replacement block out of the transcript without rebuilding it.
 - `path_setting` adds a **Browse…** button to every path field, and

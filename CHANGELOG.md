@@ -5,6 +5,52 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.0 — 2026-11-04
+
+### Added
+
+- **Managed Ollama and llama.cpp containers.** *Settings → External services*
+  now has an **Ollama** and a **llama.cpp** group next to GROBID. Each service
+  can use a server that is already running or pull and run an official Docker
+  image. **Auto start** starts a container when Scico opens; **Stop**,
+  **Remove container**, **Cancel**, and pull/start progress work like the
+  GROBID group. Managed containers publish on `127.0.0.1:11434` (Ollama) and
+  `127.0.0.1:8080` (llama.cpp).
+- **Ollama model provisioning.** **Pull models** fetches the configured chat,
+  embedding, and memory models through the container's API and reports
+  per-model progress. Models live in the `ragrig-ollama-models` volume and
+  survive container removal.
+- **Managed llama.cpp configuration.** The group accepts a Hugging Face model
+  (`owner/repo[:quant]`), an absolute `.gguf` path, and extra `llama-server`
+  arguments. Hugging Face downloads persist in the `ragrig-llamacpp-models`
+  volume. The URL from the Chat group is updated when the managed server is
+  ready.
+- **Actionable Docker errors.** A stopped daemon reports how to start Docker
+  Desktop or `docker.service`; a user without socket access gets the
+  `usermod -aG docker` remediation. Port conflicts and platform mismatches name
+  the service and the fix. A startup timeout includes the last container log
+  lines.
+- Service source, image, auto-start, llama.cpp model, and arguments are
+  persisted in `settings.json`. Older settings files pick up the defaults.
+
+### Changed
+
+- Scico now requires `ragrig-gpui` 0.8 and builds against its generic
+  `ExternalServices` controller. The GROBID-only `grobid` field in `AppState`
+  became `services`.
+- A successful managed start or adopted existing server promotes the service
+  source and URL into the applied configuration immediately.
+
+### Quality
+
+- Validated with `cargo fmt --check`, `cargo check --all-targets
+  --all-features`, `cargo test --all-features` (77 library tests + 2
+  integration tests, all passing), `cargo test` (90 library tests + 2
+  integration tests, all passing), and `cargo clippy --all-targets
+  --all-features -- -D warnings` (all green). Test coverage includes settings
+  round-trips for the new service fields and loading an older `settings.json`
+  without them.
+
 ## v0.5.3 — 2026-11-04
 
 ### Fixed

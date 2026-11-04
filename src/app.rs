@@ -249,13 +249,17 @@ impl ScicoApp {
                 }
             },
         ));
-        let grobid = state.read(cx).grobid.clone();
+        let services = state.read(cx).services.clone();
         subscriptions.push(cx.subscribe(
-            &grobid,
-            |this, _, event: &ragrig_gpui::GrobidServiceEvent, cx| {
-                if matches!(event, ragrig_gpui::GrobidServiceEvent::UrlChanged(_)) {
+            &services,
+            |this, _, event: &ragrig_gpui::ExternalServiceEvent, cx| {
+                if matches!(
+                    event,
+                    ragrig_gpui::ExternalServiceEvent::UrlChanged { .. }
+                        | ragrig_gpui::ExternalServiceEvent::Ready { .. }
+                ) {
                     this.state.update(cx, |state, cx| {
-                        state.persist_grobid_service(cx);
+                        state.persist_external_services(cx);
                         cx.notify();
                     });
                 }
@@ -1725,7 +1729,7 @@ impl ScicoApp {
     fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rag = self.state.read(cx).rag.clone();
-        let grobid = self.state.read(cx).grobid.clone();
+        let services = self.state.read(cx).services.clone();
         let changes: ragrig_gpui::Changes = {
             let state = self.state.clone();
             Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
@@ -1738,7 +1742,7 @@ impl ScicoApp {
                 .page(app_editor_page(self.state.clone()))
                 .page(ragrig_gpui::external_services_page(
                     rag.clone(),
-                    grobid,
+                    services,
                     changes.clone(),
                     cx,
                 ))
