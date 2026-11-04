@@ -485,6 +485,44 @@ impl AppState {
             .any(|document| is_bibliography_path(document.path.as_deref(), bibliography))
     }
 
+    /// Save and close the bibliography tab when it is open.
+    ///
+    /// Returns `Ok(false)` when no bibliography tab exists. A save failure
+    /// leaves the tab open so no edits are lost.
+    ///
+    /// # Errors
+    ///
+    /// Returns the save error when the bibliography cannot be written.
+    pub fn save_and_close_bibliography(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<bool, String> {
+        let id = {
+            let bibliography = self.bibliography.as_deref();
+            self.documents
+                .iter()
+                .find(|document| is_bibliography_path(document.path.as_deref(), bibliography))
+                .map(|document| document.id)
+        };
+        let Some(id) = id else {
+            return Ok(false);
+        };
+        self.save_document(id, cx)?;
+        self.close_document(id, window, cx);
+        Ok(true)
+    }
+
+    /// Whether the active editor has a non-empty selection.
+    ///
+    /// A single selected space counts: the toolbar acts on marked text, not on
+    /// whether that text is non-blank. A collapsed caret is not a selection.
+    pub fn has_selection(&self, window: &mut Window, cx: &mut App) -> bool {
+        self.active_document()
+            .and_then(|document| document.selection_chars(window, cx))
+            .is_some_and(|range| !range.is_empty())
+    }
+
     /// The active document mutably, if any.
     pub fn active_document_mut(&mut self) -> Option<&mut Document> {
         self.documents.get_mut(self.active)

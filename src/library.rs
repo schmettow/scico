@@ -458,14 +458,30 @@ impl LibraryPane {
         }
     }
 
-    /// Open the raw bibliography in the editor.
-    fn open_bibtex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Toggle the raw bibliography in the editor.
+    ///
+    /// Opening it blocks GROBID; clicking again saves the tab and closes it so
+    /// the bibliography is back on disk and GROBID can resume.
+    fn toggle_bibtex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.extracting(cx) {
             self.set_status(
                 "GROBID is updating the bibliography — wait for it to finish",
                 cx,
             );
             return;
+        }
+        match self.state.update(cx, |state, cx| {
+            state.save_and_close_bibliography(window, cx)
+        }) {
+            Ok(true) => {
+                self.set_status("Saved and closed the bibliography", cx);
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.set_status(error, cx);
+                return;
+            }
         }
         let path = self.state.read(cx).bibliography.clone();
         let Some(path) = path else {
@@ -547,13 +563,13 @@ impl Render for LibraryPane {
             .tooltip(if extracting {
                 "GROBID is updating the bibliography — wait for it to finish"
             } else if bibliography_open {
-                "The raw bibliography is open; GROBID stays blocked until it closes"
+                "Save and close the bibliography; GROBID can resume afterwards"
             } else if bibliography.is_none() {
                 "No bibliography configured. Choose a workspace in Settings."
             } else {
                 "Open the raw bibliography; GROBID is blocked while it is open"
             })
-            .on_click(cx.listener(|this, _, window, cx| this.open_bibtex(window, cx)));
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_bibtex(window, cx)));
         let index = Button::new("library-index")
             .label(if ingesting { "Stop" } else { "Index" })
             .icon(if ingesting {

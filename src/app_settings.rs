@@ -430,7 +430,7 @@ pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
         "Choose the corpus folder",
         true,
         false,
-        px(340.),
+        px(510.),
         {
             let state = state.clone();
             move |cx| {
@@ -463,7 +463,7 @@ pub fn app_workspace_page(state: Entity<AppState>, cx: &App) -> SettingPage {
         "Choose the bibliography file",
         false,
         true,
-        px(340.),
+        px(510.),
         {
             let state = state.clone();
             move |cx| {

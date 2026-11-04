@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The toolbar follows the editor state.** Without an open document only
+  **New** and **Open** remain active; **Save**, **Save as**, and **Preview**
+  are greyed out. **Ask about selection**, **Edit selection**, and **Enrich
+  selection** activate only when the editor has a marked passage — one
+  character is enough, whitespace included. Workspace, Settings, and Chat stay
+  available because they do not depend on a document.
+- **The Library's BibTeX button is a toggle.** Opening the raw bibliography
+  still blocks GROBID; clicking **BibTeX** again saves the tab and closes it,
+  so the bibliography on disk is current and GROBID can resume. A failed save
+  keeps the tab open and reports the error.
 - **Open dialogs start in the workspace.** **Open file** (Ctrl+O), **Open
   workspace** (Ctrl+Shift+O), and **Import PDFs** now pass their starting
   folder to the platform chooser. On Linux this uses the XDG portal's
@@ -24,9 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the editor is now resolved against the open workspace.
 - **Workspace layout shows `~/…` paths.** The workspace, corpus, and
   bibliography fields abbreviate paths below the home directory and expand a
-  typed `~` back to an absolute path. The **Workspace folder** field is 150%
-  of its previous width (510 px instead of 340 px), and its edits apply on
-  Enter or blur so a half-typed `~` cannot scaffold the home directory.
+  typed `~` back to an absolute path. All three fields are 150% of their
+  previous width (510 px instead of 340 px), and edits apply on Enter or blur
+  so a half-typed `~` cannot scaffold the home directory.
 - **Bibliography links are portable.** With `ragrig-gpui` 0.7, GROBID writes
   `file` fields relative to the workspace (home when no workspace is open),
   and the Library and `@key` citations read absolute, workspace-relative,
@@ -40,8 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Quality
 
 - Validated with `cargo fmt --check`, `cargo check --all-targets
-  --all-features`, `cargo test --all-features` (75 library tests + 2
-  integration tests, all passing), `cargo test` (88 library tests + 2
+  --all-features`, `cargo test --all-features` (76 library tests + 2
+  integration tests, all passing), `cargo test` (89 library tests + 2
   integration tests, all passing), `cargo clippy --all-targets --all-features
   -- -D warnings` and `cargo doc --no-deps --all-features` (all green).
 

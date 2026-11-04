@@ -146,9 +146,10 @@ instead, so nothing is lost.
   attach the PDFs to your next question, or copy keys and file paths.
 - The **pencil** action opens the workspace bibliography at that entry. Save
   or close the `.bib` file and the Library reloads the changed metadata. The
-  Library's **BibTeX** button opens the same file directly. While it is open,
-  GROBID is blocked so a run cannot overwrite the tab; the button is disabled
-  while GROBID is working.
+  Library's **BibTeX** button is a toggle: it opens the same file directly and
+  clicking it again saves and closes the tab. While it is open, GROBID is
+  blocked so a run cannot overwrite the tab; the button is disabled while
+  GROBID is working.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
 - **GROBID** (optional) reads PDF headers and fills in authors, title, year,
   and DOI. Open **Settings → External services** to discover a server that is

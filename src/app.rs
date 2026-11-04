@@ -14,7 +14,7 @@ use gpui_kit::{
     actions,
     assets::IconName,
     component::{
-        ActiveTheme as _, ResizableState, Selectable as _, Sizable as _,
+        ActiveTheme as _, Disableable as _, ResizableState, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
         h_flex, h_resizable, resizable_panel, v_flex,
     },
@@ -1084,15 +1084,24 @@ impl ScicoApp {
         dock
     }
 
-    fn toolbar(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (preview_on, show_workspace, show_agent) = {
+    fn toolbar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (preview_on, show_workspace, show_agent, has_document) = {
             let state = self.state.read(cx);
             #[cfg(editor_gpuikit)]
             let preview_on = state.show_preview;
             #[cfg(editor_zorite)]
             let preview_on = !state.raw_mode;
-            (preview_on, state.show_library, state.show_agent)
+            (
+                preview_on,
+                state.show_library,
+                state.show_agent,
+                state.active_document().is_some(),
+            )
         };
+        let has_selection = has_document
+            && self
+                .state
+                .update(cx, |state, cx| state.has_selection(window, cx));
         let theme = cx.theme();
         #[cfg(editor_gpuikit)]
         let preview_label = if preview_on { "Preview" } else { "Preview off" };
@@ -1154,6 +1163,7 @@ impl ScicoApp {
                     .icon(IconName::Save)
                     .small()
                     .ghost()
+                    .disabled(!has_document)
                     .tooltip("Save (Ctrl+S)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.save_file(&SaveFile, window, cx);
@@ -1164,6 +1174,7 @@ impl ScicoApp {
                     .label("Save as")
                     .small()
                     .ghost()
+                    .disabled(!has_document)
                     .tooltip("Save under a new name (Ctrl+Shift+S)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.save_file_as(&SaveFileAs, window, cx);
@@ -1176,6 +1187,7 @@ impl ScicoApp {
                     .small()
                     .selected(preview_on)
                     .ghost()
+                    .disabled(!has_document)
                     .when(cfg!(editor_gpuikit), |button| {
                         button.icon(if preview_on {
                             IconName::PanelRightClose
@@ -1204,6 +1216,7 @@ impl ScicoApp {
                     .icon(IconName::Sparkles)
                     .small()
                     .ghost()
+                    .disabled(!has_selection)
                     .tooltip("Select a passage, then attach it to the next question (Ctrl+Shift+P)")
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.focus_selection(&FocusSelection, window, cx);
@@ -1215,6 +1228,7 @@ impl ScicoApp {
                     .icon(IconName::Pencil)
                     .small()
                     .ghost()
+                    .disabled(!has_selection)
                     .tooltip(
                         "Mark a passage, then write instructions; the answer replaces it (Ctrl+Shift+D)",
                     )
@@ -1228,6 +1242,7 @@ impl ScicoApp {
                     .icon(IconName::BookOpen)
                     .small()
                     .ghost()
+                    .disabled(!has_selection)
                     .tooltip(
                         "Mark a passage; it drives retrieval, and the answer replaces it (Ctrl+Shift+R)",
                     )
@@ -2576,6 +2591,39 @@ mod tests {
             let chars = app.read(cx).agent.read(cx).pending_selection_chars();
             assert_eq!(chars, Some("mark this passage".chars().count()));
         });
+    }
+
+    #[gpui_kit::test]
+    fn the_toolbar_selection_needs_marked_text_even_whitespace(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        cx.update(|window, cx| {
+            let handle = editor.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        });
+        let has_selection = |cx: &mut VisualTestContext| {
+            cx.update(|window, cx| state.update(cx, |state, cx| state.has_selection(window, cx)))
+        };
+
+        assert!(!has_selection(cx), "a bare caret is not a selection");
+        cx.simulate_input(" ");
+        assert!(
+            !has_selection(cx),
+            "typing a space leaves the caret collapsed"
+        );
+        cx.simulate_keystrokes("ctrl-a");
+        assert!(
+            has_selection(cx),
+            "a single selected whitespace character counts"
+        );
     }
 
     #[gpui_kit::test]
