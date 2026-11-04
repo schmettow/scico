@@ -5,6 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.5.3 — 2026-11-04
+
+### Fixed
+
+- **The working directory follows the workspace.** Whenever a workspace is
+  open, Scico changes the process working directory to its root; a plain
+  launch without a workspace uses the home directory. Relative paths in file
+  dialogs, Markdown links, and external tools therefore agree, instead of
+  inheriting whatever directory the launcher happened to use.
+- **The implicit workspace fallback is the home directory**, not the launch
+  directory. It is still never persisted or scaffolded. A relative path passed
+  to the editor is now resolved against the open workspace.
+- **Bibliography links are portable.** With `ragrig-gpui` 0.7, GROBID writes
+  `file` fields relative to the workspace (home when no workspace is open),
+  and the Library and `@key` citations read absolute, workspace-relative,
+  bibliography-relative, and corpus-relative links. A PDF on another drive
+  stays absolute.
+
+### Changed
+
+- Scico now requires `ragrig-gpui` 0.7, which builds on `grobid-bibtex` 0.4.
+
+### Quality
+
+- Validated with `cargo fmt --check`, `cargo check --all-targets
+  --all-features`, `cargo test --all-features` (75 library tests + 2
+  integration tests, all passing), `cargo test` (88 library tests + 2
+  integration tests, all passing), `cargo clippy --all-targets --all-features
+  -- -D warnings` and `cargo doc --no-deps --all-features` (all green).
+
 ## v0.5.2 — 2026-11-01
 
 ### Added

@@ -185,6 +185,11 @@ my-paper/
   Unsaved tabs are never discarded silently.
 - **From a terminal**, `scico ~/my-paper` does the same: it opens that
   folder as a workspace, creating the missing pieces on the first visit.
+- **The workspace is the working directory.** While a workspace is open,
+  relative paths in file dialogs, Markdown links, and external tools resolve
+  from its root; without one, the home directory is the fallback. GROBID also
+  records each PDF's `file` link relative to the workspace, so the project can
+  move or be shared. A PDF on another drive is recorded absolutely.
 - **Nothing is hidden in a cloud account.** Copy the folder to a backup drive,
   a shared project space, or an archive when the paper is done.
 - Settings are layered: your global preferences first, then the workspace's

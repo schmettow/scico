@@ -2096,7 +2096,7 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn the_implicit_cwd_is_not_persisted_as_a_workspace(cx: &mut TestAppContext) {
+    fn the_implicit_home_is_not_persisted_as_a_workspace(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
         cx.update(|_, cx| {
@@ -2108,7 +2108,7 @@ mod tests {
             assert!(error.is_none());
             assert!(
                 saved.workspace.is_empty(),
-                "the cwd fallback must not become a stored workspace"
+                "the home fallback must not become a stored workspace"
             );
         });
     }

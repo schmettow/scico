@@ -49,6 +49,38 @@ pub fn directory_argument(args: impl IntoIterator<Item = OsString>) -> Option<Pa
     path.is_dir().then_some(path)
 }
 
+/// The directory the process should run in.
+///
+/// A workspace that names an existing directory wins. Without one — and when
+/// the configured workspace no longer exists — the user's home directory is
+/// the fallback, so the app never keeps an arbitrary launcher directory.
+pub fn working_directory(workspace: Option<&Path>) -> Option<PathBuf> {
+    workspace
+        .filter(|path| path.is_dir())
+        .map(Path::to_path_buf)
+        .or_else(dirs::home_dir)
+        .or_else(|| std::env::current_dir().ok())
+}
+
+/// Make `workspace` the process working directory.
+///
+/// Scico resolves relative paths in file dialogs, Markdown links, and external
+/// tools through the process working directory, so it must follow the open
+/// workspace rather than the directory the launcher happened to use. With no
+/// workspace, [`working_directory`] falls back to the home directory.
+///
+/// # Errors
+///
+/// Returns a readable message when no directory is available or the operating
+/// system refuses the change.
+pub fn enter(workspace: Option<&Path>) -> Result<PathBuf, String> {
+    let directory = working_directory(workspace)
+        .ok_or_else(|| "cannot determine a working directory".to_owned())?;
+    std::env::set_current_dir(&directory)
+        .map_err(|error| format!("cannot change to '{}': {error}", directory.display()))?;
+    Ok(directory)
+}
+
 /// The workspace descriptor stored in `.scico/workspace.toml`.
 ///
 /// Paths are relative to the workspace root. The file is written after every
@@ -582,6 +614,19 @@ mod tests {
         assert_eq!(report.bibliography.file_name().unwrap(), "my-paper.bib");
         assert!(report.bibliography.is_file());
         let _ = fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn a_live_workspace_becomes_the_working_directory_and_home_is_the_fallback() {
+        let root = scratch("cwd");
+        fs::create_dir_all(&root).expect("root");
+
+        assert_eq!(working_directory(Some(&root)), Some(root.clone()));
+        let fallback = dirs::home_dir().or_else(|| std::env::current_dir().ok());
+        assert_eq!(working_directory(None), fallback);
+        assert_eq!(working_directory(Some(&root.join("missing"))), fallback);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

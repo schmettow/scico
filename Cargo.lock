@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "grobid-bibtex"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "biblatex",
  "grobid",
@@ -6560,7 +6560,7 @@ dependencies = [
 
 [[package]]
 name = "ragrig-gpui"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "async-channel",
  "biblatex",
@@ -7454,7 +7454,7 @@ dependencies = [
 
 [[package]]
 name = "scico"
-version = "0.5.1"
+version = "0.5.3"
 dependencies = [
  "blake3",
  "comrak",

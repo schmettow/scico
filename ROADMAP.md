@@ -45,6 +45,10 @@ stabilised.
   component menu. Next: surface the running memory strategy and retrieval
   mode in the transcript meta so saved sessions explain how an answer was
   produced.
+- Paths are project-relative: the process working directory follows the open
+  workspace (home without one), and the bibliography records PDF links
+  relative to the workspace. Next: offer a one-time migration that rewrites
+  absolute links in existing bibliographies.
 
 ## Next
 

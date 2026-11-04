@@ -32,6 +32,23 @@ use crate::settings::{CHAT_PROMPT, CHAT_PROMPT_FILE, PersistedSettings};
 use crate::theme::syntax_style;
 use crate::workspace::{self, WorkspaceReport};
 
+/// Make `workspace` the process working directory, home as the fallback.
+///
+/// Unit tests share one process and run in parallel, so they must not race on
+/// the global working directory; the pure [`workspace::working_directory`]
+/// choice is unit-tested instead.
+fn enter_workspace(workspace: Option<&Path>) -> Result<(), String> {
+    #[cfg(not(test))]
+    {
+        workspace::enter(workspace).map(|_| ())
+    }
+    #[cfg(test)]
+    {
+        let _ = workspace;
+        Ok(())
+    }
+}
+
 /// Shared editor and workspace state.
 pub struct AppState {
     /// Persisted, non-RAG settings.
@@ -59,7 +76,7 @@ pub struct AppState {
     /// The editor workspace.
     pub workspace: Option<PathBuf>,
     /// Whether [`Self::workspace`] was chosen explicitly (env, settings, or a
-    /// workspace command) rather than falling back to the current directory.
+    /// workspace command) rather than falling back to the home directory.
     pub workspace_explicit: bool,
     /// The corpus folder indexed by the agent.
     pub corpus: Option<PathBuf>,
@@ -127,9 +144,9 @@ impl AppState {
         persisted.apply_to(&mut rag_values);
 
         // A workspace is only scaffolded when it was actually configured; an
-        // implicit current-directory fallback must not sprout files. An
-        // explicit workspace argument outranks the environment and the saved
-        // settings, because the user just named it on the command line.
+        // implicit home-directory fallback must not sprout files. An explicit
+        // workspace argument outranks the environment and the saved settings,
+        // because the user just named it on the command line.
         let cli_workspace = initial_workspace.filter(|path| path.is_dir());
         let requested_by_cli = cli_workspace.is_some();
         let configured_workspace = cli_workspace
@@ -157,8 +174,24 @@ impl AppState {
             .as_ref()
             .map(|report| report.root.clone())
             .or(configured_workspace)
+            .or_else(dirs::home_dir)
             .or_else(|| non_empty_path(&rag_values.workspace))
             .or_else(|| std::env::current_dir().ok());
+
+        // The process working directory follows the open workspace, with the
+        // home directory as the no-workspace fallback. Relative paths in file
+        // dialogs, Markdown links and external tools then mean the same thing
+        // everywhere in the app.
+        let cwd_workspace = if workspace_explicit {
+            workspace.as_deref()
+        } else {
+            None
+        };
+        if let Err(error) = enter_workspace(cwd_workspace)
+            && workspace_error.is_none()
+        {
+            workspace_error = Some(error);
+        }
 
         let corpus = std::env::var_os("SCICO_CORPUS")
             .map(PathBuf::from)
@@ -788,12 +821,24 @@ impl AppState {
     }
 
     /// Open a file, or switch to it when already open.
+    ///
+    /// A relative path is resolved against the open workspace; the process
+    /// working directory follows that workspace as well, so relative paths
+    /// from dialogs and command-line integrations agree.
     pub fn open_path(
         &mut self,
         path: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let resolved = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.workspace
+                .as_ref()
+                .map_or_else(|| path.to_path_buf(), |root| root.join(path))
+        };
+        let path = resolved.as_path();
         if path.is_dir() {
             self.open_workspace(path.to_path_buf(), window, cx)?;
             return Ok(());
@@ -1517,7 +1562,16 @@ impl AppState {
     fn sync_active_preview(&mut self, _cx: &mut Context<Self>) {}
 
     /// Adopt a prepared workspace: paths, layered RAG settings, and prompt.
-    pub fn adopt_workspace(&mut self, report: WorkspaceReport, cx: &mut Context<Self>) {
+    ///
+    /// The workspace also becomes the process working directory. The returned
+    /// error describes a refused directory change; the workspace itself is
+    /// adopted either way.
+    pub fn adopt_workspace(
+        &mut self,
+        report: WorkspaceReport,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let entered = enter_workspace(Some(&report.root));
         self.workspace = Some(report.root.clone());
         self.workspace_explicit = true;
         self.corpus = Some(report.root.join(workspace::CORPUS_DIR));
@@ -1556,6 +1610,7 @@ impl AppState {
             cx.notify();
         });
         self.apply_rag(cx);
+        entered
     }
 
     fn adopt_and_open(
@@ -1568,10 +1623,14 @@ impl AppState {
         let status = report.status(created);
         let root = report.root.clone();
         let homepage = report.homepage.clone();
-        self.adopt_workspace(report, cx);
+        let entered = self.adopt_workspace(report, cx);
         let (_, kept) = self.retain_workspace_tabs(&root, cx);
         self.open_workspace_files(&homepage, window, cx);
         let status = with_kept_tabs(status, kept);
+        let status = match entered {
+            Ok(()) => status,
+            Err(error) => format!("{status} — {error}"),
+        };
         self.set_status(status.clone(), cx);
         status
     }
@@ -1661,7 +1720,10 @@ impl AppState {
         match workspace::prepare(&path, false) {
             Ok(report) => {
                 let status = report.status(false);
-                self.adopt_workspace(report, cx);
+                let status = match self.adopt_workspace(report, cx) {
+                    Ok(()) => status,
+                    Err(error) => format!("{status} — {error}"),
+                };
                 self.set_status(status, cx);
             }
             Err(error) => {
@@ -1931,7 +1993,7 @@ impl AppState {
         self.settings.editor_font = self.editor_font.clone();
         self.settings.editor_font_size = self.editor_font_size;
         if !self.workspace_explicit {
-            // The cwd fallback is not a workspace choice; persisting it would
+            // The home fallback is not a workspace choice; persisting it would
             // scaffold that directory on the next launch.
             self.settings.workspace.clear();
         }
