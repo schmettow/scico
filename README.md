@@ -214,10 +214,14 @@ my-paper/
   a shared project space, or an archive when the paper is done.
 - Settings are layered: your global preferences first, then the workspace's
   own `.ragrig/config.json`. The status-bar switches for **Chat memory** and
-  **Hybrid retrieval** are saved with the workspace.
+  **Hybrid retrieval** are saved with the workspace. A workspace layer only
+  overrides the keys it names; context size, token limits, and the
+  service/container choices from `settings.json` stay in effect.
 - **Profiles** live in `.ragrig/profiles`. In *Settings → Overview*, choosing
   a profile in the picker loads it; **New** asks for a name before snapshotting
   the current settings, and **Update Profile** saves to the selected profile.
+  Profiles change the Ragrig configuration only; the bibliography, runtime
+  switches, models of other providers, and external-service choices are kept.
 - The left **Workspace** panel is the project's persistence and synchronization
   layer. It shows the project root and whether `.scico/workspace.toml` exists;
   the **Library** is one pipeline over it (corpus, index, and references), and

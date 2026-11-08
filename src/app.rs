@@ -3672,6 +3672,168 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn a_workspace_layer_keeps_generation_limits_and_services(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-layer-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        // Scico writes this layer when the memory or hybrid switch changes. It
+        // must stay a partial overlay, not become the whole configuration.
+        std::fs::write(
+            report.ragrig_dir.join("config.json"),
+            r#"{"memory":{"strategy":"off"},"hybrid":false}"#,
+        )
+        .expect("layer");
+
+        let mut rag = ragrig_gpui::RagSettings {
+            workspace: report.root.display().to_string(),
+            context_tokens: 16_384,
+            max_tokens: 4096,
+            temperature: 0.7,
+            stream: false,
+            bibliography: "/tmp/library.bib".to_owned(),
+            rename_pdfs: true,
+            openalex: true,
+            resolve_citations: false,
+            grobid_source: ragrig_gpui::ServiceSource::Managed,
+            grobid_image: "custom/grobid:test".to_owned(),
+            grobid_auto_start: true,
+            ollama_source: ragrig_gpui::ServiceSource::ExistingContainer,
+            ollama_image: "custom/ollama:test".to_owned(),
+            ollama_auto_start: true,
+            ollama_container: "ollama.sycl".to_owned(),
+            llamacpp_source: ragrig_gpui::ServiceSource::ExistingContainer,
+            llamacpp_container: "llama.sycl".to_owned(),
+            llamacpp_model: "owner/model:Q4_K_M".to_owned(),
+            llamacpp_args: "--n-gpu-layers all".to_owned(),
+            llamacpp_auto_start: true,
+            ..ragrig_gpui::RagSettings::default()
+        };
+        rag.set_model_for(ragrig_gpui::ChatProvider::Ollama, "qwen3.5:9b");
+        let mut persisted = crate::settings::PersistedSettings::default();
+        persisted.capture(&rag);
+        persisted.workspace = report.root.display().to_string();
+        persisted.bibliography = rag.bibliography.clone();
+
+        let (settings, session) = scratch_paths();
+        persisted.save(&settings).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings.clone(), session);
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            let current = state.read(cx).rag.read(cx).clone();
+            assert_eq!(current.context_tokens, 16_384, "context size survives");
+            assert_eq!(current.max_tokens, 4096, "max tokens survive");
+            assert_eq!(current.temperature, 0.7);
+            assert!(!current.stream);
+            assert_eq!(
+                current.bibliography,
+                report.bibliography.display().to_string(),
+                "the workspace bibliography stays"
+            );
+            assert!(current.rename_pdfs);
+            assert!(current.openalex);
+            assert!(!current.resolve_citations);
+            assert_eq!(current.memory, ragrig_gpui::MemoryChoice::Off);
+            assert!(!current.hybrid);
+            assert_eq!(
+                current.ollama_source,
+                ragrig_gpui::ServiceSource::ExistingContainer
+            );
+            assert_eq!(current.ollama_container, "ollama.sycl");
+            assert_eq!(current.ollama_image, "custom/ollama:test");
+            assert!(current.ollama_auto_start);
+            assert_eq!(current.grobid_source, ragrig_gpui::ServiceSource::Managed);
+            assert_eq!(current.grobid_image, "custom/grobid:test");
+            assert!(current.grobid_auto_start);
+            assert_eq!(
+                current.llamacpp_source,
+                ragrig_gpui::ServiceSource::ExistingContainer
+            );
+            assert_eq!(current.llamacpp_container, "llama.sycl");
+            assert_eq!(current.llamacpp_model, "owner/model:Q4_K_M");
+            assert_eq!(current.llamacpp_args, "--n-gpu-layers all");
+            assert!(current.llamacpp_auto_start);
+
+            // The next save must write the surviving values, not the defaults
+            // the layer merge used to produce.
+            state.update(cx, |state, cx| state.persist(cx));
+        });
+
+        let (saved, error) = crate::settings::PersistedSettings::load(&settings);
+        assert!(error.is_none());
+        assert_eq!(saved.context_tokens, 16_384);
+        assert_eq!(saved.max_tokens, 4096);
+        assert_eq!(saved.ollama_source, "Existing container");
+        assert_eq!(saved.ollama_container, "ollama.sycl");
+        assert_eq!(saved.grobid_source, "Docker container");
+        assert_eq!(saved.llamacpp_container, "llama.sycl");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
+    fn a_profile_round_trip_keeps_generation_limits_and_services(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-profile-roundtrip-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let (settings, session) = scratch_paths();
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings.clone(), session);
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| {
+                state.rag.update(cx, |rag, cx| {
+                    rag.context_tokens = 16_384;
+                    rag.max_tokens = 4096;
+                    rag.ollama_source = ragrig_gpui::ServiceSource::ExistingContainer;
+                    rag.ollama_container = "ollama.sycl".to_owned();
+                    rag.profile_name = "lab".to_owned();
+                    cx.notify();
+                });
+                state.save_profile(cx);
+
+                // Change the values the profile owns, then load it back. The
+                // service choice is host state and must survive untouched.
+                state.rag.update(cx, |rag, cx| {
+                    rag.context_tokens = 4096;
+                    rag.max_tokens = 2048;
+                    cx.notify();
+                });
+                state.load_profile("lab", cx);
+
+                let rag = state.rag.read(cx);
+                assert_eq!(rag.context_tokens, 16_384);
+                assert_eq!(rag.max_tokens, 4096);
+                assert_eq!(
+                    rag.ollama_source,
+                    ragrig_gpui::ServiceSource::ExistingContainer
+                );
+                assert_eq!(rag.ollama_container, "ollama.sycl");
+            });
+        });
+
+        let (saved, error) = crate::settings::PersistedSettings::load(&settings);
+        assert!(error.is_none());
+        assert_eq!(saved.context_tokens, 16_384);
+        assert_eq!(saved.max_tokens, 4096);
+        assert_eq!(saved.ollama_source, "Existing container");
+        assert_eq!(saved.ollama_container, "ollama.sycl");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
     fn a_file_backed_buffer_recovers_its_unsaved_tail(cx: &mut TestAppContext) {
         let (settings, session) = scratch_paths();
         let paper = settings.parent().expect("scratch dir").join("paper.md");

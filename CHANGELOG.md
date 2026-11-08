@@ -49,6 +49,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restarting no longer resets the settings a workspace layer did not name.**
+  Scico saves the **Chat memory** and **Hybrid retrieval** switches in
+  `<workspace>/.ragrig/config.json`. That layer used to replace the whole RAG
+  configuration with library defaults, so context size, maximum tokens,
+  temperature, the prompt, and every GROBID/Ollama/llama.cpp source, image,
+  and container name reverted on the next launch. The layer is now a partial
+  overlay on `settings.json`, and the surviving values are written back
+  unchanged.
+- **Profiles keep host-owned state.** Loading a profile or pressing **Profile
+  Defaults** no longer resets the bibliography, streaming, rename/OpenAlex/
+  citation switches, hybrid retrieval, or external-service choices, and it no
+  longer discards the models chosen for other providers. Every profile-backed
+  field is covered by a round-trip test; the complete `settings.json` round
+  trip now checks all providers and all three services.
+- **Named folder corpora persist.** The folder corpora in *Settings → RAG →
+  Retrieval* (`name=path` entries) now round-trip through `settings.json`
+  instead of surviving only in the running session or a profile.
 - `pull access denied` and container-runtime permission errors are no longer
   reported as “Docker running, but user cannot access it”. The message now names
   the image/tag or the container device/mount, and a locally built image is used
@@ -58,12 +75,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Quality
 
 - Validated with `cargo fmt --check`, `cargo check --all-targets
-  --all-features`, `cargo test --all-features` (77 library tests + 2
-  integration tests, all passing), `cargo test` (90 library tests + 2
+  --all-features`, `cargo test --all-features` (80 library tests + 2
+  integration tests, all passing), `cargo test` (93 library tests + 2
   integration tests, all passing), and `cargo clippy --all-targets
   --all-features -- -D warnings` (all green). Test coverage includes settings
-  round-trips for the new service fields and loading an older `settings.json`
-  without them.
+  round-trips for the new service fields, an exhaustive capture/apply/restart
+  test for every persisted RAG field and provider model, loading an older
+  `settings.json` without service fields, launching with a workspace layer that
+  must not reset generation limits or service containers, profile round-trips
+  for every configuration field, and host-state preservation across profile
+  loads.
 
 ## v0.5.3 — 2026-11-04
 

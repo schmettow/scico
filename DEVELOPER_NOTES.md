@@ -510,10 +510,11 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 70 unit tests with the `gpuikit` backend and 58 with `zorite`,
-plus the protocol integration test, covering the
+Current suite: 93 unit tests with the `gpuikit` backend and 80 with `zorite`,
+plus the protocol and working-directory integration tests, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
-prompt-file persistence, external viewer routing, the atomic session journal,
+prompt-file persistence, layered workspace settings that keep host choices,
+profile loading that keeps host-owned state and inactive-provider models, external viewer routing, the atomic session journal,
 context budgeting, PDF ingestion naming, command-line workspace adoption and
 scaffolding, workspace tab pruning and opening only the paper,
 window mounting, typing, Ctrl+Arrow

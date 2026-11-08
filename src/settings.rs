@@ -110,6 +110,8 @@ pub struct PersistedSettings {
     pub workspace: String,
     /// Corpus folder indexed by the agent.
     pub corpus: String,
+    /// Additional named folder corpora in `name=path` form.
+    pub corpus_dirs: Vec<String>,
     /// Bibliography the Library section shows.
     pub bibliography: String,
     /// Chat provider label (`Ollama` / `llama.cpp` / `DeepSeek` / `OpenAI` /
@@ -234,6 +236,7 @@ impl Default for PersistedSettings {
         Self {
             workspace: String::new(),
             corpus: String::new(),
+            corpus_dirs: Vec::new(),
             bibliography: String::new(),
             provider: provider.label().to_owned(),
             ollama_model: rag.model_for(ChatProvider::Ollama).to_owned(),
@@ -338,6 +341,7 @@ impl PersistedSettings {
             settings.workspace = self.workspace.trim().to_owned();
         }
         settings.bibliography = self.bibliography.trim().to_owned();
+        settings.corpus_dirs = self.corpus_dirs.clone();
         settings.provider = ChatProvider::from_label(&self.provider).unwrap_or(settings.provider);
         settings.profile_name = self.profile_name.trim().to_owned();
         if !self.ollama_model.trim().is_empty() {
@@ -415,6 +419,7 @@ impl PersistedSettings {
     pub fn capture(&mut self, settings: &RagSettings) {
         self.workspace = settings.workspace.clone();
         self.bibliography = settings.bibliography.clone();
+        self.corpus_dirs = settings.corpus_dirs.clone();
         self.provider = settings.provider.label().to_owned();
         self.profile_name = settings.profile_name.trim().to_owned();
         self.ollama_model = settings.model_for(ChatProvider::Ollama).to_owned();
@@ -642,6 +647,122 @@ mod tests {
         assert_eq!(restored.llamacpp_model, "owner/model:Q4_K_M");
         assert_eq!(restored.llamacpp_args, "--n-gpu-layers all");
         assert!(restored.llamacpp_auto_start);
+    }
+
+    #[test]
+    fn capture_and_apply_cover_every_persisted_rag_field() {
+        let mut rag = RagSettings {
+            workspace: "/tmp/work".to_owned(),
+            bibliography: "/tmp/lib.bib".to_owned(),
+            provider: ChatProvider::LlamaCpp,
+            llamacpp_url: "http://gpu-box:9000/v1".to_owned(),
+            temperature: 0.9,
+            max_tokens: 4096,
+            context_tokens: 16_384,
+            stream: false,
+            embed_model: "mxbai-embed-large".to_owned(),
+            hybrid: false,
+            top_k: 11,
+            similarity_threshold: 0.21,
+            chunk_size: 2048,
+            chunk_overlap: 64,
+            pdf_backend: PdfBackend::Internal,
+            sloppy_pdf: true,
+            memory: MemoryChoice::Summary,
+            memory_model: "qwen3:1.7b".to_owned(),
+            grobid_source: ServiceSource::ExistingContainer,
+            grobid_url: "http://gpu-box:8070".to_owned(),
+            grobid_image: "custom/grobid".to_owned(),
+            grobid_auto_start: true,
+            grobid_container: "grobid.sycl".to_owned(),
+            ollama_source: ServiceSource::ExistingContainer,
+            ollama_image: "custom/ollama".to_owned(),
+            ollama_auto_start: true,
+            ollama_container: "ollama.sycl".to_owned(),
+            llamacpp_source: ServiceSource::Managed,
+            llamacpp_image: "custom/llamacpp".to_owned(),
+            llamacpp_container: "llama.sycl".to_owned(),
+            llamacpp_model: "owner/model:Q4_K_M".to_owned(),
+            llamacpp_args: "--n-gpu-layers all".to_owned(),
+            llamacpp_auto_start: true,
+            rename_pdfs: true,
+            openalex: true,
+            resolve_citations: false,
+            profile_name: "lab".to_owned(),
+            corpus_dirs: vec!["papers=/docs/papers".to_owned()],
+            ..RagSettings::default()
+        };
+        for (provider, model) in [
+            (ChatProvider::Ollama, "host-ollama"),
+            (ChatProvider::DeepSeek, "deepseek-chat"),
+            (ChatProvider::OpenAi, "gpt-4o-mini"),
+            (ChatProvider::Claude, "claude-opus-4"),
+            (ChatProvider::Mistral, "mistral-large"),
+            (ChatProvider::OpenRouter, "openrouter/auto:free"),
+            (ChatProvider::LlamaCpp, "ignored-by-single-model"),
+        ] {
+            rag.set_model_for(provider, model);
+        }
+
+        let mut persisted = PersistedSettings::default();
+        persisted.capture(&rag);
+        // A restart writes and reads the file; only then is the round trip
+        // complete.
+        let text = serde_json::to_string(&persisted).expect("serialize");
+        let loaded: PersistedSettings = serde_json::from_str(&text).expect("deserialize");
+        let mut restored = RagSettings::default();
+        loaded.apply_to(&mut restored);
+
+        assert_eq!(restored.workspace, "/tmp/work");
+        assert_eq!(restored.bibliography, "/tmp/lib.bib");
+        assert_eq!(restored.provider, ChatProvider::LlamaCpp);
+        for provider in ChatProvider::options()
+            .iter()
+            .map(|(provider, _)| *provider)
+        {
+            assert_eq!(
+                restored.model_for(provider),
+                rag.model_for(provider),
+                "{provider:?} model"
+            );
+        }
+        assert_eq!(restored.llamacpp_url, "http://gpu-box:9000/v1");
+        assert_eq!(restored.temperature, 0.9);
+        assert_eq!(restored.max_tokens, 4096);
+        assert_eq!(restored.context_tokens, 16_384);
+        assert!(!restored.stream);
+        assert_eq!(restored.embed_model, "mxbai-embed-large");
+        assert!(!restored.hybrid);
+        assert_eq!(restored.top_k, 11);
+        assert_eq!(restored.similarity_threshold, 0.21);
+        assert_eq!(restored.chunk_size, 2048);
+        assert_eq!(restored.chunk_overlap, 64);
+        assert_eq!(restored.pdf_backend, PdfBackend::Internal);
+        assert!(restored.sloppy_pdf);
+        assert_eq!(restored.memory, MemoryChoice::Summary);
+        assert_eq!(restored.memory_model, "qwen3:1.7b");
+        assert_eq!(restored.profile_name, "lab");
+        assert_eq!(restored.corpus_dirs, vec!["papers=/docs/papers".to_owned()]);
+
+        assert_eq!(restored.grobid_source, ServiceSource::ExistingContainer);
+        assert_eq!(restored.grobid_url, "http://gpu-box:8070");
+        assert_eq!(restored.grobid_image, "custom/grobid");
+        assert!(restored.grobid_auto_start);
+        assert_eq!(restored.grobid_container, "grobid.sycl");
+        assert_eq!(restored.ollama_source, ServiceSource::ExistingContainer);
+        assert_eq!(restored.ollama_image, "custom/ollama");
+        assert!(restored.ollama_auto_start);
+        assert_eq!(restored.ollama_container, "ollama.sycl");
+        assert_eq!(restored.llamacpp_source, ServiceSource::Managed);
+        assert_eq!(restored.llamacpp_image, "custom/llamacpp");
+        assert_eq!(restored.llamacpp_container, "llama.sycl");
+        assert_eq!(restored.llamacpp_model, "owner/model:Q4_K_M");
+        assert_eq!(restored.llamacpp_args, "--n-gpu-layers all");
+        assert!(restored.llamacpp_auto_start);
+
+        assert!(restored.rename_pdfs);
+        assert!(restored.openalex);
+        assert!(!restored.resolve_citations);
     }
 
     #[test]

@@ -231,9 +231,9 @@ impl AppState {
             })
             .unwrap_or_else(|| PathBuf::from(workspace::RAGRIG_DIR));
 
-        // Rules: built-in < ~/.ragrig/config.json < <workspace>/.ragrig/config.json.
-        // A workspace layer replaces the RAG fields wholesale; host-only fields
-        // are restored below.
+        // Rules: built-in < ~/.ragrig/config.json < <workspace>/.ragrig/config.json,
+        // applied as partial overlays on the persisted settings. Host-only
+        // fields are restored below.
         if let Some(report) = &workspace_report
             && let Some(mut layered) = RagSettings::from_layers_over(&report.root, &rag_values)
         {
