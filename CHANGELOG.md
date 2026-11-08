@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.6.0 — 2026-11-04
+## v0.7.0 — 2026-11-08
 
 ### Added
 
@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Scico now requires `ragrig-gpui` 0.8 and builds against its generic
+- Scico now requires `ragrig-gpui` 0.9 and builds against its generic
   `ExternalServices` controller. The GROBID-only `grobid` field in `AppState`
   became `services`.
 - A successful managed start or adopted existing server promotes the service
@@ -86,19 +86,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
-- Validated with `cargo fmt --check`, `cargo check --all-targets
-  --all-features`, `cargo test --all-features` (83 library tests + 2
-  integration tests, all passing), `cargo test` (96 library tests + 2
-  integration tests, all passing), and `cargo clippy --all-targets
-  --all-features -- -D warnings` (all green). Test coverage includes settings
-  round-trips for the new service fields, an exhaustive capture/apply/restart
-  test for every persisted RAG field and provider model, loading an older
-  `settings.json` without service fields, launching with a workspace layer that
-  must not reset generation limits or service containers, profile round-trips
-  for every configuration field, host-state preservation across profile
-  loads, and first-launch onboarding (activation, skip/restore, marker,
-  reopening from Overview, and rendering every step for the local and frontier
-  provider variants).
+Release validation on 2026-11-08 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 11,401 | 16,699 | 68.27% |
+| Functions | 732 | 1,219 | 60.05% |
+| Lines | 6,612 | 9,530 | 69.38% |
+
+The least covered areas are the binary entry point (`src/main.rs`, 0%; the
+library is tested), the Library pane (`src/library.rs`, 34.86%), the agent pane
+(`src/agent.rs`, 42%), and the settings pages (`src/app_settings.rs`, 57%).
+The settings, startup, and workspace behavior lives in `src/settings.rs`
+(94.71% lines), `src/state.rs` (65.85%), and `src/workspace.rs` (90.72%).
+
+**Tests.** `cargo test --all-features`: 83 library tests + 2 integration tests,
+all passing. `cargo test`: 96 library tests + 2 integration tests, all passing.
+Coverage includes layered settings that preserve host choices, profile
+round-trips, the persisted service and corpus fields, first-launch onboarding
+and its workspace marker, rendering every onboarding step for local and
+frontier providers, and the structured working-directory/protocol tests.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo test --all-features`, `cargo test`, `cargo clippy --all-targets
+--all-features -- -D warnings`, and `cargo doc --no-deps --all-features` (with
+`RUSTDOCFLAGS="-D warnings"`) are green. `cargo package --list --allow-dirty`
+lists 36 files.
+
+**Release blocker (expected publication order).** `cargo publish --dry-run
+--allow-dirty` cannot resolve `ragrig-gpui = "^0.9.0"`: crates.io currently
+offers 0.7.1. Publish `ragrig-gpui 0.9.0` first, then remove scico's
+`[patch.crates-io]` section (the local `ragrig-gpui` and `grobid-bibtex`
+paths), update `Cargo.lock`, and re-run the dry run. `grobid-bibtex` 0.4.0 is
+already on crates.io. This is the expected two-crate order, not a code or
+packaging defect.
 
 ## v0.5.3 — 2026-11-04
 
