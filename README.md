@@ -153,18 +153,22 @@ instead, so nothing is lost.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
 - **External services** (optional) cover GROBID, Ollama, and llama.cpp.
   *Settings → External services* has one group per service. Choose **Existing
-  server** to use software you already run, or **Docker container** to pull and
-  run the official image. With a managed source, **Auto start** starts the
-  container whenever Scico opens; **Stop**, **Remove container**, **Cancel**,
-  and pull/start progress are in the same group. Scico stops a container it
-  started when the app quits.
+  server** to use software you already run, **Existing container** to start and
+  stop a hand-configured Docker container by name, or **Docker container** to
+  pull and run the official image. With a managed or existing container,
+  **Auto start** starts it whenever Scico opens; **Stop**, **Remove
+  container**, **Cancel**, and pull/start progress are in the same group. Scico
+  stops a managed container it started when the app quits; an **Existing
+  container** is left running.
   - **GROBID** reads PDF headers and fills in authors, title, year, and DOI.
     The full image is the default (about 8 GB); the field is editable if you
     prefer the smaller CRF-only image. See the
     [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
   - **Ollama** publishes `localhost:11434`. **Pull models** fetches the chat,
     embedding, and memory models configured in *Settings → RAG*; they stay in
-    the `ragrig-ollama-models` volume when the container is removed.
+    the `ragrig-ollama-models` volume when the managed container is removed.
+    An **Existing container** such as a hand-built SYCL Ollama keeps its own
+    devices and volumes; enter its Docker name in **Container name**.
   - **llama.cpp** publishes `localhost:8080`. The **Model** field accepts a
     Hugging Face repository (`owner/repo[:quant]`) or an absolute `.gguf` path;
     **Extra arguments** are passed to `llama-server`.

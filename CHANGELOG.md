@@ -11,11 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Managed Ollama and llama.cpp containers.** *Settings → External services*
   now has an **Ollama** and a **llama.cpp** group next to GROBID. Each service
-  can use a server that is already running or pull and run an official Docker
-  image. **Auto start** starts a container when Scico opens; **Stop**,
+  can use a server that is already running, start and stop a hand-configured
+  container by name (**Existing container**), or pull and run an official
+  Docker image. **Auto start** starts a container when Scico opens; **Stop**,
   **Remove container**, **Cancel**, and pull/start progress work like the
   GROBID group. Managed containers publish on `127.0.0.1:11434` (Ollama) and
   `127.0.0.1:8080` (llama.cpp).
+- **Existing container source.** Enter a container name such as `ollama-sycl`
+  and Scico starts and stops it without creating, recreating, or removing it.
+  It is left running when the app quits, so a container with custom devices,
+  runtimes, users, or volumes keeps its configuration. Container names are
+  stored in `settings.json` for all three services.
 - **Ollama model provisioning.** **Pull models** fetches the configured chat,
   embedding, and memory models through the container's API and reports
   per-model progress. Models live in the `ragrig-ollama-models` volume and
@@ -40,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   became `services`.
 - A successful managed start or adopted existing server promotes the service
   source and URL into the applied configuration immediately.
+
+### Fixed
+
+- `pull access denied` and container-runtime permission errors are no longer
+  reported as “Docker running, but user cannot access it”. The message now names
+  the image/tag or the container device/mount, and a locally built image is used
+  without a registry pull. A hand-configured container (for example an Intel
+  SYCL Ollama) can now be started directly with **Existing container**.
 
 ### Quality
 

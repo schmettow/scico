@@ -342,17 +342,19 @@ of the controls column and the chosen width is remembered.
   field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
   and creates the corpus folder when it is opened.
 - **External services** — one group per service (GROBID, Ollama, llama.cpp).
-  Each group offers **Existing server** or **Docker container**, the image with
-  **Auto start**, **Pull and start**, **Cancel**, **Stop**, **Remove
-  container**, and **Refresh**. GROBID additionally has its URL, **Test**, and
-  **Discover on localhost**; Ollama has **Pull models**; llama.cpp has its
-  model and extra arguments. The managed containers bind loopback only
-  (`127.0.0.1:8070`, `:11434`, and `:8080`); Scico stops the ones it started on
-  quit. Containers are recreated when their image or llama.cpp command changes.
-  Model and image progress is reported in the group; a timeout includes the
-  last container log lines. GROBID full images are pulled as `linux/amd64`
-  (the official full image is not multi-architecture); `-crf` images run
-  natively.
+  Each group offers **Existing server**, **Existing container**, or **Docker
+  container**. **Existing container** takes a container name and starts/stops
+  that container without creating, recreating, or removing it; it is left
+  running on quit. The Docker source has the image with **Auto start**, **Pull
+  and start**, **Cancel**, **Stop**, **Remove container**, and **Refresh**.
+  GROBID additionally has its URL, **Test**, and **Discover on localhost**;
+  Ollama has **Pull models**; llama.cpp has its model and extra arguments. The
+  managed containers bind loopback only (`127.0.0.1:8070`, `:11434`, and
+  `:8080`); Scico stops the ones it started on quit. Containers are recreated
+  when their image or llama.cpp command changes. Model and image progress is
+  reported in the group; a timeout includes the last container log lines.
+  GROBID full images are pulled as `linux/amd64` (the official full image is
+  not multi-architecture); `-crf` images run natively.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
   preview (zorite); editor font family and size; Chat visibility; and the
   default document attachment.

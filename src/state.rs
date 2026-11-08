@@ -2001,12 +2001,15 @@ impl AppState {
         self.applied_rag.grobid_url = current.grobid_url;
         self.applied_rag.grobid_image = current.grobid_image;
         self.applied_rag.grobid_auto_start = current.grobid_auto_start;
+        self.applied_rag.grobid_container = current.grobid_container;
         self.applied_rag.ollama_source = current.ollama_source;
         self.applied_rag.ollama_image = current.ollama_image;
         self.applied_rag.ollama_auto_start = current.ollama_auto_start;
+        self.applied_rag.ollama_container = current.ollama_container;
         self.applied_rag.llamacpp_source = current.llamacpp_source;
         self.applied_rag.llamacpp_url = current.llamacpp_url;
         self.applied_rag.llamacpp_image = current.llamacpp_image;
+        self.applied_rag.llamacpp_container = current.llamacpp_container;
         self.applied_rag.llamacpp_model = current.llamacpp_model;
         self.applied_rag.llamacpp_args = current.llamacpp_args;
         self.applied_rag.llamacpp_auto_start = current.llamacpp_auto_start;
