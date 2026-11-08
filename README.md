@@ -217,6 +217,12 @@ my-paper/
   **Hybrid retrieval** are saved with the workspace. A workspace layer only
   overrides the keys it names; context size, token limits, and the
   service/container choices from `settings.json` stay in effect.
+- **First-run setup.** On first launch, when the selected workspace has no
+  Ragrig or Scico data, Scico opens a guided setup: choose a local embedding
+  model and its Ollama source, pick a frontier or local chat model (with
+  API-key guidance), accept model-aware context and answer limits, tune
+  retrieval, and optionally connect GROBID. **Set up later** keeps the previous
+  settings. Run the guide again with **Settings → Overview → Setup guide**.
 - **Profiles** live in `.ragrig/profiles`. In *Settings → Overview*, choosing
   a profile in the picker loads it; **New** asks for a name before snapshotting
   the current settings, and **Update Profile** saves to the selected profile.

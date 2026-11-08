@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **First-run setup guide.** On first launch, when the selected workspace has
+  no Ragrig or Scico data, Scico opens a guided setup. It walks through the local
+  embedding model and its Ollama source (existing server, existing container,
+  or managed Docker container), the chat provider and model with API-key
+  guidance (frontier providers and local Ollama/llama.cpp), context and answer
+  limits suggested from the selected model, retrieval top-k and similarity
+  threshold, optional GROBID, and a review. **Set up later** restores the
+  settings from before the guide; **Settings → Overview → Setup guide** runs it
+  again. A completed or skipped guide leaves a marker in `.ragrig`.
 - **Managed Ollama and llama.cpp containers.** *Settings → External services*
   now has an **Ollama** and a **llama.cpp** group next to GROBID. Each service
   can use a server that is already running, start and stop a hand-configured
@@ -49,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The implicit home fallback is never written as a workspace layer.** The
+  memory and hybrid switches are recorded in `.ragrig/config.json` only when a
+  workspace was explicitly chosen.
 - **Restarting no longer resets the settings a workspace layer did not name.**
   Scico saves the **Chat memory** and **Hybrid retrieval** switches in
   `<workspace>/.ragrig/config.json`. That layer used to replace the whole RAG
@@ -75,16 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Quality
 
 - Validated with `cargo fmt --check`, `cargo check --all-targets
-  --all-features`, `cargo test --all-features` (80 library tests + 2
-  integration tests, all passing), `cargo test` (93 library tests + 2
+  --all-features`, `cargo test --all-features` (83 library tests + 2
+  integration tests, all passing), `cargo test` (96 library tests + 2
   integration tests, all passing), and `cargo clippy --all-targets
   --all-features -- -D warnings` (all green). Test coverage includes settings
   round-trips for the new service fields, an exhaustive capture/apply/restart
   test for every persisted RAG field and provider model, loading an older
   `settings.json` without service fields, launching with a workspace layer that
   must not reset generation limits or service containers, profile round-trips
-  for every configuration field, and host-state preservation across profile
-  loads.
+  for every configuration field, host-state preservation across profile
+  loads, and first-launch onboarding (activation, skip/restore, marker,
+  reopening from Overview, and rendering every step for the local and frontier
+  provider variants).
 
 ## v0.5.3 — 2026-11-04
 

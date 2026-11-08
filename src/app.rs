@@ -29,7 +29,7 @@ use crate::library::LibraryPane;
 use crate::session::SessionState;
 use crate::state::AppState;
 use crate::workspace_pane::{WorkspaceEvent, WorkspacePane};
-use ragrig_gpui::prompt_for_paths_at;
+use ragrig_gpui::{OnboardingActions, prompt_for_paths_at};
 
 actions!(
     scico,
@@ -195,6 +195,10 @@ impl ScicoApp {
                 initial_workspace,
             )
         });
+        let show_settings = state.read(cx).setup_requested;
+        if show_settings {
+            state.update(cx, |state, _| state.setup_requested = false);
+        }
         if let Some(error) = load_error {
             state.update(cx, |state, cx| state.set_status(error, cx));
         }
@@ -207,7 +211,13 @@ impl ScicoApp {
         };
 
         let mut subscriptions = Vec::new();
+        let onboarding = state.read(cx).onboarding.clone();
+        subscriptions.push(cx.observe(&onboarding, |_, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&state, |this, state, cx| {
+            if state.read(cx).setup_requested {
+                state.update(cx, |state, _| state.setup_requested = false);
+                this.show_settings = true;
+            }
             let panes = {
                 let state = state.read(cx);
                 (state.show_library, state.show_agent)
@@ -284,7 +294,7 @@ impl ScicoApp {
             state,
             agent,
             workspace,
-            show_settings: false,
+            show_settings,
             close_prompt: false,
             tab_close: None,
             allow_close: false,
@@ -1726,6 +1736,19 @@ impl ScicoApp {
             .child(div().max_w(px(280.)).truncate().child(workspace))
     }
 
+    fn finish_setup(&mut self, cx: &mut Context<Self>) {
+        self.state
+            .update(cx, |state, cx| state.finish_onboarding(cx));
+        self.show_settings = false;
+        cx.notify();
+    }
+
+    fn skip_setup(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| state.skip_onboarding(cx));
+        self.show_settings = false;
+        cx.notify();
+    }
+
     fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rag = self.state.read(cx).rag.clone();
@@ -1735,23 +1758,52 @@ impl ScicoApp {
             Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
         };
         let now = self.state.read(cx).rag_changes(cx);
-        let settings =
-            gpui_kit::component::setting::Settings::new(ElementId::Name("scico-settings".into()))
-                .page(app_overview_page(self.state.clone(), &now, cx))
-                .page(app_workspace_page(self.state.clone(), cx))
-                .page(app_editor_page(self.state.clone()))
-                .page(ragrig_gpui::external_services_page(
-                    rag.clone(),
-                    services,
-                    changes.clone(),
-                    cx,
-                ))
-                .page(ragrig_gpui::rag_model_page(
-                    rag,
-                    changes,
-                    Some(prompt_actions(self.state.clone())),
-                    cx,
-                ));
+        let onboarding = self.state.read(cx).onboarding.clone();
+        let setup_active = onboarding.read(cx).is_active();
+        let setup_run = onboarding.read(cx).run();
+        let settings_id: SharedString = if setup_active {
+            format!("scico-settings-setup-{setup_run}").into()
+        } else {
+            "scico-settings".into()
+        };
+        let mut settings =
+            gpui_kit::component::setting::Settings::new(ElementId::Name(settings_id));
+        if setup_active {
+            let app = cx.entity();
+            let finish_app = app.clone();
+            let skip_app = app;
+            let actions = OnboardingActions::new(
+                move |_, cx| {
+                    finish_app.update(cx, |app, cx| app.finish_setup(cx));
+                },
+                move |_, cx| {
+                    skip_app.update(cx, |app, cx| app.skip_setup(cx));
+                },
+            );
+            settings = settings.page(ragrig_gpui::onboarding_page(
+                onboarding,
+                rag.clone(),
+                services.clone(),
+                actions,
+                cx,
+            ));
+        }
+        let settings = settings
+            .page(app_overview_page(self.state.clone(), &now, cx))
+            .page(app_workspace_page(self.state.clone(), cx))
+            .page(app_editor_page(self.state.clone()))
+            .page(ragrig_gpui::external_services_page(
+                rag.clone(),
+                services,
+                changes.clone(),
+                cx,
+            ))
+            .page(ragrig_gpui::rag_model_page(
+                rag,
+                changes,
+                Some(prompt_actions(self.state.clone())),
+                cx,
+            ));
         let gutter = self.state.read(cx).settings_gutter;
         let resize_state = self.state.clone();
         let layout = h_resizable(ElementId::Name("scico-settings-layout".into()))
@@ -1945,6 +1997,15 @@ mod tests {
         settings: PathBuf,
         session: PathBuf,
     ) -> (Entity<ScicoApp>, &mut VisualTestContext) {
+        mount_at_workspace(cx, settings, session, None)
+    }
+
+    fn mount_at_workspace(
+        cx: &mut TestAppContext,
+        settings: PathBuf,
+        session: PathBuf,
+        workspace: Option<PathBuf>,
+    ) -> (Entity<ScicoApp>, &mut VisualTestContext) {
         cx.update(|cx| {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
@@ -1952,7 +2013,7 @@ mod tests {
             bind_keys(cx);
         });
         cx.add_window_view(move |window, cx| {
-            ScicoApp::new_with_paths(window, cx, settings, session)
+            ScicoApp::new_with_paths_and_workspace(window, cx, settings, session, workspace)
         })
     }
 
@@ -3829,6 +3890,147 @@ mod tests {
         assert_eq!(saved.max_tokens, 4096);
         assert_eq!(saved.ollama_source, "Existing container");
         assert_eq!(saved.ollama_container, "ollama.sycl");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
+    fn a_first_launch_opens_the_setup_guide(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-onboarding-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let (settings_path, session_path) = scratch_paths();
+
+        let (app, cx) = mount_at_workspace(
+            cx,
+            settings_path.clone(),
+            session_path.clone(),
+            Some(report.root.clone()),
+        );
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|_, cx| {
+            let app = app.read(cx);
+            assert!(app.show_settings, "the setup guide is the first screen");
+            let state = app.state.read(cx);
+            let onboarding = state.onboarding.read(cx);
+            assert!(onboarding.is_active());
+            assert_eq!(onboarding.step(), ragrig_gpui::OnboardingStep::Embeddings);
+        });
+
+        // Skipping restores the settings from before the guide and records the
+        // workspace, so the next launch goes straight to the editor.
+        cx.update(|_, cx| {
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| state.skip_onboarding(cx));
+        });
+        assert!(report.ragrig_dir.join(ragrig_gpui::SETUP_MARKER).is_file());
+        assert!(settings_path.is_file());
+
+        let (second, cx) =
+            mount_at_workspace(cx, settings_path, session_path, Some(report.root.clone()));
+        cx.update(|_, cx| {
+            let app = second.read(cx);
+            assert!(!app.show_settings, "the editor opens on the second launch");
+            assert!(!app.state.read(cx).onboarding.read(cx).is_active());
+        });
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
+    fn every_setup_step_renders(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-onboarding-render-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let (settings_path, session_path) = scratch_paths();
+        let (app, cx) =
+            mount_at_workspace(cx, settings_path, session_path, Some(report.root.clone()));
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+
+        // The Chat step changes shape with the provider; render the local and
+        // frontier variants before walking every step once.
+        for provider in [
+            ragrig_gpui::ChatProvider::Ollama,
+            ragrig_gpui::ChatProvider::LlamaCpp,
+            ragrig_gpui::ChatProvider::OpenAi,
+        ] {
+            cx.update(|_, cx| {
+                state.update(cx, |state, cx| {
+                    state.rag.update(cx, |rag, cx| {
+                        rag.provider = provider;
+                        cx.notify();
+                    });
+                    let settings = state.rag.read(cx).clone();
+                    state.onboarding.update(cx, |onboarding, cx| {
+                        onboarding.restart(&settings);
+                        onboarding.advance();
+                        cx.notify();
+                    });
+                });
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.rag.update(cx, |rag, cx| {
+                    rag.provider = ragrig_gpui::ChatProvider::Ollama;
+                    cx.notify();
+                });
+                let settings = state.rag.read(cx).clone();
+                state.onboarding.update(cx, |onboarding, cx| {
+                    onboarding.restart(&settings);
+                    cx.notify();
+                });
+            });
+        });
+        for _ in 0..ragrig_gpui::OnboardingStep::steps().len() {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|_, cx| {
+                state.update(cx, |state, cx| {
+                    state.onboarding.update(cx, |onboarding, cx| {
+                        onboarding.advance();
+                        cx.notify();
+                    });
+                });
+            });
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[gpui_kit::test]
+    fn the_setup_guide_can_be_reopened_from_settings(cx: &mut TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "scico-onboarding-again-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        let report = crate::workspace::prepare(&root, true).expect("workspace");
+        let (settings_path, session_path) = scratch_paths();
+        let persisted = crate::settings::PersistedSettings {
+            workspace: report.root.display().to_string(),
+            ..crate::settings::PersistedSettings::default()
+        };
+        persisted.save(&settings_path).expect("settings");
+
+        let (app, cx) = mount_at(cx, settings_path, session_path);
+        cx.update(|_, cx| {
+            assert!(!app.read(cx).state.read(cx).onboarding.read(cx).is_active());
+            let state = app.read(cx).state.clone();
+            state.update(cx, |state, cx| state.restart_onboarding(cx));
+            assert!(state.read(cx).onboarding.read(cx).is_active());
+            assert_eq!(
+                state.read(cx).onboarding.read(cx).step(),
+                ragrig_gpui::OnboardingStep::Embeddings
+            );
+        });
 
         let _ = std::fs::remove_dir_all(root);
     }

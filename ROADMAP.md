@@ -36,6 +36,11 @@ stabilised.
 - Enrich selection now runs retrieval on the marked passage itself. Next:
   compare enriched retrieval quality against ordinary selection context and
   expose the retrieved sources beside the replacement.
+- **First-run setup** now walks through the embedding model, chat provider and
+  model, token limits, retrieval, and optional GROBID, with Docker/existing
+  container choices and model-aware token suggestions. Next: exercise it with a
+  genuinely empty settings directory on Windows and macOS and add a short
+  "what next" tour after finishing.
 - **External services** now manages three local services: GROBID, Ollama, and
   llama.cpp. Each can use an existing server, start and stop a hand-configured
   container by name, or run a managed Docker container; Ollama models are pulled

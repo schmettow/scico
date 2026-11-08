@@ -21,7 +21,8 @@ use ragrig_gpui::editor::{
     SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
 };
 use ragrig_gpui::{
-    ChatProvider, ExternalServices, MemoryChoice, RagChanges, RagController, RagSettings,
+    ChatProvider, ExternalServices, MemoryChoice, RagChanges, RagController, RagOnboarding,
+    RagSettings,
 };
 #[cfg(editor_zorite)]
 use zorite_editor::EditorEvent;
@@ -67,6 +68,13 @@ pub struct AppState {
     pub controller: Entity<RagController>,
     /// The managed external services and their Docker lifecycle.
     pub services: Entity<ExternalServices>,
+    /// The first-run setup guide.
+    pub onboarding: Entity<RagOnboarding>,
+    /// Set when a new workspace started the setup guide, so the window can
+    /// show it once.
+    pub setup_requested: bool,
+    /// Whether this session started without a settings file.
+    pub first_launch: bool,
     /// Open documents, in tab order.
     pub documents: Vec<Document>,
     /// Index into [`Self::documents`].
@@ -140,6 +148,7 @@ impl AppState {
         session_path: PathBuf,
         initial_workspace: Option<PathBuf>,
     ) -> Self {
+        let first_launch = !settings_path.exists();
         let mut rag_values = RagSettings::default();
         persisted.apply_to(&mut rag_values);
 
@@ -231,6 +240,11 @@ impl AppState {
             })
             .unwrap_or_else(|| PathBuf::from(workspace::RAGRIG_DIR));
 
+        let start_onboarding = first_launch
+            && workspace_report
+                .as_ref()
+                .is_some_and(|report| !ragrig_gpui::workspace_has_history(&report.root));
+
         // Rules: built-in < ~/.ragrig/config.json < <workspace>/.ragrig/config.json,
         // applied as partial overlays on the persisted settings. Host-only
         // fields are restored below.
@@ -296,6 +310,8 @@ impl AppState {
         };
         let rag = cx.new(|_| rag_values);
         let applied_rag = rag.read(cx).clone();
+        let onboarding_settings = rag.read(cx).clone();
+        let onboarding = cx.new(|_| RagOnboarding::new(onboarding_settings, start_onboarding));
         let services = cx.new(|cx| {
             ExternalServices::new(rag.clone(), cx).expect("the external services thread must start")
         });
@@ -359,6 +375,9 @@ impl AppState {
             applied_rag,
             controller,
             services,
+            onboarding,
+            setup_requested: start_onboarding,
+            first_launch,
             documents: Vec::new(),
             active: 0,
             next_document: 1,
@@ -1647,6 +1666,14 @@ impl AppState {
             }
             cx.notify();
         });
+        if self.first_launch && !ragrig_gpui::workspace_has_history(&report.root) {
+            let settings = self.rag.read(cx).clone();
+            self.onboarding.update(cx, |onboarding, cx| {
+                onboarding.restart(&settings);
+                cx.notify();
+            });
+            self.setup_requested = true;
+        }
         self.apply_rag(cx);
         entered
     }
@@ -1833,6 +1860,9 @@ impl AppState {
     /// machine opens the workspace, without copying the whole applied
     /// configuration into `.ragrig/config.json`.
     pub(crate) fn persist_workspace_switches(&self, cx: &App) {
+        if !self.workspace_explicit {
+            return;
+        }
         let Some(workspace) = &self.workspace else {
             return;
         };
@@ -2014,6 +2044,72 @@ impl AppState {
         self.applied_rag.llamacpp_args = current.llamacpp_args;
         self.applied_rag.llamacpp_auto_start = current.llamacpp_auto_start;
         self.persist(cx);
+    }
+
+    /// Apply the choices from the setup guide and record the workspace.
+    pub fn finish_onboarding(&mut self, cx: &mut Context<Self>) {
+        if let Err(error) = self.rag.read(cx).to_setup() {
+            self.onboarding.update(cx, |onboarding, cx| {
+                onboarding.set_error(error);
+                cx.notify();
+            });
+            return;
+        }
+        self.apply_rag(cx);
+        self.persist_external_services(cx);
+        self.persist_workspace_switches(cx);
+        self.onboarding.update(cx, |onboarding, cx| {
+            onboarding.finish();
+            cx.notify();
+        });
+        self.setup_requested = false;
+        self.first_launch = false;
+        let marker = self
+            .workspace
+            .as_deref()
+            .filter(|_| self.workspace_explicit)
+            .map(ragrig_gpui::mark_workspace_setup_done);
+        if marker.is_some_and(|result| result.is_err()) {
+            self.set_status(
+                "Setup applied, but the workspace marker could not be written",
+                cx,
+            );
+        } else {
+            self.set_status("Setup complete — the agent is ready", cx);
+        }
+    }
+
+    /// Discard the setup answers and keep the settings from before the guide.
+    pub fn skip_onboarding(&mut self, cx: &mut Context<Self>) {
+        let original = self.onboarding.read(cx).original().clone();
+        self.rag.update(cx, |rag, cx| {
+            *rag = original;
+            cx.notify();
+        });
+        self.onboarding.update(cx, |onboarding, cx| {
+            onboarding.skip();
+            cx.notify();
+        });
+        self.setup_requested = false;
+        self.first_launch = false;
+        if self.workspace_explicit
+            && let Some(workspace) = self.workspace.as_deref()
+        {
+            let _ = ragrig_gpui::mark_workspace_setup_done(workspace);
+        }
+        self.persist(cx);
+        self.set_status("Setup skipped — run it again from Settings → Overview", cx);
+    }
+
+    /// Re-open the setup guide from the current settings.
+    pub fn restart_onboarding(&mut self, cx: &mut Context<Self>) {
+        let settings = self.rag.read(cx).clone();
+        self.onboarding.update(cx, |onboarding, cx| {
+            onboarding.restart(&settings);
+            cx.notify();
+        });
+        self.setup_requested = true;
+        cx.notify();
     }
 
     /// Write the settings file and update the in-memory snapshot.

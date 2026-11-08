@@ -194,6 +194,16 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
                 state.update(cx, |state, cx| state.save_profile(cx));
             })
     };
+    let setup = {
+        let state = state.clone();
+        Button::new("overview-setup-guide")
+            .label("Setup guide")
+            .small()
+            .outline()
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| state.restart_onboarding(cx));
+            })
+    };
 
     let controller = state.read(cx).controller.clone();
     let status = state
@@ -218,7 +228,8 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
                 .items_center()
                 .child(apply)
                 .child(defaults)
-                .child(update),
+                .child(update)
+                .child(setup),
         )
         .child(div().text_xs().text_color(color).child(status))
         .into_any_element()
