@@ -135,6 +135,10 @@ pub struct ScicoApp {
     resizable: Entity<ResizableState>,
     settings_resizable: Entity<ResizableState>,
     last_panes: (bool, bool),
+    /// The last title handed to the platform. Sending it every frame makes
+    /// an X11 round-trip and a Wayland request for a string that did not
+    /// change.
+    last_window_title: Option<String>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -301,6 +305,7 @@ impl ScicoApp {
             resizable: cx.new(|_| ResizableState::default()),
             settings_resizable: cx.new(|_| ResizableState::default()),
             last_panes: initial_panes,
+            last_window_title: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -1861,7 +1866,11 @@ impl Render for ScicoApp {
             .active_document()
             .map(|document| document.title.to_string())
             .unwrap_or_else(|| "Scico".to_owned());
-        window.set_window_title(&format!("Scico — {active_title}"));
+        let window_title = format!("Scico — {active_title}");
+        if self.last_window_title.as_deref() != Some(window_title.as_str()) {
+            window.set_window_title(&window_title);
+            self.last_window_title = Some(window_title.clone());
+        }
         let theme = cx.theme();
 
         let body: gpui_kit::AnyElement = if self.show_settings {
@@ -1903,7 +1912,7 @@ impl Render for ScicoApp {
 
         #[cfg(target_os = "linux")]
         if needs_client_title_bar(window.window_decorations(), window.is_fullscreen()) {
-            root = root.child(client_title_bar(&format!("Scico — {active_title}"), cx));
+            root = root.child(client_title_bar(&window_title, cx));
         }
 
         root.child(div().flex_1().min_h(px(0.)).child(body))
@@ -2043,6 +2052,202 @@ mod tests {
             cx.update(|window, cx| window.draw(cx).clear(cx));
             cx.run_until_parked();
         }
+    }
+
+    #[cfg(editor_gpuikit)]
+    #[gpui_kit::test]
+    fn editor_repaints_do_not_materialize_the_buffer(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        // Prime the observer's fingerprint once; the first notification after
+        // construction always has to inspect the buffer.
+        cx.update(|_, cx| {
+            editor.update(cx, |_, cx| cx.notify());
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let before = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .observer_updates
+        });
+
+        // Hover, scroll and table affordances notify the editor without changing
+        // its text or caret. That must not copy and hash the whole buffer.
+        cx.update(|_, cx| {
+            editor.update(cx, |_, cx| cx.notify());
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(
+                document.observer_updates, before,
+                "a repaint-only notification materialized the buffer"
+            );
+        });
+
+        type_into_active(cx, &app, "x");
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert!(
+                document.observer_updates > before,
+                "a real edit must still update the document"
+            );
+        });
+    }
+
+    #[cfg(editor_gpuikit)]
+    #[gpui_kit::test]
+    fn typing_with_the_preview_hidden_does_not_parse_markdown(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| state.set_show_preview(false, cx));
+        });
+
+        type_into_active(cx, &app, "hello");
+
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(
+                document.preview_text_updates, 0,
+                "typing with the preview hidden must not hand it new source"
+            );
+            assert_eq!(
+                document.block_builds, 0,
+                "typing with the preview hidden must not parse Markdown blocks"
+            );
+            assert!(document.preview_dirty);
+            assert!(document.blocks_dirty);
+        });
+
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| state.set_show_preview(true, cx));
+        });
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert!(
+                document.preview_text_updates > 0,
+                "showing the preview must catch up once"
+            );
+            assert!(
+                document.block_builds > 0,
+                "showing the preview must rebuild its block map"
+            );
+            assert!(!document.preview_dirty);
+            assert!(!document.blocks_dirty);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn only_reference_changes_invalidate_the_library_rows(cx: &mut TestAppContext) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let library = cx.update(|_, cx| app.read(cx).workspace.read(cx).library_for_test());
+        let notifications = Rc::new(Cell::new(0usize));
+        let counter = notifications.clone();
+        cx.update(|_, cx| {
+            cx.observe(&library, move |_, _| {
+                counter.set(counter.get() + 1);
+            })
+            .detach();
+        });
+        cx.run_until_parked();
+        notifications.set(0);
+
+        // An editor keystroke notifies the app state. The reference rows do not
+        // depend on the document, so they must stay untouched.
+        cx.update(|_, cx| {
+            state.update(cx, |state, cx| {
+                state.status = "typed".into();
+                cx.notify();
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            notifications.get(),
+            0,
+            "an unrelated state notification rebuilt the reference rows"
+        );
+
+        // A direct notification still reaches the observer, so the zero above
+        // means the filter rejected the state change, not that the wiring died.
+        cx.update(|_, cx| {
+            library.update(cx, |_, cx| cx.notify());
+        });
+        assert!(
+            notifications.get() > 0,
+            "the library observer must still receive its own notifications"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn the_reference_list_builds_only_visible_rows(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let library = cx.update(|_, cx| app.read(cx).workspace.read(cx).library_for_test());
+        let entries = (0..500)
+            .map(|index| ragrig_gpui::ReferenceEntry {
+                key: format!("Key{index}"),
+                authors: format!("Author {index}"),
+                year: "2026".to_owned(),
+                title: format!("Paper number {index}"),
+                source: "Journal".to_owned(),
+                path: None,
+            })
+            .collect::<Vec<_>>();
+        cx.update(|_, cx| {
+            library.update(cx, |library, cx| library.set_entries_for_test(entries, cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let first = cx
+            .debug_bounds("library-row-0")
+            .expect("the first reference row must be laid out");
+        let fifth = cx
+            .debug_bounds("library-row-4")
+            .expect("the virtual list must fill the visible pane, not a single row");
+        assert!(
+            fifth.bottom() > first.bottom(),
+            "rows must advance down the list"
+        );
+        assert!(
+            cx.debug_bounds("library-row-499").is_none(),
+            "a 500-row bibliography must not build off-screen rows"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_typing_burst_reaches_the_session_journal(cx: &mut TestAppContext) {
+        let (settings_path, session_path) = scratch_paths();
+        let (app, cx) = mount_at(cx, settings_path, session_path.clone());
+
+        type_into_active(cx, &app, "journal me");
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(400));
+        cx.run_until_parked();
+
+        let (session, error) = SessionState::load(&session_path);
+        assert!(error.is_none(), "{error:?}");
+        let session = session.expect("session journal");
+        assert!(
+            session
+                .documents
+                .iter()
+                .any(|document| document.text.contains("journal me")),
+            "the debounced save must journal typed text"
+        );
     }
 
     #[gpui_kit::test]

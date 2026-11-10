@@ -12,6 +12,8 @@
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 use serde::{Deserialize, Serialize};
 
@@ -138,6 +140,146 @@ impl SessionState {
     }
 }
 
+/// Writes session snapshots in order, usually off the UI thread.
+///
+/// A snapshot contains every open buffer, so serializing and writing it on the
+/// UI thread stalls typing for tens of milliseconds on a large document. The
+/// debounced edit path uses [`Self::write`], which only hands the snapshot to a
+/// writer thread; explicit actions use [`Self::write_blocking`] so closing and
+/// saving stay durable.
+///
+/// Requests are processed in FIFO order. An explicit write therefore always
+/// lands after every edit that was queued before it, and cannot be overwritten
+/// by an older background snapshot.
+pub struct SessionWriter {
+    path: PathBuf,
+    sync: bool,
+    sender: Option<mpsc::Sender<WriteRequest>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+struct WriteRequest {
+    snapshot: SessionState,
+    done: Option<mpsc::Sender<Result<(), String>>>,
+}
+
+impl SessionWriter {
+    /// Create a writer for `path`.
+    ///
+    /// `sync` writes on the calling thread. Tests set it so their file
+    /// assertions are deterministic; production leaves it `false` and gets a
+    /// named writer thread.
+    pub fn new(path: PathBuf, sync: bool) -> Self {
+        if sync {
+            return Self {
+                path,
+                sync: true,
+                sender: None,
+                thread: None,
+            };
+        }
+
+        let (sender, receiver) = mpsc::channel::<WriteRequest>();
+        let writer_path = path.clone();
+        let spawned = thread::Builder::new()
+            .name("scico-session".to_owned())
+            .spawn(move || {
+                while let Ok(request) = receiver.recv() {
+                    let result = request.snapshot.save(&writer_path);
+                    match (result, request.done) {
+                        (result, Some(done)) => {
+                            let _ = done.send(result);
+                        }
+                        (Err(error), None) => {
+                            eprintln!("session not saved: {error}");
+                        }
+                        (Ok(()), None) => {}
+                    }
+                }
+            });
+
+        match spawned {
+            Ok(thread) => Self {
+                path,
+                sync: false,
+                sender: Some(sender),
+                thread: Some(thread),
+            },
+            // Without a writer thread the session must still be saved; fall
+            // back to the calling thread instead of dropping snapshots.
+            Err(_) => Self {
+                path,
+                sync: true,
+                sender: None,
+                thread: None,
+            },
+        }
+    }
+
+    /// Queue a snapshot for the writer thread, or write it now in sync mode.
+    ///
+    /// Errors are reported on stderr in async mode. The caller has already
+    /// recorded the snapshot as written, so this is not treated as a fatal
+    /// condition on the typing path.
+    pub fn write(&self, snapshot: SessionState) {
+        if self.sync {
+            if let Err(error) = snapshot.save(&self.path) {
+                eprintln!("session not saved: {error}");
+            }
+            return;
+        }
+        let Some(sender) = &self.sender else {
+            if let Err(error) = snapshot.save(&self.path) {
+                eprintln!("session not saved: {error}");
+            }
+            return;
+        };
+        // A disconnected writer means the thread panicked. `SendError`
+        // returns the request, so fall back to a synchronous write rather
+        // than silently losing the snapshot.
+        if let Err(mpsc::SendError(request)) = sender.send(WriteRequest {
+            snapshot,
+            done: None,
+        }) && let Err(error) = request.snapshot.save(&self.path)
+        {
+            eprintln!("session not saved: {error}");
+        }
+    }
+
+    /// Write a snapshot and wait until it is on disk.
+    ///
+    /// Used by explicit actions (open, save, close, layout) and ordered after
+    /// any queued edits.
+    pub fn write_blocking(&self, snapshot: SessionState) -> Result<(), String> {
+        if self.sync {
+            return snapshot.save(&self.path);
+        }
+        let (done, wait) = mpsc::channel();
+        self.sender
+            .as_ref()
+            .ok_or_else(|| "the session writer is not running".to_owned())?
+            .send(WriteRequest {
+                snapshot,
+                done: Some(done),
+            })
+            .map_err(|_| "the session writer stopped".to_owned())?;
+        wait.recv()
+            .map_err(|_| "the session writer stopped".to_owned())?
+    }
+}
+
+impl Drop for SessionWriter {
+    fn drop(&mut self) {
+        // Close the queue; the thread drains the snapshots already accepted
+        // and then exits. Joining keeps a reopened window from reading a
+        // half-finished rename.
+        self.sender.take();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +377,56 @@ mod tests {
     fn the_session_sits_beside_the_settings_file() {
         let path = SessionState::path_for_settings(Path::new("/tmp/here/settings.json"));
         assert_eq!(path, PathBuf::from("/tmp/here/session.json"));
+    }
+
+    #[test]
+    fn an_asynchronous_writer_writes_snapshots_in_order() {
+        let dir = scratch();
+        let path = dir.join("session.json");
+        let writer = SessionWriter::new(path.clone(), false);
+
+        let mut first = sample();
+        first.active = 0;
+        let mut second = sample();
+        second.active = 1;
+        second.documents[0].text = "second".to_owned();
+
+        writer.write(first);
+        writer.write(second.clone());
+        // Waiting for the third write also proves the first two were processed;
+        // the queue is FIFO.
+        writer.write_blocking(sample()).expect("flush");
+        drop(writer);
+
+        let (loaded, error) = SessionState::load(&path);
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(loaded, Some(sample()), "the last snapshot wins");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_explicit_write_is_visible_before_it_returns() {
+        let dir = scratch();
+        let path = dir.join("session.json");
+        let writer = SessionWriter::new(path.clone(), false);
+        writer.write(sample());
+        writer.write_blocking(sample()).expect("explicit write");
+
+        let (loaded, error) = SessionState::load(&path);
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(loaded, Some(sample()));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_synchronous_writer_keeps_tests_deterministic() {
+        let dir = scratch();
+        let path = dir.join("session.json");
+        let writer = SessionWriter::new(path.clone(), true);
+        writer.write(sample());
+
+        let (loaded, _) = SessionState::load(&path);
+        assert_eq!(loaded, Some(sample()));
+        let _ = fs::remove_dir_all(dir);
     }
 }

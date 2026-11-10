@@ -1,20 +1,23 @@
 //! The library pipeline: bibliography rows, corpus actions, and status.
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use gpui_kit::{
-    App, AppContext as _, ClipboardItem, Context, ElementId, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement as _, PathPromptOptions, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    AnyElement, App, AppContext as _, ClipboardItem, Context, ElementId, Entity, FocusHandle,
+    Focusable, InteractiveElement as _, IntoElement, ListAlignment, ListState, ParentElement as _,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, WeakEntity, Window,
     assets::IconName,
     component::{
-        ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _,
+        ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, Theme,
         button::{Button, ButtonVariants as _},
         h_flex,
         input::{Input, InputEvent, InputState},
+        scroll::ScrollableElement as _,
         v_flex,
     },
-    div,
+    div, list,
     prelude::FluentBuilder as _,
     px,
 };
@@ -28,7 +31,13 @@ use crate::workspace;
 pub struct LibraryPane {
     state: Entity<AppState>,
     agent: Entity<AgentPane>,
-    entries: Vec<ReferenceEntry>,
+    entries: Rc<Vec<ReferenceEntry>>,
+    /// Entry indices that pass the current filter, in list order.
+    visible: Rc<Vec<usize>>,
+    /// The filter text `visible` was computed from.
+    last_filter: String,
+    /// Virtual-list state for the reference rows.
+    list: ListState,
     bibliography: Option<PathBuf>,
     report: Option<ReferenceReport>,
     filter: Entity<InputState>,
@@ -69,7 +78,9 @@ impl LibraryPane {
                     this.refresh_references(cx);
                 }
             }
-            cx.notify();
+            // Every editor keystroke notifies the app state. The reference
+            // rows do not depend on the document, so rebuilding them here
+            // made typing scale with the bibliography size.
         }));
 
         let (corpus, bibliography, references_revision) = {
@@ -84,7 +95,10 @@ impl LibraryPane {
         let mut this = Self {
             state,
             agent,
-            entries: Vec::new(),
+            entries: Rc::new(Vec::new()),
+            visible: Rc::new(Vec::new()),
+            last_filter: String::new(),
+            list: ListState::new(0, ListAlignment::Top, px(400.)),
             bibliography,
             report: None,
             filter,
@@ -287,8 +301,7 @@ impl LibraryPane {
                 entries,
                 bibliography,
             } => {
-                self.selected.retain_existing(&entries);
-                self.entries = entries;
+                self.replace_entries(entries, cx);
                 self.bibliography = Some(bibliography.clone());
                 self.set_status(
                     format!(
@@ -432,6 +445,28 @@ impl LibraryPane {
 }
 
 impl LibraryPane {
+    /// Replace the rows while keeping the selection and filter coherent.
+    fn replace_entries(&mut self, entries: Vec<ReferenceEntry>, cx: &mut Context<Self>) {
+        let filter = self.filter.read(cx).value().trim().to_lowercase();
+        self.selected.retain_existing(&entries);
+        self.entries = Rc::new(entries);
+        self.visible = Rc::new(filtered_indices(&self.entries, &filter));
+        self.last_filter = filter;
+        self.list
+            .reset_with_uniform_height(self.visible.len(), REFERENCE_ROW_HEIGHT);
+    }
+
+    /// Install fabricated rows for layout tests.
+    #[cfg(test)]
+    pub(crate) fn set_entries_for_test(
+        &mut self,
+        entries: Vec<ReferenceEntry>,
+        cx: &mut Context<Self>,
+    ) {
+        self.replace_entries(entries, cx);
+        cx.notify();
+    }
+
     /// Whether a GROBID reference run currently owns the bibliography.
     fn extracting(&self, cx: &App) -> bool {
         self.state
@@ -526,6 +561,12 @@ impl Render for LibraryPane {
             (state.bibliography.clone(), state.bibliography_open())
         };
         let filter = self.filter.read(cx).value().trim().to_lowercase();
+        if filter != self.last_filter {
+            self.last_filter = filter.clone();
+            self.visible = Rc::new(filtered_indices(&self.entries, &filter));
+            self.list
+                .reset_with_uniform_height(self.visible.len(), REFERENCE_ROW_HEIGHT);
+        }
         let selected_entries: Vec<ReferenceEntry> = self
             .selected
             .entries(&self.entries)
@@ -597,7 +638,7 @@ impl Render for LibraryPane {
             .tooltip("Reload the bibliography")
             .on_click(cx.listener(|this, _, _, cx| this.refresh_references(cx)));
 
-        let mut body = v_flex().gap_2();
+        let mut body = v_flex().gap_2().size_full();
         body = body.child(
             h_flex()
                 .gap_1()
@@ -687,190 +728,47 @@ impl Render for LibraryPane {
                     }),
             );
         } else {
-            let mut shown = 0usize;
-            for (index, entry) in self.entries.iter().enumerate() {
-                let haystack = format!(
-                    "{} {} {} {} {}",
-                    entry.key, entry.authors, entry.year, entry.title, entry.source
-                )
-                .to_lowercase();
-                if !filter.is_empty() && !haystack.contains(&filter) {
-                    continue;
-                }
-                shown += 1;
-                let key = entry.key.clone();
-                let row_key = key.clone();
-                let edit_key = key.clone();
-                let is_selected = self.selected.contains(&key);
-                let path = entry.path.clone();
-                let title = entry.display_title().to_owned();
-                let meta = entry.meta_line();
-                let key_label = entry.copy_key_text();
-
-                let copy_key = {
-                    let key = key.clone();
-                    Button::new(ElementId::Name(format!("library-copy-key-{index}").into()))
-                        .icon(IconName::Copy)
-                        .xsmall()
-                        .ghost()
-                        .tooltip("Copy @key")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            cx.write_to_clipboard(ClipboardItem::new_string(format!("@{key}")));
-                            this.set_status(format!("Copied @{key}"), cx);
-                        }))
+            let entries = self.entries.clone();
+            let visible = self.visible.clone();
+            let selection = self.selected.clone();
+            let row_theme = theme.clone();
+            let row_owner = cx.entity().downgrade();
+            let row_count = visible.len();
+            let visible_rows = visible.clone();
+            let rows = list(self.list.clone(), move |index, _, _| {
+                let Some(entry_index) = visible_rows.get(index).copied() else {
+                    return div().into_any_element();
                 };
-                let copy_path = match path.clone() {
-                    Some(path) => {
-                        Button::new(ElementId::Name(format!("library-copy-path-{index}").into()))
-                            .icon(IconName::FileText)
-                            .xsmall()
-                            .ghost()
-                            .tooltip("Copy path")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                    path.display().to_string(),
-                                ));
-                                this.set_status(format!("Copied {}", path.display()), cx);
-                            }))
-                    }
-                    None => {
-                        Button::new(ElementId::Name(format!("library-copy-path-{index}").into()))
-                            .icon(IconName::FileText)
-                            .xsmall()
-                            .ghost()
-                            .disabled(true)
-                            .tooltip("No PDF path")
-                    }
+                let Some(entry) = entries.get(entry_index) else {
+                    return div().into_any_element();
                 };
-                let open_paper = match path {
-                    Some(path) => {
-                        Button::new(ElementId::Name(format!("library-open-{index}").into()))
-                            .icon(IconName::FolderOpen)
-                            .xsmall()
-                            .ghost()
-                            .tooltip("Open with the configured viewer")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let result = this.state.read(cx).open_external(&path);
-                                match result {
-                                    Ok(()) => {
-                                        this.set_status(format!("Opened {}", path.display()), cx)
-                                    }
-                                    Err(error) => this.set_status(error, cx),
-                                }
-                            }))
-                    }
-                    None => Button::new(ElementId::Name(format!("library-open-{index}").into()))
-                        .icon(IconName::FolderOpen)
-                        .xsmall()
-                        .ghost()
-                        .disabled(true)
-                        .tooltip("No PDF path"),
-                };
-                let edit_bib =
-                    Button::new(ElementId::Name(format!("library-edit-bib-{index}").into()))
-                        .icon(IconName::Pencil)
-                        .xsmall()
-                        .ghost()
-                        .tooltip("Edit in BibTeX")
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.edit_in_bibtex(edit_key.clone(), window, cx);
-                        }));
-                let select = Button::new(ElementId::Name(format!("library-select-{index}").into()))
-                    .icon(if is_selected {
-                        IconName::Check
-                    } else {
-                        IconName::Plus
-                    })
-                    .xsmall()
-                    .ghost()
-                    .selected(is_selected)
-                    .tooltip(if is_selected { "Deselect" } else { "Select" })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.toggle_selection(key.clone(), cx);
-                    }));
-
-                let row = h_flex()
-                    .id(ElementId::Name(format!("library-row-{index}").into()))
-                    .group("library-row")
-                    .items_center()
-                    .gap_2()
-                    .p_2()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(if is_selected {
-                        theme.primary.opacity(0.55)
-                    } else {
-                        theme.border
-                    })
-                    .when(is_selected, |row| row.bg(theme.primary.opacity(0.10)))
-                    .hover(|row| row.bg(theme.muted.opacity(0.28)))
-                    .cursor_pointer()
-                    .child(select)
-                    .child(
-                        div()
-                            .w(px(3.))
-                            .h(px(30.))
-                            .flex_none()
-                            .rounded_full()
-                            .bg(theme.primary.opacity(if is_selected { 1.0 } else { 0.6 })),
-                    )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .text_xs()
-                                            .text_color(theme.primary)
-                                            .child(key_label),
-                                    )
-                                    .when(!meta.is_empty(), |row| {
-                                        row.child(
-                                            div()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .child(meta),
-                                        )
-                                    }),
-                            )
-                            .child(div().min_w_0().truncate().text_sm().child(title)),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            .gap_1()
-                            .opacity(0.45)
-                            .group_hover("library-row", |row| row.opacity(1.0))
-                            .child(edit_bib)
-                            .child(copy_key)
-                            .child(copy_path)
-                            .child(open_paper),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.insert_citation(row_key.clone(), window, cx);
-                    }));
-                body = body.child(row);
-            }
-            if !filter.is_empty() {
-                body = body.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(format!("{shown} of {} references", self.entries.len())),
+                let row = reference_row(
+                    entry_index,
+                    entry,
+                    selection.contains(&entry.key),
+                    &row_theme,
+                    &row_owner,
                 );
+                if index + 1 < row_count {
+                    div().pb_2().child(row).into_any_element()
+                } else {
+                    row
+                }
+            })
+            .size_full()
+            .py_1();
+            body = body.child(
+                div()
+                    .id("library-reference-list")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .vertical_scrollbar(&self.list)
+                    .child(rows),
+            );
+            if !filter.is_empty() {
+                body = body.child(div().text_xs().text_color(theme.muted_foreground).child(
+                    format!("{} of {} references", visible.len(), self.entries.len()),
+                ));
             }
         }
 
@@ -895,6 +793,236 @@ impl Focusable for LibraryPane {
     fn focus_handle(&self, _: &gpui_kit::App) -> FocusHandle {
         self.focus_handle.clone()
     }
+}
+
+/// Approximate row height; the virtual list replaces it with measured values
+/// for rows that have been on screen.
+const REFERENCE_ROW_HEIGHT: gpui_kit::Pixels = px(66.);
+
+/// Entry indices that pass the filter, in bibliography order.
+fn filtered_indices(entries: &[ReferenceEntry], filter: &str) -> Vec<usize> {
+    if filter.is_empty() {
+        return (0..entries.len()).collect();
+    }
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| {
+            format!(
+                "{} {} {} {} {}",
+                entry.key, entry.authors, entry.year, entry.title, entry.source
+            )
+            .to_lowercase()
+            .contains(filter)
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// One reference row.
+///
+/// Rows are built by the virtual list rather than up front for the whole
+/// bibliography, so their actions update the owning pane through a weak
+/// handle instead of `cx.listener`.
+fn reference_row(
+    index: usize,
+    entry: &ReferenceEntry,
+    is_selected: bool,
+    theme: &Theme,
+    owner: &WeakEntity<LibraryPane>,
+) -> AnyElement {
+    let key = entry.key.clone();
+    let row_key = key.clone();
+    let edit_key = key.clone();
+    let path = entry.path.clone();
+    let title = entry.display_title().to_owned();
+    let meta = entry.meta_line();
+    let key_label = entry.copy_key_text();
+
+    let copy_key = {
+        let key = key.clone();
+        let owner = owner.clone();
+        Button::new(ElementId::Name(format!("library-copy-key-{index}").into()))
+            .icon(IconName::Copy)
+            .xsmall()
+            .ghost()
+            .tooltip("Copy @key")
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                cx.write_to_clipboard(ClipboardItem::new_string(format!("@{key}")));
+                if let Some(owner) = owner.upgrade() {
+                    owner.update(cx, |this, cx| {
+                        this.set_status(format!("Copied @{key}"), cx);
+                    });
+                }
+            })
+    };
+    let copy_path = match path.clone() {
+        Some(path) => {
+            let owner = owner.clone();
+            Button::new(ElementId::Name(format!("library-copy-path-{index}").into()))
+                .icon(IconName::FileText)
+                .xsmall()
+                .ghost()
+                .tooltip("Copy path")
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(ClipboardItem::new_string(path.display().to_string()));
+                    if let Some(owner) = owner.upgrade() {
+                        owner.update(cx, |this, cx| {
+                            this.set_status(format!("Copied {}", path.display()), cx);
+                        });
+                    }
+                })
+        }
+        None => Button::new(ElementId::Name(format!("library-copy-path-{index}").into()))
+            .icon(IconName::FileText)
+            .xsmall()
+            .ghost()
+            .disabled(true)
+            .tooltip("No PDF path"),
+    };
+    let open_paper = match path {
+        Some(path) => {
+            let owner = owner.clone();
+            Button::new(ElementId::Name(format!("library-open-{index}").into()))
+                .icon(IconName::FolderOpen)
+                .xsmall()
+                .ghost()
+                .tooltip("Open with the configured viewer")
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(owner) = owner.upgrade() {
+                        owner.update(cx, |this, cx| {
+                            let result = this.state.read(cx).open_external(&path);
+                            match result {
+                                Ok(()) => this.set_status(format!("Opened {}", path.display()), cx),
+                                Err(error) => this.set_status(error, cx),
+                            }
+                        });
+                    }
+                })
+        }
+        None => Button::new(ElementId::Name(format!("library-open-{index}").into()))
+            .icon(IconName::FolderOpen)
+            .xsmall()
+            .ghost()
+            .disabled(true)
+            .tooltip("No PDF path"),
+    };
+    let edit_bib = {
+        let owner = owner.clone();
+        Button::new(ElementId::Name(format!("library-edit-bib-{index}").into()))
+            .icon(IconName::Pencil)
+            .xsmall()
+            .ghost()
+            .tooltip("Edit in BibTeX")
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                if let Some(owner) = owner.upgrade() {
+                    owner.update(cx, |this, cx| {
+                        this.edit_in_bibtex(edit_key.clone(), window, cx);
+                    });
+                }
+            })
+    };
+    let select = {
+        let owner = owner.clone();
+        Button::new(ElementId::Name(format!("library-select-{index}").into()))
+            .icon(if is_selected {
+                IconName::Check
+            } else {
+                IconName::Plus
+            })
+            .xsmall()
+            .ghost()
+            .selected(is_selected)
+            .tooltip(if is_selected { "Deselect" } else { "Select" })
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                if let Some(owner) = owner.upgrade() {
+                    owner.update(cx, |this, cx| {
+                        this.toggle_selection(key.clone(), cx);
+                    });
+                }
+            })
+    };
+
+    let owner = owner.clone();
+    h_flex()
+        .id(ElementId::Name(format!("library-row-{index}").into()))
+        .debug_selector(|| format!("library-row-{index}"))
+        .group("library-row")
+        .items_center()
+        .gap_2()
+        .p_2()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(if is_selected {
+            theme.primary.opacity(0.55)
+        } else {
+            theme.border
+        })
+        .when(is_selected, |row| row.bg(theme.primary.opacity(0.10)))
+        .hover(|row| row.bg(theme.muted.opacity(0.28)))
+        .cursor_pointer()
+        .child(select)
+        .child(
+            div()
+                .w(px(3.))
+                .h(px(30.))
+                .flex_none()
+                .rounded_full()
+                .bg(theme.primary.opacity(if is_selected { 1.0 } else { 0.6 })),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_xs()
+                                .text_color(theme.primary)
+                                .child(key_label),
+                        )
+                        .when(!meta.is_empty(), |row| {
+                            row.child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(meta),
+                            )
+                        }),
+                )
+                .child(div().min_w_0().truncate().text_sm().child(title)),
+        )
+        .child(
+            h_flex()
+                .flex_none()
+                .gap_1()
+                .opacity(0.45)
+                .group_hover("library-row", |row| row.opacity(1.0))
+                .child(edit_bib)
+                .child(copy_key)
+                .child(copy_path)
+                .child(open_paper),
+        )
+        .on_click(move |_, window, cx| {
+            if let Some(owner) = owner.upgrade() {
+                owner.update(cx, |this, cx| {
+                    this.insert_citation(row_key.clone(), window, cx);
+                });
+            }
+        })
+        .into_any_element()
 }
 
 /// The canonical import target: the workspace's own `corpus/` folder.

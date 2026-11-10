@@ -90,6 +90,22 @@ pub struct Document {
     /// Top-level Markdown blocks and their source positions.
     #[cfg(editor_gpuikit)]
     pub blocks: Vec<SourceBlock>,
+    /// Whether [`Self::blocks`] was invalidated by an edit and must be rebuilt
+    /// before a scroll sync reads it.
+    #[cfg(editor_gpuikit)]
+    pub blocks_dirty: bool,
+    /// Whether the preview text is behind the editor because it was hidden.
+    #[cfg(editor_gpuikit)]
+    pub preview_dirty: bool,
+    /// Test observation: how often the observer materialized the buffer.
+    #[cfg(all(test, editor_gpuikit))]
+    pub observer_updates: u64,
+    /// Test observation: how often the preview text received new source.
+    #[cfg(all(test, editor_gpuikit))]
+    pub preview_text_updates: u64,
+    /// Test observation: how often the block map was rebuilt.
+    #[cfg(all(test, editor_gpuikit))]
+    pub block_builds: u64,
     /// The preview's current top block, to avoid feedback loops.
     #[cfg(editor_gpuikit)]
     pub preview_top: usize,
@@ -360,6 +376,16 @@ impl Document {
             #[cfg(editor_gpuikit)]
             blocks,
             #[cfg(editor_gpuikit)]
+            blocks_dirty: false,
+            #[cfg(editor_gpuikit)]
+            preview_dirty: false,
+            #[cfg(all(test, editor_gpuikit))]
+            preview_text_updates: 0,
+            #[cfg(all(test, editor_gpuikit))]
+            observer_updates: 0,
+            #[cfg(all(test, editor_gpuikit))]
+            block_builds: 0,
+            #[cfg(editor_gpuikit)]
             preview_top: 0,
             #[cfg(editor_gpuikit)]
             preview_source_offset: 0.0,
@@ -386,12 +412,43 @@ impl Document {
         }
     }
 
-    /// Send new source to the preview and rebuild the block map.
+    /// Send new source to the preview.
+    ///
+    /// The block map used for scroll sync is *not* rebuilt here: parsing the
+    /// whole document on every keystroke was the dominant typing cost. It is
+    /// invalidated instead and rebuilt once, after the edit burst settles, by
+    /// [`Self::rebuild_blocks`].
     #[cfg(editor_gpuikit)]
     pub fn refresh_preview(&mut self, text: &str, cx: &mut App) {
-        self.blocks = source_blocks(text);
         self.preview
             .update(cx, |preview, cx| preview.set_text(text, cx));
+        self.preview_dirty = false;
+        self.blocks_dirty = true;
+        #[cfg(test)]
+        {
+            self.preview_text_updates += 1;
+        }
+    }
+
+    /// Mark the preview as behind the editor without parsing or rendering it.
+    ///
+    /// Called while the preview is hidden. Showing it refreshes the text and
+    /// the block map from the editor's current value.
+    #[cfg(editor_gpuikit)]
+    pub fn mark_preview_dirty(&mut self) {
+        self.preview_dirty = true;
+        self.blocks_dirty = true;
+    }
+
+    /// Rebuild the block map from `text` after an edit invalidated it.
+    #[cfg(editor_gpuikit)]
+    pub fn rebuild_blocks(&mut self, text: &str) {
+        self.blocks = source_blocks(text);
+        self.blocks_dirty = false;
+        #[cfg(test)]
+        {
+            self.block_builds += 1;
+        }
     }
 
     /// The top-level block that contains `byte`, clamped to the block list.

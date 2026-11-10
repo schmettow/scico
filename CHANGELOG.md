@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Performance
+
+- Typing, scrolling, and hovering no longer rebuild the whole workspace in
+  `src/library.rs`, `src/state.rs`, and `src/document.rs`:
+  - the reference list is virtualized, so a bibliography of any size builds only
+    the visible rows;
+  - the library and Chat panes ignore app-state notifications that do not change
+    their content;
+  - the editor observer recognizes hover/scroll repaints without copying and
+    hashing the buffer;
+  - Markdown block parsing for preview scroll sync is deferred until it is
+    needed and is skipped entirely while the preview is hidden.
+- Session journal serialization and writes run on a writer thread in
+  `src/session.rs`; explicit saves and window close still wait for the file.
+  This removes the 40–200 ms stall that followed a typing pause on a large
+  document.
+- The window title is sent to the platform only when it changes
+  (`src/app.rs`), avoiding a request per frame on Wayland and X11.
+
 ## v0.7.0 — 2026-11-08
 
 ### Added

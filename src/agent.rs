@@ -124,7 +124,26 @@ impl AgentPane {
         subscriptions.push(cx.subscribe(&controller, |this, _, event: &RagEvent, cx| {
             this.on_rag_event(event.clone(), cx);
         }));
-        subscriptions.push(cx.observe(&state, |_, _, cx| cx.notify()));
+        // Every editor keystroke notifies the app state, but the pane only
+        // shows the attached-context chips and the active document's name.
+        // Re-rendering the transcript chrome for each keystroke made typing
+        // contend with the library and chat layout for no visible change.
+        let mut last_context = None;
+        subscriptions.push(cx.observe(&state, move |_, state, cx| {
+            let state = state.read(cx);
+            let document = state.active_document();
+            let signature = (
+                document.map(|document| document.id),
+                document.map(|document| document.title.clone()),
+                state.document_attached,
+                state.library_attached,
+                state.bibliography.clone(),
+            );
+            if last_context != Some(signature.clone()) {
+                last_context = Some(signature);
+                cx.notify();
+            }
+        }));
 
         let status = controller.read(cx).status_line();
         let roundtrip = Roundtrip::new(Rc::new(AppStateHost {

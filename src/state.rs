@@ -1,8 +1,10 @@
 //! Application state: documents, workspace paths, and the RAG controller.
 
+use std::cell::Cell;
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::Duration;
 
 #[cfg(editor_gpuikit)]
@@ -28,7 +30,7 @@ use ragrig_gpui::{
 use zorite_editor::EditorEvent;
 
 use crate::document::{Document, EditorState, SyntaxStyle, read_document, title_for};
-use crate::session::{SessionDocument, SessionState};
+use crate::session::{SessionDocument, SessionState, SessionWriter};
 use crate::settings::{CHAT_PROMPT, CHAT_PROMPT_FILE, PersistedSettings};
 use crate::theme::syntax_style;
 use crate::workspace::{self, WorkspaceReport};
@@ -60,6 +62,8 @@ pub struct AppState {
     pub session_path: PathBuf,
     /// The last snapshot written to `session_path`.
     last_session: Option<SessionState>,
+    /// Writes snapshots without blocking the UI thread.
+    session_writer: SessionWriter,
     /// The editable Ragrig settings.
     pub rag: Entity<RagSettings>,
     /// The configuration last handed to the worker.
@@ -366,11 +370,13 @@ impl AppState {
             } else {
                 default_editor_font_size(cx)
             };
+        let session_writer = SessionWriter::new(session_path.clone(), cx.is_test());
         let mut state = Self {
             settings: persisted,
             settings_path,
             session_path,
             last_session: restored_session.clone(),
+            session_writer,
             rag,
             applied_rag,
             controller,
@@ -537,9 +543,21 @@ impl AppState {
     /// A single selected space counts: the toolbar acts on marked text, not on
     /// whether that text is non-blank. A collapsed caret is not a selection.
     pub fn has_selection(&self, window: &mut Window, cx: &mut App) -> bool {
-        self.active_document()
-            .and_then(|document| document.selection_chars(window, cx))
-            .is_some_and(|range| !range.is_empty())
+        #[cfg(editor_gpuikit)]
+        {
+            // The editor exposes the selected byte range directly. Going
+            // through `selection_chars` materialized the whole document on
+            // every frame that rebuilt the toolbar.
+            let _ = window;
+            self.active_document()
+                .is_some_and(|document| !document.editor.read(cx).selected_range().is_empty())
+        }
+        #[cfg(editor_zorite)]
+        {
+            self.active_document()
+                .and_then(|document| document.selection_chars(window, cx))
+                .is_some_and(|range| !range.is_empty())
+        }
     }
 
     /// The active document mutably, if any.
@@ -849,10 +867,24 @@ impl AppState {
         if self.last_session.as_ref() == Some(&snapshot) {
             return;
         }
-        match snapshot.save(&self.session_path) {
+        match self.session_writer.write_blocking(snapshot.clone()) {
             Ok(()) => self.last_session = Some(snapshot),
             Err(error) => self.status = format!("Session not saved: {error}").into(),
         }
+    }
+
+    /// Hand the current session snapshot to the writer thread.
+    ///
+    /// Used by the debounced edit path: serializing every open buffer and
+    /// renaming the journal file took 40–200 ms on the UI thread for a large
+    /// document, which was visible as a stutter right after typing stopped.
+    fn persist_session_async(&mut self, cx: &App) {
+        let snapshot = self.session_snapshot(cx);
+        if self.last_session.as_ref() == Some(&snapshot) {
+            return;
+        }
+        self.last_session = Some(snapshot.clone());
+        self.session_writer.write(snapshot);
     }
 
     /// Debounce a session write after content edits.
@@ -871,7 +903,7 @@ impl AppState {
                 .update(cx, |this, _| this.session_generation == generation)
                 .unwrap_or(false);
             if still_current {
-                let _ = this.update(cx, |this, cx| this.persist_session(cx));
+                let _ = this.update(cx, |this, cx| this.persist_session_async(cx));
             }
         })
         .detach();
@@ -1282,6 +1314,30 @@ impl AppState {
         );
     }
 
+    /// Bring the preview text and block map up to date after hidden edits.
+    ///
+    /// The editor observer deliberately defers both while the preview is
+    /// hidden; this is the one place that pays for them, once, when the
+    /// preview is shown again or needs to be scroll-synced.
+    #[cfg(editor_gpuikit)]
+    fn refresh_preview_if_stale(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(document) = self.document(id) else {
+            return;
+        };
+        if !document.preview_dirty && !document.blocks_dirty {
+            return;
+        }
+        let text = document.text(cx);
+        if let Some(document) = self.document_mut(id) {
+            if document.preview_dirty {
+                document.refresh_preview(&text, cx);
+            }
+            if document.blocks_dirty {
+                document.rebuild_blocks(&text);
+            }
+        }
+    }
+
     /// Move the preview to the source block at the top of the editor.
     ///
     /// This is the editor-to-preview half of the two-way link. It never runs
@@ -1293,6 +1349,7 @@ impl AppState {
         if !self.sync_scroll || !self.show_preview {
             return;
         }
+        self.refresh_preview_if_stale(id, cx);
         let Some(document) = self.document(id) else {
             return;
         };
@@ -1380,6 +1437,7 @@ impl AppState {
         if !self.sync_scroll || !self.show_preview {
             return;
         }
+        self.refresh_preview_if_stale(id, cx);
 
         let (top, line, editor, current, learned) = {
             let Some(document) = self.document(id) else {
@@ -1611,6 +1669,7 @@ impl AppState {
     #[cfg(editor_gpuikit)]
     fn sync_active_preview(&mut self, cx: &mut Context<Self>) {
         if let Some(id) = self.active_document().map(|document| document.id) {
+            self.refresh_preview_if_stale(id, cx);
             self.sync_preview_to_editor(id, cx);
         }
     }
@@ -2394,6 +2453,34 @@ impl AppState {
         id: u64,
         cx: &mut Context<Self>,
     ) {
+        // Editor notifications also fire for hover, scroll and table
+        // affordances. Only a content change or a caret/selection move needs
+        // the buffer materialized; everything else is a repaint.
+        let content_revision = Rc::new(Cell::new(0u64));
+        #[cfg(editor_gpuikit)]
+        {
+            let revision = content_revision.clone();
+            cx.subscribe(
+                editor,
+                move |_, _, event: &gpui_kit::component::input::InputEvent, _| {
+                    if matches!(event, gpui_kit::component::input::InputEvent::Change) {
+                        revision.set(revision.get().wrapping_add(1));
+                    }
+                },
+            )
+            .detach();
+        }
+        #[cfg(editor_zorite)]
+        {
+            let revision = content_revision.clone();
+            cx.subscribe(editor, move |_, _, event: &EditorEvent, _| {
+                if matches!(event, EditorEvent::Changed) {
+                    revision.set(revision.get().wrapping_add(1));
+                }
+            })
+            .detach();
+        }
+
         #[cfg(editor_zorite)]
         cx.subscribe(
             editor,
@@ -2427,45 +2514,83 @@ impl AppState {
         // redo. Observe every notification and compare with the saved text, so
         // the dirty marker and the status bar cannot go stale. This is also the
         // only hook the gpuikit editor needs: it owns its viewport.
-        cx.observe(editor, move |this, _editor, cx| {
-            let Some((text, cursor)) = this
-                .document(id)
-                .map(|document| (document.text(cx), document.cursor_position(cx)))
-            else {
-                return;
+        let observed_revision = content_revision;
+        let mut last_revision = 0u64;
+        let mut last_fingerprint = None;
+        cx.observe(editor, move |this, editor, cx| {
+            #[cfg(editor_gpuikit)]
+            let fingerprint = {
+                let editor = editor.read(cx);
+                (
+                    editor.text().len(),
+                    editor.cursor(),
+                    editor.selected_range(),
+                )
             };
-            let Some(document) = this.document_mut(id) else {
-                return;
+            #[cfg(editor_zorite)]
+            let fingerprint = {
+                let editor = editor.read(cx);
+                (editor.text().len(), editor.cursor(), 0..0)
             };
-            let dirty = text != document.saved_text;
-            let chars = text.chars().count();
-            let digest = *blake3::hash(text.as_bytes()).as_bytes();
-            let content_changed = digest != document.content_digest;
-            let dirty_changed = dirty != document.dirty;
-            let cursor_moved = cursor != document.cursor;
-            document.dirty = dirty;
-            document.chars = chars;
-            document.cursor = cursor;
-            document.content_digest = digest;
-            // Cursor-only movements are cheap: keep them in memory and let the
-            // next edit, save, or close journal them. Writing (and fsyncing) the
-            // whole session on every arrow key is what made key repeat stutter.
-            if content_changed {
-                #[cfg(editor_gpuikit)]
-                {
-                    if let Some(document) = this.document_mut(id) {
-                        document.refresh_preview(&text, cx);
-                        document.pending_editor_scroll = false;
-                        document.preview_scroll_target = None;
-                    }
-                    this.schedule_preview_realign(id, cx);
+            let revision = observed_revision.get();
+            let context_changed =
+                revision != last_revision || last_fingerprint.as_ref() != Some(&fingerprint);
+            if context_changed {
+                last_revision = revision;
+                last_fingerprint = Some(fingerprint);
+                #[cfg(all(test, editor_gpuikit))]
+                if let Some(document) = this.document_mut(id) {
+                    document.observer_updates += 1;
                 }
-                this.schedule_session_save(cx);
-            }
-            // Hover repaints and table affordances notify the editor too; they
-            // do not change anything the rest of the window shows.
-            if content_changed || cursor_moved || dirty_changed {
-                cx.notify();
+
+                let Some((text, cursor_offset)) = this
+                    .document(id)
+                    .map(|document| (document.text(cx), document.editor.read(cx).cursor()))
+                else {
+                    return;
+                };
+                let cursor = crate::document::line_column(&text, cursor_offset);
+                let Some(document) = this.document_mut(id) else {
+                    return;
+                };
+                let dirty = text != document.saved_text;
+                let chars = text.chars().count();
+                let digest = *blake3::hash(text.as_bytes()).as_bytes();
+                let content_changed = digest != document.content_digest;
+                let dirty_changed = dirty != document.dirty;
+                let cursor_moved = cursor != document.cursor;
+                document.dirty = dirty;
+                document.chars = chars;
+                document.cursor = cursor;
+                document.content_digest = digest;
+                // Cursor-only movements are cheap: keep them in memory and let
+                // the next edit, save, or close journal them. Writing (and
+                // fsyncing) the whole session on every arrow key is what made
+                // key repeat stutter.
+                if content_changed {
+                    #[cfg(editor_gpuikit)]
+                    {
+                        let show_preview = this.show_preview;
+                        if let Some(document) = this.document_mut(id) {
+                            if show_preview {
+                                document.refresh_preview(&text, cx);
+                            } else {
+                                document.mark_preview_dirty();
+                            }
+                            document.pending_editor_scroll = false;
+                            document.preview_scroll_target = None;
+                        }
+                        if show_preview {
+                            this.schedule_preview_realign(id, cx);
+                        }
+                    }
+                    this.schedule_session_save(cx);
+                }
+                // Hover repaints and table affordances notify the editor too;
+                // they do not change anything the rest of the window shows.
+                if content_changed || cursor_moved || dirty_changed {
+                    cx.notify();
+                }
             }
             #[cfg(editor_gpuikit)]
             {

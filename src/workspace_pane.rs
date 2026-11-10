@@ -15,7 +15,7 @@ use gpui_kit::{
         button::{Button, ButtonVariants as _},
         h_flex, v_flex,
     },
-    div,
+    div, px,
 };
 use ragrig_gpui::prelude::*;
 
@@ -55,6 +55,12 @@ impl WorkspacePane {
     /// Build the workspace shell around an already-built library pipeline.
     pub fn new(state: Entity<AppState>, library: Entity<LibraryPane>) -> Self {
         Self { state, library }
+    }
+
+    /// The embedded library, for layout tests that inspect its rows.
+    #[cfg(test)]
+    pub(crate) fn library_for_test(&self) -> Entity<LibraryPane> {
+        self.library.clone()
     }
 
     fn workspace_summary(&self, cx: &App) -> WorkspaceSummary {
@@ -178,8 +184,9 @@ impl Render for WorkspacePane {
         SidePanel::new("workspace-panel", "Workspace")
             .subtitle("Persistence and synchronization")
             .toolbar(workspace_tools)
+            .scroll(false)
             .child(library_header)
-            .child(self.library.clone())
+            .child(div().flex_1().min_h(px(0.)).child(self.library.clone()))
     }
 }
 
