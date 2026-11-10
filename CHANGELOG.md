@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.7.1 — 2026-11-10
 
 ### Performance
 
@@ -25,6 +25,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document.
 - The window title is sent to the platform only when it changes
   (`src/app.rs`), avoiding a request per frame on Wayland and X11.
+
+### Quality
+
+Release validation on 2026-11-10 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 12,207 | 17,342 | 70.39% |
+| Functions | 775 | 1,265 | 61.26% |
+| Lines | 7,092 | 9,919 | 71.50% |
+
+`--all-features` selects the zorite editor (`build.rs`), so gpuikit-only files
+and branches, including `src/highlight.rs`, are not measured by this run. The
+least covered areas are the binary entry point (`src/main.rs`, 0%; the library
+is tested), the Library pane (`src/library.rs`, 49.03%; its virtual list is
+covered by the app layout tests), the agent pane (`src/agent.rs`, 42.76%), and
+the settings pages (`src/app_settings.rs`, 57.43%). The settings, startup, and
+workspace behavior lives in `src/settings.rs` (94.71% lines), `src/state.rs`
+(68.66%), and `src/workspace.rs` (90.72%).
+
+**Tests.** `cargo test --all-features`: 89 library tests + 2 integration tests,
+**91 passed, 0 failed** (zorite backend). `cargo test` (default gpuikit
+backend): 104 library tests + 2 integration tests, **106 passed, 0 failed**.
+The new performance tests in the default suite cover repaint-only editor
+notifications, hidden-preview parsing, library virtualization, unrelated
+state notifications, and the debounced session journal.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo test --all-features`, `cargo test`, `cargo clippy --all-targets
+--all-features -- -D warnings`, and `cargo doc --no-deps --all-features` (with
+`RUSTDOCFLAGS="-D warnings"`) are green. `cargo package --list --allow-dirty`
+lists 36 files.
+
+**Release blocker (expected publication order).** Both `cargo package` and
+`cargo publish --dry-run` currently fail to prepare scico 0.7.1 because it
+requires `ragrig-gpui = "^0.9.1"`, while crates.io offers 0.9.0. Publish
+`ragrig-gpui 0.9.1` first, then re-run the scico dry run. `grobid-bibtex`
+0.4.0 is already on crates.io. Scico's `[patch.crates-io]` entries are
+development-only and Cargo strips them from the packaged manifest.
 
 ## v0.7.0 — 2026-11-08
 

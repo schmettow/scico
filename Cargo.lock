@@ -6560,7 +6560,7 @@ dependencies = [
 
 [[package]]
 name = "ragrig-gpui"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "ashpd",
  "async-channel",
@@ -7456,7 +7456,7 @@ dependencies = [
 
 [[package]]
 name = "scico"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "blake3",
  "comrak",
