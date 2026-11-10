@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **Provider API keys reach GUI launches on Linux.** Desktop sessions do not
+  source shell startup files, so a Scico started from the application menu was
+  blind to keys exported in `~/.bashrc`; Windows was unaffected because its
+  user environment is inherited by Explorer launches. Scico now reads
+  `<config dir>/scico/env` at the top of `main`, before any thread starts, and
+  leaves variables already present in the environment untouched. New
+  `src/env.rs` with parser and precedence tests; `src/main.rs` loads it;
+  `src/app_settings.rs` names the file in the Profiles footer; README and
+  DEVELOPER_NOTES document the format and the desktop-launcher difference.
+
 ## v0.7.1 — 2026-11-10
 
 ### Performance

@@ -27,6 +27,8 @@ pub mod app_settings;
 pub mod desktop;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 pub mod document;
+#[cfg(any(editor_zorite, editor_gpuikit))]
+pub mod env;
 #[cfg(editor_gpuikit)]
 pub mod highlight;
 #[cfg(any(editor_zorite, editor_gpuikit))]

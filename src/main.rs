@@ -26,6 +26,11 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
 
 #[cfg(any(editor_zorite, editor_gpuikit))]
 fn main() {
+    // Desktop launchers do not source shell startup files, so exports such as
+    // `DEEPSEEK_API_KEY` from `~/.bashrc` never reach a GUI launch. Load the
+    // user environment file before any thread starts.
+    scico::env::load();
+
     // `scico ~/my-paper` opens that directory as a workspace and
     // scaffolds anything it is missing. Other arguments are left alone.
     let initial_workspace = workspace::directory_argument(std::env::args_os());

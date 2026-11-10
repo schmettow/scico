@@ -272,9 +272,25 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 - **llama.cpp** keeps the chat model on the machine running the container or
   `llama-server`. Point the provider at that server in Settings; a server
   started with `--api-key` reads its key from `LLAMACPP_API_KEY`.
-- **DeepSeek** is a hosted option. Prompts and attached context are sent to
-  the API; set `DEEPSEEK_API_KEY` in your environment. The key is read from the
+- **DeepSeek**, **OpenAI**, **Claude**, **Mistral**, and **OpenRouter**
+  are hosted options. Prompts and attached context are sent to the chosen API;
+  set its key (`DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `MISTRAL_API_KEY`, or `OPENROUTER_API_KEY`). Keys are read from the
   environment and never written to a profile or the workspace.
+- **Desktop launchers do not inherit shell exports.** On Linux and macOS a
+  Scico window started from the desktop menu cannot see variables exported in
+  `~/.bashrc` or `~/.zshrc`. Put the key into Scico's environment file instead;
+  it is read at startup before any thread runs. Variables already exported in
+  the process environment always win.
+
+  ```sh
+  # Linux: ~/.config/scico/env
+  # macOS: ~/Library/Application Support/scico/env
+  # Windows: %APPDATA%\scico\env
+  # One NAME=VALUE per line; # starts a comment.
+  DEEPSEEK_API_KEY=sk-...
+  OPENROUTER_API_KEY=sk-or-...
+  ```
 - The **Chat prompt** can be project-specific. The built-in prompt is
   compiled in; *Settings → RAG → Chat* lets you open it, export it as
   `Chat.md` into the workspace, or point to your own file. A workspace
@@ -301,6 +317,13 @@ docker` on Linux, then press **Refresh status** under **Settings → External
 services**. If Docker runs but the app reports permission denied, add your user
 to the `docker` group with `sudo usermod -aG docker $USER`, sign out and back in,
 and restart Scico.
+
+**“DEEPSEEK_API_KEY is not set” although I exported it.** A window started
+from the Linux or macOS application menu does not source `~/.bashrc` or
+`~/.zshrc`, so it cannot see terminal-only exports. Start `scico` from the same
+terminal, or add the key to the environment file (`~/.config/scico/env` on
+Linux, `~/Library/Application Support/scico/env` on macOS) as `NAME=VALUE` and
+restart. Windows launches inherit user variables set with `setx`.
 
 **Answers ignore my library.** Check that the corpus has been indexed
 (**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Chat

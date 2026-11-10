@@ -105,7 +105,18 @@ Useful environment variables:
 | `SCICO_ASK` | Ask this question once the window opens |
 | `SCICO_SETTINGS` | Settings file (defaults to the platform config dir) |
 | `SCICO_SESSION` | Session journal (defaults to `session.json` beside the settings file) |
+| `SCICO_ENV_FILE` | Environment file (defaults to `scico/env` in the platform config dir) |
 | `RAGRIG_HOME` | Global Ragrig profile/config directory (default `~/.ragrig`) |
+
+At the top of `main`, before any thread starts, Scico reads the environment
+file (`~/.config/scico/env` on Linux, `%APPDATA%\scico\env` on Windows,
+`~/Library/Application Support/scico/env` on macOS). It accepts one
+`NAME=VALUE` per line, ignores blank lines and `#` comments, and also accepts an
+`export ` prefix. Variables already present in the process environment are
+left untouched. This exists because desktop launchers do not source shell
+startup files, so provider keys exported in `~/.bashrc` would otherwise only be
+visible to terminal launches. The loader is `src/env.rs`; `SCICO_ENV_FILE`
+overrides the path for tests and unusual setups.
 
 For a first roundtrip without a corpus:
 

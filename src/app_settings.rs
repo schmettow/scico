@@ -51,6 +51,17 @@ fn page_title(label: &str, dirty: bool) -> SharedString {
     }
 }
 
+/// The idle hint under the profile picker.
+fn profile_footer() -> String {
+    let env_file = crate::env::env_file_path()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "the Scico env file".to_owned());
+    format!(
+        "Profiles are JSON files in .ragrig/profiles; secrets are never written. \
+         Provider keys come from the environment or {env_file}."
+    )
+}
+
 /// The Overview page: profiles and the Apply row.
 ///
 /// Apply, Profile Defaults, and Update Profile sit together in the footer so
@@ -114,10 +125,7 @@ pub fn app_overview_page(state: Entity<AppState>, changes: &RagChanges, cx: &App
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(status.unwrap_or_else(|| {
-                        "Profiles are JSON files in .ragrig/profiles; secrets are never written."
-                            .to_owned()
-                    }))
+                    .child(status.unwrap_or_else(profile_footer))
             }
         });
 
@@ -784,4 +792,18 @@ where
             }
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::profile_footer;
+
+    #[test]
+    fn the_profile_footer_names_the_environment_file() {
+        let footer = profile_footer();
+
+        assert!(footer.contains(".ragrig/profiles"));
+        assert!(footer.contains("secrets are never written"));
+        assert!(footer.contains("scico") && footer.contains("env"));
+    }
 }
