@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.7.2 — 2026-11-11
 
 ### Fixed
 
@@ -18,6 +18,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/env.rs` with parser and precedence tests; `src/main.rs` loads it;
   `src/app_settings.rs` names the file in the Profiles footer; README and
   DEVELOPER_NOTES document the format and the desktop-launcher difference.
+- **Every queued paper is named in the transcript.** A prompt used to mention
+  only the active document container (`paper.md`), so papers attached from the
+  Library looked absent even though the worker received them.
+  `AgentPane::send_prompt` now emits one `Paper attached: @Key` note per queued
+  paper, and `Context attached: …` for in-memory blocks, before the answer
+  (`src/agent.rs`).
+- **Settings changes no longer reset the pending context.** Toggling Chat
+  memory or Hybrid retrieval rebuilds the worker and produces a session event;
+  the pane treated that as a conversation switch and dropped its attachments,
+  selections, and armed edit. It now consults
+  `RagController::session_preserves_context()`: a rebuild keeps the queued
+  context and a sent direct edit releases its lock, while an explicit New or
+  Load still starts clean (`src/agent.rs`).
+
+### Quality
+
+Release validation on 2026-11-11 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 12,607 | 17,691 | 71.26% |
+| Functions | 820 | 1,307 | 62.74% |
+| Lines | 7,360 | 10,156 | 72.47% |
+
+`--all-features` selects the zorite backend, so the gpuikit-only
+`src/highlight.rs` is not measured in this run; `src/main.rs` is the binary
+entry point and stays at 0% lines. The new attachment-note helper and the
+preserved/dropped session cases in `src/agent.rs` are covered by unit and app
+tests respectively.
+
+**Tests.** `cargo test --all-features`: 99 passed, 0 failed (97 lib, 1 prompt
+protocol, 1 working directory; no doctests).
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`, and `cargo
+package --list --allow-dirty` all pass.
+
+**Release blocker.** `cargo publish --dry-run --allow-dirty` fails until
+`ragrig-gpui` 0.9.2 is live:
+
+```text
+failed to select a version for the requirement `ragrig-gpui = "^0.9.2"`
+candidate versions found which didn't match: 0.9.1, 0.9.0, 0.7.1, ...
+```
+
+Publish `ragrig-gpui` 0.9.2 first, wait for the crates.io index to update, then
+publish this crate. The `[patch.crates-io]` entries are development-only and
+are stripped from the package.
 
 ## v0.7.1 — 2026-11-10
 

@@ -522,6 +522,23 @@ impl AgentPane {
             .collect()
     }
 
+    /// Deliver a worker event directly, for tests.
+    #[cfg(test)]
+    pub(crate) fn handle_rag_event_for_test(&mut self, event: RagEvent, cx: &mut Context<Self>) {
+        self.on_rag_event(event, cx);
+    }
+
+    /// Apply a session event with an explicit preservation decision, for tests.
+    #[cfg(test)]
+    pub(crate) fn session_event_for_test(
+        &mut self,
+        loaded: Option<Vec<SessionTurn>>,
+        preserve: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.on_session_event(loaded, preserve, cx);
+    }
+
     /// Queue files as one-shot context for the next question.
     pub fn attach_files(
         &mut self,
@@ -606,6 +623,7 @@ impl AgentPane {
                 "Enrich mode: the marked region was added to the retrieval query.".to_owned(),
             );
         }
+        notes.extend(attachment_notes(&self.attachments));
         attachments.append(&mut self.attachments);
         let attachment_count = attachments.len();
 
@@ -889,31 +907,12 @@ impl AgentPane {
                 }
             }
             RagEvent::SessionStarted { .. } => {
-                self.pending = None;
-                self.streaming = false;
-                self.attachments.clear();
-                self.selections.clear();
-                self.edit_target = None;
-                self.enrich_target = None;
-                self.release_edit_guard(cx);
-                self.offer = None;
-                self.chat.update(cx, |chat, cx| chat.clear(cx));
-                self.composer
-                    .update(cx, |composer, cx| composer.set_streaming(false, cx));
+                let preserve = self.controller(cx).read(cx).session_preserves_context();
+                self.on_session_event(None, preserve, cx);
             }
             RagEvent::SessionLoaded { turns, .. } => {
-                self.pending = None;
-                self.streaming = false;
-                self.attachments.clear();
-                self.selections.clear();
-                self.edit_target = None;
-                self.enrich_target = None;
-                self.release_edit_guard(cx);
-                self.offer = None;
-                self.chat
-                    .update(cx, |chat, cx| chat.replace(loaded_messages(turns), cx));
-                self.composer
-                    .update(cx, |composer, cx| composer.set_streaming(false, cx));
+                let preserve = self.controller(cx).read(cx).session_preserves_context();
+                self.on_session_event(Some(turns), preserve, cx);
             }
             RagEvent::AgentReady(info) => {
                 self.set_status(format!("{} ready", info.chat_model), cx);
@@ -1075,6 +1074,44 @@ impl AgentPane {
 
     fn finish_streaming(&mut self, cx: &mut Context<Self>) {
         self.streaming = false;
+        self.composer
+            .update(cx, |composer, cx| composer.set_streaming(false, cx));
+    }
+
+    /// Apply a session event, keeping the queued context across a rebuild.
+    ///
+    /// A settings rebuild reloads the same conversation, so attachments,
+    /// marked selections, and armed edit targets stay. An explicit New or
+    /// Load command starts a different conversation and drops them.
+    fn on_session_event(
+        &mut self,
+        loaded: Option<Vec<SessionTurn>>,
+        preserve: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending = None;
+        self.streaming = false;
+        if !preserve {
+            self.attachments.clear();
+            self.selections.clear();
+            self.edit_target = None;
+            self.enrich_target = None;
+            self.offer = None;
+            self.release_edit_guard(cx);
+        } else if self.edit_target.is_none() {
+            // The rebuild cancelled a sent direct edit. An edit that is armed
+            // but not sent keeps its highlight and lock.
+            self.release_edit_guard(cx);
+        }
+        match loaded {
+            Some(turns) => {
+                self.chat
+                    .update(cx, |chat, cx| chat.replace(loaded_messages(turns), cx));
+            }
+            None => {
+                self.chat.update(cx, |chat, cx| chat.clear(cx));
+            }
+        }
         self.composer
             .update(cx, |composer, cx| composer.set_streaming(false, cx));
     }
@@ -1392,6 +1429,21 @@ fn context_char_limit(context_tokens: usize, items: usize) -> usize {
     (editor_chars / items.max(1)).clamp(600, MAX_CONTEXT_CHARS)
 }
 
+/// One transcript note per paper or text block queued for this question.
+///
+/// The worker resolves these attachments only after the prompt is sent; the
+/// note makes the queued context visible in the transcript and names the
+/// difference between a parsed paper and an in-memory block.
+fn attachment_notes(attachments: &[PendingAttachment]) -> Vec<String> {
+    attachments
+        .iter()
+        .map(|attachment| match &attachment.source {
+            AttachmentSource::File(_) => format!("Paper attached: {}", attachment.label),
+            AttachmentSource::Text(_) => format!("Context attached: {}", attachment.label),
+        })
+        .collect()
+}
+
 fn citation_note(resolved: &[CitationAttachment], missed: &[String]) -> Option<String> {
     if resolved.is_empty() && missed.is_empty() {
         return None;
@@ -1415,7 +1467,8 @@ mod tests {
 
     use gpui_kit::SvgRenderer;
 
-    use super::context_char_limit;
+    use super::{attachment_notes, context_char_limit};
+    use ragrig_gpui::prelude::PendingAttachment;
 
     #[test]
     fn the_chat_marks_render_and_keep_their_colours() {
@@ -1473,5 +1526,21 @@ mod tests {
         assert!(two < one);
         assert_eq!(large, 100_000, "the protocol cap still applies");
         assert!(context_char_limit(512, 3) >= 600, "never vanish");
+    }
+
+    #[test]
+    fn queued_attachments_are_named_in_the_transcript() {
+        let notes = attachment_notes(&[
+            PendingAttachment::file("file-1", "@Kano2025", "/tmp/kano.pdf"),
+            PendingAttachment::text("text-2", "draft.md", "body"),
+        ]);
+        assert_eq!(
+            notes,
+            vec![
+                "Paper attached: @Kano2025".to_owned(),
+                "Context attached: draft.md".to_owned()
+            ]
+        );
+        assert!(attachment_notes(&[]).is_empty());
     }
 }

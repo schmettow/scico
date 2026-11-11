@@ -4277,4 +4277,64 @@ mod tests {
             assert!(document.dirty);
         });
     }
+
+    #[gpui_kit::test]
+    fn a_settings_rebuild_keeps_the_queued_papers(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let agent = cx.update(|_, cx| app.read(cx).agent.clone());
+        cx.update(|_, cx| {
+            agent.update(cx, |agent, cx| {
+                agent.attach_files(
+                    [("@Kano2025".to_owned(), PathBuf::from("/tmp/kano.pdf"))],
+                    cx,
+                );
+            });
+        });
+
+        // `RagController::apply` marks the rebuild as preserving context; the
+        // resulting session event must keep the queued paper.
+        cx.update(|_, cx| {
+            agent.update(cx, |agent, cx| {
+                agent.session_event_for_test(None, true, cx);
+            });
+        });
+
+        let chips = cx.update(|_, cx| agent.read(cx).chip_ids(cx));
+        assert!(
+            chips.iter().any(|id| id.starts_with("file-")),
+            "the queued paper survives a settings rebuild: {chips:?}"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn a_new_conversation_drops_the_queued_papers(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let agent = cx.update(|_, cx| app.read(cx).agent.clone());
+        cx.update(|_, cx| {
+            agent.update(cx, |agent, cx| {
+                agent.attach_files(
+                    [("@Kano2025".to_owned(), PathBuf::from("/tmp/kano.pdf"))],
+                    cx,
+                );
+            });
+        });
+
+        cx.update(|_, cx| {
+            agent.update(cx, |agent, cx| {
+                agent.handle_rag_event_for_test(
+                    ragrig_gpui::prelude::RagEvent::SessionLoaded {
+                        id: "other-conversation".to_owned(),
+                        turns: Vec::new(),
+                    },
+                    cx,
+                );
+            });
+        });
+
+        let chips = cx.update(|_, cx| agent.read(cx).chip_ids(cx));
+        assert!(
+            !chips.iter().any(|id| id.starts_with("file-")),
+            "a new conversation starts without the old paper: {chips:?}"
+        );
+    }
 }
