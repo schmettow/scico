@@ -41,8 +41,9 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 - [x] Task 3 — `DisplayMap` + `reveal_range`; delete `source_top_line`,
       `PreviewScrollTarget`, and the probing loop. One `list_state()` read
       remains, sampling the preview top once per frame (see below).
-- [ ] Task 4 — `InputEditsEvent` in `subscribe_editor`; drop the change-event
-      revision counter.
+- [x] Task 4 — `InputEditsEvent` in `subscribe_editor`; the observer uses the
+      carried text, and falls back to reading the editor when a later edit or
+      undo coalesces before the notification.
 - [ ] Later — gutter/overview decorations for pending edits and enrichment
       targets.
 - [ ] Later — `TextView::on_task_toggle` for clickable task lists.
@@ -55,9 +56,9 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 
 | Configuration | Suite | Result |
 |---|---|---|
-| gpuikit | `cargo test --no-default-features --features gpuikit` | see commit |
-| zorite | `cargo test --no-default-features --features zorite` | see commit |
-| all features | `cargo test --all-features` | see commit |
+| gpuikit | `cargo test --no-default-features --features gpuikit --lib` | 117 passed |
+| zorite | `cargo test --no-default-features --features zorite --lib` | 101 passed |
+| all features | `cargo test --all-features --lib` | 101 passed (build.rs selects zorite) |
 
 ### Rollback
 

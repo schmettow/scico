@@ -2860,6 +2860,29 @@ mod tests {
         });
     }
 
+    /// An input edit carries the text the observer stores, so the digest,
+    /// character count and buffer agree with exactly what was typed rather
+    /// than with a later re-read of the editor.
+    #[cfg(editor_gpuikit)]
+    #[gpui_kit::test]
+    fn an_input_edit_event_carries_the_observed_text(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        type_into_active(cx, &app, "carried text");
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(document.text(cx), "carried text");
+            assert_eq!(document.chars, "carried text".chars().count());
+            assert_eq!(
+                document.content_digest,
+                *blake3::hash(b"carried text").as_bytes()
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn select_all_and_focus_selection_captures_the_passage(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);

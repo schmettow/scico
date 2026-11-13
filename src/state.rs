@@ -1,11 +1,15 @@
 //! Application state: documents, workspace paths, and the RAG controller.
 
 use std::cell::Cell;
+#[cfg(editor_gpuikit)]
+use std::cell::RefCell;
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(editor_gpuikit)]
+use std::time::Instant;
 
 #[cfg(editor_gpuikit)]
 use gpui_kit::base::input::RopeExt as _;
@@ -2271,15 +2275,22 @@ impl AppState {
         // affordances. Only a content change or a caret/selection move needs
         // the buffer materialized; everything else is a repaint.
         let content_revision = Rc::new(Cell::new(0u64));
+        // The text as of the last input edit. Reading it here, where the event
+        // carries it, means the observer does not have to re-read the editor
+        // for a change it already knows.
+        #[cfg(editor_gpuikit)]
+        let edited_text: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         #[cfg(editor_gpuikit)]
         {
             let revision = content_revision.clone();
+            let pending = edited_text.clone();
             cx.subscribe(
                 editor,
-                move |_, _, event: &gpui_kit::component::input::InputEvent, _| {
-                    if matches!(event, gpui_kit::component::input::InputEvent::Change) {
-                        revision.set(revision.get().wrapping_add(1));
+                move |_, _, event: &gpui_kit::component::input::InputEditsEvent, _| {
+                    if let Some((_, text)) = event.edits().last() {
+                        *pending.borrow_mut() = Some(text.to_string());
                     }
+                    revision.set(revision.get().wrapping_add(1));
                 },
             )
             .detach();
@@ -2347,8 +2358,13 @@ impl AppState {
                 (editor.text().len(), editor.cursor(), 0..0)
             };
             let revision = observed_revision.get();
-            let context_changed =
-                revision != last_revision || last_fingerprint.as_ref() != Some(&fingerprint);
+            #[cfg(editor_gpuikit)]
+            let edited = edited_text.borrow_mut().take();
+            #[cfg(not(editor_gpuikit))]
+            let edited: Option<String> = None;
+            let context_changed = edited.is_some()
+                || revision != last_revision
+                || last_fingerprint.as_ref() != Some(&fingerprint);
             if context_changed {
                 last_revision = revision;
                 last_fingerprint = Some(fingerprint);
@@ -2357,10 +2373,16 @@ impl AppState {
                     document.observer_updates += 1;
                 }
 
-                let Some((text, cursor_offset)) = this
-                    .document(id)
-                    .map(|document| (document.text(cx), document.editor.read(cx).cursor()))
-                else {
+                let Some((text, cursor_offset)) = this.document(id).map(|document| {
+                    // A later edit or an undo may have landed before this
+                    // notification; the stored text is only authoritative while
+                    // it still matches the editor's length.
+                    let text = match edited {
+                        Some(text) if text.len() == document.editor.read(cx).text().len() => text,
+                        _ => document.text(cx),
+                    };
+                    (text, document.editor.read(cx).cursor())
+                }) else {
                     return;
                 };
                 let cursor = crate::document::line_column(&text, cursor_offset);
