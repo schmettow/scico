@@ -31,13 +31,16 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 | `InputBaseState::text()` returns `&Rope` | scico uses `value()` on the gpuikit path | none; do not assume `String` |
 | `DragHandle`, `TabVariant`, `Select`, `SelectionFormat`, `InvocationKind`, `set_line_number`, `set_searchable` | no matches in either crate | none |
 | gpui-pre 0.3.12, gpui-fast 0.1.14 (`resvg ^0.46`) | lockfile baseline changes | deliberate lockfile regeneration |
+| `visible_row_range()` is in **buffer lines**, not display rows | the old `source_top_line` walked `range_to_bounds` from a pixel estimate; under 0.9's layout it reported line 0 after a wheel scroll and the sync snapped the preview back | read `start` directly; the display map is used only for the preview-to-editor mapping |
+| ScrollBounce scrolls via `ScrollbarHandle::set_offset`, bypassing `ListState`'s scroll handler | `set_scroll_handler` no longer fires on wheel input, so the preview-to-editor direction went blind | sample the preview top once per frame in `editor_gpuikit`; flagged upstream |
 
 ### Adoption backlog
 
 - [x] Task 1 — plan, version bump, `TextViewStyle` check (no change needed).
 - [ ] Task 2 — wheel handler on `on_scroll` / `ScrollEvent`; suites green.
-- [ ] Task 3 — `DisplayMap` + `reveal_range`; delete `source_top_line`,
-      `PreviewScrollTarget`, and the probing loop.
+- [x] Task 3 — `DisplayMap` + `reveal_range`; delete `source_top_line`,
+      `PreviewScrollTarget`, and the probing loop. One `list_state()` read
+      remains, sampling the preview top once per frame (see below).
 - [ ] Task 4 — `InputEditsEvent` in `subscribe_editor`; drop the change-event
       revision counter.
 - [ ] Later — gutter/overview decorations for pending edits and enrichment
@@ -61,6 +64,14 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 Revert the dependency bump and the per-task commits in reverse order. The
 scroll-sync removal is the only change that also deletes state fields; the
 `DisplayMap` commit is self-contained and can be reverted alone.
+
+### Open upstream asks
+
+- `ListView`/`TextView` wheel scrolling should invoke `ListState`'s scroll
+  handler, or the view should expose a scroll event, so hosts do not have to
+  sample `logical_scroll_top()` during render.
+- A documented scroll-position accessor on `TextViewState` would remove the
+  last `list_state()` read from scico's render path.
 
 ## Entry 0: 0.6.x → 0.7.3 (historical)
 

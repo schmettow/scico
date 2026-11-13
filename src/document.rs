@@ -33,31 +33,6 @@ pub use zorite_editor::{EditorState, SyntaxStyle};
 #[derive(Clone, Debug, Default)]
 pub struct SyntaxStyle;
 
-/// A preview-driven editor scroll that is converging on a source block.
-///
-/// The editor exposes only a pixel offset, so the target line is found by
-/// bracketing the monotonic offset-to-block mapping: `low` is a scroll
-/// magnitude known to be above the block, `high` one known to be at or below
-/// it. Each editor layout narrows the bracket.
-#[cfg(editor_gpuikit)]
-#[derive(Clone, Copy, Debug)]
-pub struct PreviewScrollTarget {
-    /// The preview block that must end up at the viewport top.
-    pub block: usize,
-    /// A scroll magnitude whose top block is before `block`.
-    pub low: f32,
-    /// A scroll magnitude whose top block is at or after `block`.
-    pub high: Option<f32>,
-    /// Layouts spent on this target, so a pathological document cannot loop.
-    pub attempts: u8,
-    /// The offset currently requested from the editor.
-    pub requested: f32,
-    /// The last offset whose top block was evaluated.
-    pub observed: Option<f32>,
-    /// Frames spent waiting for a request to be laid out.
-    pub waited: u8,
-}
-
 /// One open Markdown document.
 pub struct Document {
     /// Stable identity used by pending editor edits.
@@ -106,25 +81,17 @@ pub struct Document {
     /// Test observation: how often the block map was rebuilt.
     #[cfg(all(test, editor_gpuikit))]
     pub block_builds: u64,
-    /// The preview's current top block, to avoid feedback loops.
+    /// The block both panes were last aligned to. Set by either direction, so
+    /// a move is never echoed back as a second move.
     #[cfg(editor_gpuikit)]
-    pub preview_top: usize,
-    /// The editor scroll offset the preview was last synced from.
+    pub preview_follow_block: Option<usize>,
+    /// When the preview was asked to reveal [`Self::preview_follow_block`]. A
+    /// detected scroll before this expires is the reveal's echo, not the user.
     #[cfg(editor_gpuikit)]
-    pub preview_source_offset: f32,
-    /// A preview-driven editor scroll is in flight; its first applied offset
-    /// must not be fed back into the preview.
+    pub preview_reveal_at: Option<std::time::Instant>,
+    /// The editor scroll offset the observer last saw.
     #[cfg(editor_gpuikit)]
-    pub pending_editor_scroll: bool,
-    /// The block a preview-driven scroll is converging on, if any.
-    #[cfg(editor_gpuikit)]
-    pub preview_scroll_target: Option<PreviewScrollTarget>,
-    /// Measured display rows per source line, learned from successful syncs.
-    #[cfg(editor_gpuikit)]
-    pub preview_rows_per_line: f32,
-    /// The preview's scrollbar was being dragged on the previous notification.
-    #[cfg(editor_gpuikit)]
-    pub preview_dragging: bool,
+    pub last_editor_offset: f32,
 }
 
 /// The data needed to create a document.
@@ -386,17 +353,11 @@ impl Document {
             #[cfg(all(test, editor_gpuikit))]
             block_builds: 0,
             #[cfg(editor_gpuikit)]
-            preview_top: 0,
+            preview_follow_block: None,
             #[cfg(editor_gpuikit)]
-            preview_source_offset: 0.0,
+            preview_reveal_at: None,
             #[cfg(editor_gpuikit)]
-            pending_editor_scroll: false,
-            #[cfg(editor_gpuikit)]
-            preview_scroll_target: None,
-            #[cfg(editor_gpuikit)]
-            preview_rows_per_line: 1.0,
-            #[cfg(editor_gpuikit)]
-            preview_dragging: false,
+            last_editor_offset: 0.0,
         }
     }
 

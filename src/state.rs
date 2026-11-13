@@ -5,12 +5,10 @@ use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(editor_gpuikit)]
 use gpui_kit::base::input::RopeExt as _;
-#[cfg(editor_gpuikit)]
-use gpui_kit::base::text::TextViewState;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedString, Window};
 #[cfg(editor_gpuikit)]
@@ -33,6 +31,11 @@ use crate::session::{SessionDocument, SessionState, SessionWriter};
 use crate::settings::{CHAT_PROMPT, CHAT_PROMPT_FILE, PersistedSettings};
 use crate::theme::syntax_style;
 use crate::workspace::{self, WorkspaceReport};
+
+/// How long a preview reveal may take before a detected scroll is treated as
+/// the user's rather than the reveal's echo.
+#[cfg(editor_gpuikit)]
+pub(crate) const PREVIEW_REVEAL_BUDGET: Duration = Duration::from_millis(1000);
 
 /// Make `workspace` the process working directory, home as the fallback.
 ///
@@ -613,7 +616,7 @@ impl AppState {
             },
         );
         #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        self.subscribe_editor(&document.editor, id, cx);
         #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
@@ -666,7 +669,7 @@ impl AppState {
             },
         );
         #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        self.subscribe_editor(&document.editor, id, cx);
         #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
@@ -802,7 +805,7 @@ impl AppState {
                 },
             );
             #[cfg(editor_gpuikit)]
-            self.subscribe_editor(&document.editor, &document.preview, id, cx);
+            self.subscribe_editor(&document.editor, id, cx);
             #[cfg(editor_zorite)]
             self.subscribe_editor(&document.editor, id, cx);
             document.set_cursor(snapshot.cursor, cx);
@@ -964,7 +967,7 @@ impl AppState {
             },
         );
         #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, &document.preview, id, cx);
+        self.subscribe_editor(&document.editor, id, cx);
         #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
@@ -1323,14 +1326,15 @@ impl AppState {
     ///
     /// The editor observer deliberately defers both while the preview is
     /// hidden; this is the one place that pays for them, once, when the
-    /// preview is shown again or needs to be scroll-synced.
+    /// preview is shown again or needs to be scroll-synced. Returns whether
+    /// anything was refreshed, so a caller can force a re-align.
     #[cfg(editor_gpuikit)]
-    fn refresh_preview_if_stale(&mut self, id: u64, cx: &mut Context<Self>) {
+    fn refresh_preview_if_stale(&mut self, id: u64, cx: &mut Context<Self>) -> bool {
         let Some(document) = self.document(id) else {
-            return;
+            return false;
         };
         if !document.preview_dirty && !document.blocks_dirty {
-            return;
+            return false;
         }
         let text = document.text(cx);
         if let Some(document) = self.document_mut(id) {
@@ -1341,54 +1345,53 @@ impl AppState {
                 document.rebuild_blocks(&text);
             }
         }
+        true
     }
 
     /// Move the preview to the source block at the top of the editor.
     ///
-    /// This is the editor-to-preview half of the two-way link. It never runs
-    /// while a preview-driven editor scroll is still being applied, otherwise
-    /// the approximate line-to-pixel mapping could pull the preview back to a
-    /// different block than the one the user chose.
+    /// This is the editor-to-preview half of the two-way link. It follows only
+    /// when the editor's top block changes, so the offset a preview-driven
+    /// scroll applies is never echoed back as a second move. The preview
+    /// scrolls itself through `reveal_range`; no list geometry is read here.
     #[cfg(editor_gpuikit)]
     fn sync_preview_to_editor(&mut self, id: u64, cx: &mut Context<Self>) {
         if !self.sync_scroll || !self.show_preview {
             return;
         }
-        self.refresh_preview_if_stale(id, cx);
+        let refreshed = self.refresh_preview_if_stale(id, cx);
         let Some(document) = self.document(id) else {
             return;
         };
         if self.active_document().map(|document| document.id) != Some(id) {
             return;
         }
-        if document.pending_editor_scroll {
-            return;
-        }
         let Some(block_ix) = source_top_block(document, cx) else {
             return;
         };
-        let preview = document.preview.clone();
-        if let Some(document) = self.document_mut(id) {
-            document.preview_top = block_ix;
-        }
-        let (shown, count) = {
-            let list = preview.read(cx).list_state();
-            (list.logical_scroll_top().item_ix, list.item_count())
-        };
-        if shown == block_ix || count <= block_ix {
+        if !refreshed && document.preview_follow_block == Some(block_ix) {
             return;
         }
+        let Some(block) = document.blocks.get(block_ix) else {
+            return;
+        };
+        // An empty range reveals the line at its position, which is exactly the
+        // top line of the block.
+        let range = block.start_byte..block.start_byte;
+        let preview = document.preview.clone();
+        if let Some(document) = self.document_mut(id) {
+            document.preview_follow_block = Some(block_ix);
+            document.preview_reveal_at = Some(Instant::now());
+        }
         preview.update(cx, |preview, cx| {
-            preview.list_state().scroll_to(gpui_kit::ListOffset {
-                item_ix: block_ix,
-                offset_in_item: px(0.),
-            });
-            cx.notify();
+            // A failure means the range is not in the rendered text; the next
+            // refresh will try again.
+            let _ = preview.reveal_range(range, cx);
         });
     }
 
     /// Schedule a source follow-up once the editor has laid out a new scroll
-    /// position; `range_to_bounds` reads the previous frame.
+    /// position; the visible row range reads the previous frame.
     #[cfg(editor_gpuikit)]
     fn schedule_source_sync(&mut self, id: u64, cx: &mut Context<Self>) {
         self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
@@ -1424,251 +1427,63 @@ impl AppState {
         .detach();
     }
 
-    /// The user scrolled the preview; put the matching source line at the top
-    /// of the editor.
+    /// The user scrolled the preview to `top`; put that block's first line at
+    /// the top of the editor.
     ///
-    /// The editor only exposes a pixel scroll offset, so the first estimate
-    /// uses the wrap density learned from earlier syncs (or the viewport's own
-    /// ratio). [`Self::probe_preview_sync`] then brackets the exact offset from
-    /// the editor's layouts, which also covers wrapped text where the estimate
-    /// is far off.
+    /// `DisplayMap` gives the exact display row of the block's start line, so
+    /// the scroll offset is `-row * line_height` with no pixel estimate and no
+    /// probing. A reveal requested by [`Self::sync_preview_to_editor`] that has
+    /// not landed yet is ignored, matching the preview's own one-second budget.
     #[cfg(editor_gpuikit)]
-    fn preview_scrolled(
-        &mut self,
-        id: u64,
-        preview: &Entity<TextViewState>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn preview_scrolled(&mut self, id: u64, top: usize, cx: &mut Context<Self>) {
         if !self.sync_scroll || !self.show_preview {
             return;
         }
         self.refresh_preview_if_stale(id, cx);
-
-        let (top, line, editor, current, learned) = {
-            let Some(document) = self.document(id) else {
-                return;
-            };
-            if &document.preview != preview {
-                return;
-            }
-            let top = preview.read(cx).list_state().logical_scroll_top().item_ix;
-            if document.preview_top == top {
-                return;
-            }
-            let Some(block) = document.blocks.get(top) else {
-                return;
-            };
-            if preview.read(cx).list_state().item_count() != document.blocks.len() {
-                return;
-            }
-            // An edit updates the preview asynchronously; a top that moved
-            // while the text is stale is not a user scroll.
-            let source = document.editor.read(cx).value();
-            if preview.read(cx).rendered_text().source() != source.as_ref() {
-                return;
-            }
-            let editor = document.editor.clone();
-            let current = f32::from(editor.read(cx).scroll_offset().y);
-            (
-                top,
-                block.start_line,
-                editor,
-                current,
-                document.preview_rows_per_line,
-            )
-        };
-
-        let Some(line_height) = editor.read(cx).line_height().map(f32::from) else {
-            return;
-        };
-        if line_height <= 0.0 {
-            return;
-        }
-        let rows_above = (-current / line_height).max(0.0);
-        let top_line = source_top_line(editor.read(cx)).unwrap_or(0);
-        let viewport_ratio = if top_line > 0 && rows_above > 0.0 {
-            (rows_above / top_line as f32).max(1.0)
-        } else {
-            1.0
-        };
-        let rows_per_line = learned.max(viewport_ratio);
-        let estimate = -(line as f32 * rows_per_line * line_height);
-
-        // Cancel any debounced editor-to-preview sync that was armed before
-        // this user scroll: it reads the old viewport and would snap back.
-        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
-        let moved = (estimate - current).abs() > 0.5;
-        if let Some(document) = self.document_mut(id) {
-            document.preview_top = top;
-            if moved {
-                document.preview_source_offset = current;
-                document.pending_editor_scroll = true;
-                document.preview_scroll_target = Some(crate::document::PreviewScrollTarget {
-                    block: top,
-                    low: 0.0,
-                    high: None,
-                    attempts: 0,
-                    requested: estimate,
-                    observed: None,
-                    waited: 0,
-                });
-            }
-        }
-        if moved {
-            editor.update(cx, |editor, cx| {
-                editor.set_scroll_offset(point(px(0.), px(estimate)), cx);
-            });
-            self.schedule_preview_probe(id, cx);
-        }
-    }
-
-    /// Schedule the next look at the editor's laid-out viewport.
-    #[cfg(editor_gpuikit)]
-    fn schedule_preview_probe(&mut self, id: u64, cx: &mut Context<Self>) {
-        let generation = self.preview_sync_generation;
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.preview_sync_generation == generation {
-                    this.probe_preview_sync(id, cx);
-                }
-            });
-        })
-        .detach();
-    }
-
-    /// Narrow the bracket around the block the user chose in the preview.
-    ///
-    /// Called on a short timer rather than from the editor's notification:
-    /// the deferred scroll offset is applied during layout, and the probe has
-    /// to read the *new* layout. The mapping from scroll offset to top block is
-    /// monotonic, so bisection converges even when soft wrap makes the initial
-    /// pixel estimate useless.
-    #[cfg(editor_gpuikit)]
-    fn probe_preview_sync(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(document) = self.document(id) else {
             return;
         };
-        let Some(mut target) = document.preview_scroll_target else {
+        let Some(block) = document.blocks.get(top) else {
             return;
         };
-        let editor = document.editor.clone();
-        let current = f32::from(editor.read(cx).scroll_offset().y);
-        if (current - target.requested).abs() > 0.5 {
-            // The deferred scroll has not reached the viewport yet.
-            if target.waited < 8 {
-                target.waited += 1;
-                if let Some(document) = self.document_mut(id) {
-                    document.preview_scroll_target = Some(target);
-                }
-                self.schedule_preview_probe(id, cx);
-            } else if let Some(document) = self.document_mut(id) {
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
+        if document.preview_follow_block == Some(top) {
             return;
         }
-        if target
-            .observed
-            .is_some_and(|observed| (observed - current).abs() <= 0.5)
+        if document
+            .preview_reveal_at
+            .is_some_and(|at| at.elapsed() < PREVIEW_REVEAL_BUDGET)
         {
-            // Waiting for the request applied above to be laid out.
-            if target.waited < 8 {
-                target.waited += 1;
-                if let Some(document) = self.document_mut(id) {
-                    document.preview_scroll_target = Some(target);
-                }
-                self.schedule_preview_probe(id, cx);
-            } else if let Some(document) = self.document_mut(id) {
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
             return;
         }
-        target.observed = Some(current);
-        target.waited = 0;
-
-        let Some(actual) = source_top_block(document, cx) else {
-            if let Some(document) = self.document_mut(id) {
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
+        // An edit updates the preview asynchronously; a top that moved while
+        // the text is stale is not a user scroll.
+        let editor = document.editor.clone();
+        let source = editor.read(cx).value();
+        if document.preview.read(cx).rendered_text().source() != source.as_ref() {
             return;
-        };
+        }
         let Some(line_height) = editor.read(cx).line_height().map(f32::from) else {
             return;
         };
         if line_height <= 0.0 {
             return;
         }
-        let magnitude = -current;
+        let row = editor
+            .read(cx)
+            .display_map()
+            .buffer_line_to_display_row(block.start_line);
+        let offset = -(line_height * row as f32);
 
-        if actual == target.block {
-            // Remember how many display rows a line really costs here; the
-            // next preview scroll then starts from a good estimate.
-            let learned = document
-                .blocks
-                .get(target.block)
-                .filter(|block| block.start_line > 0 && magnitude > 0.0)
-                .map(|block| (magnitude / (block.start_line as f32 * line_height)).max(1.0));
-            if let Some(document) = self.document_mut(id) {
-                if let Some(learned) = learned {
-                    document.preview_rows_per_line = learned;
-                }
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
-            return;
-        }
-
-        target.attempts += 1;
-        if target.attempts > 40 {
-            if let Some(document) = self.document_mut(id) {
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
-            return;
-        }
-
-        let next = if actual < target.block {
-            target.low = target.low.max(magnitude);
-            match target.high {
-                Some(high) => (target.low + high) / 2.0,
-                None => (target.low * 2.0).max(target.low + line_height),
-            }
-        } else {
-            target.high = Some(target.high.map_or(magnitude, |high| high.min(magnitude)));
-            match target.low {
-                0.0 => magnitude / 2.0,
-                low => (low + target.high.unwrap_or(magnitude)) / 2.0,
-            }
-        };
-
-        let keep_going = next.is_finite()
-            && (next - magnitude).abs() > 0.25
-            && target.high.is_none_or(|high| high - target.low > 0.5)
-            && next < 10_000_000.0;
-        if !keep_going {
-            if let Some(document) = self.document_mut(id) {
-                document.preview_scroll_target = None;
-                document.pending_editor_scroll = false;
-            }
-            return;
-        }
-
-        target.requested = -next;
-        target.waited = 0;
+        // Cancel any debounced editor-to-preview sync armed before this user
+        // scroll: it reads the old viewport and would snap back.
+        self.preview_sync_generation = self.preview_sync_generation.wrapping_add(1);
         if let Some(document) = self.document_mut(id) {
-            document.preview_scroll_target = Some(target);
-            document.preview_source_offset = current;
-            document.pending_editor_scroll = true;
+            document.preview_follow_block = Some(top);
+            document.preview_reveal_at = None;
         }
         editor.update(cx, |editor, cx| {
-            editor.set_scroll_offset(point(px(0.), px(-next)), cx);
+            editor.set_scroll_offset(point(px(0.), px(offset)), cx);
         });
-        self.schedule_preview_probe(id, cx);
     }
 
     #[cfg(editor_gpuikit)]
@@ -2451,13 +2266,7 @@ impl AppState {
         .detach();
     }
 
-    fn subscribe_editor(
-        &mut self,
-        editor: &Entity<EditorState>,
-        #[cfg(editor_gpuikit)] preview: &Entity<TextViewState>,
-        id: u64,
-        cx: &mut Context<Self>,
-    ) {
+    fn subscribe_editor(&mut self, editor: &Entity<EditorState>, id: u64, cx: &mut Context<Self>) {
         // Editor notifications also fire for hover, scroll and table
         // affordances. Only a content change or a caret/selection move needs
         // the buffer materialized; everything else is a repaint.
@@ -2582,8 +2391,8 @@ impl AppState {
                             } else {
                                 document.mark_preview_dirty();
                             }
-                            document.pending_editor_scroll = false;
-                            document.preview_scroll_target = None;
+                            document.preview_follow_block = None;
+                            document.preview_reveal_at = None;
                         }
                         if show_preview {
                             this.schedule_preview_realign(id, cx);
@@ -2603,72 +2412,18 @@ impl AppState {
                     .document(id)
                     .map(|document| f32::from(document.editor.read(cx).scroll_offset().y))
                     .unwrap_or(0.0);
-                let landed = this.document_mut(id).is_some_and(|document| {
-                    if !document.pending_editor_scroll {
-                        return false;
+                let changed = this
+                    .document(id)
+                    .is_some_and(|document| (document.last_editor_offset - offset).abs() > 0.5);
+                if changed {
+                    if let Some(document) = this.document_mut(id) {
+                        document.last_editor_offset = offset;
                     }
-                    // The first offset change is the viewport applying the
-                    // scroll the preview asked for. Consume it without feeding
-                    // it back; any later change is the user.
-                    if (document.preview_source_offset - offset).abs() <= 0.5 {
-                        return false;
-                    }
-                    document.pending_editor_scroll = false;
-                    document.preview_source_offset = offset;
-                    true
-                });
-                if !landed {
-                    let changed = this.document(id).is_some_and(|document| {
-                        (document.preview_source_offset - offset).abs() > 0.5
-                    });
-                    if changed {
-                        if let Some(document) = this.document_mut(id) {
-                            document.preview_source_offset = offset;
-                        }
-                        this.schedule_source_sync(id, cx);
-                    }
+                    this.schedule_source_sync(id, cx);
                 }
             }
         })
         .detach();
-
-        #[cfg(editor_gpuikit)]
-        {
-            // The list does not notify its entity on wheel scrolls; this is
-            // the reliable signal that the user drives the preview.
-            let state = cx.weak_entity();
-            let preview_for_handler = preview.clone();
-            preview
-                .read(cx)
-                .list_state()
-                .set_scroll_handler(move |_, _, cx| {
-                    let state = state.clone();
-                    let preview = preview_for_handler.clone();
-                    cx.defer(move |cx| {
-                        let _ = state.update(cx, |this, cx| {
-                            this.preview_scrolled(id, &preview, cx);
-                        });
-                    });
-                });
-
-            // Scrollbar drags bypass the list's scroll handler; their
-            // notifications are the only trace of a user-driven jump. Other
-            // preview notifications (parsing, remeasure) must not move the
-            // editor while the user types.
-            cx.observe(preview, move |this, preview, cx| {
-                let dragging = preview.read(cx).list_state().is_scrollbar_dragging();
-                let was_dragging = this
-                    .document(id)
-                    .is_some_and(|document| document.preview_dragging);
-                if let Some(document) = this.document_mut(id) {
-                    document.preview_dragging = dragging;
-                }
-                if dragging || was_dragging {
-                    this.preview_scrolled(id, &preview, cx);
-                }
-            })
-            .detach();
-        }
     }
 }
 
@@ -2972,56 +2727,19 @@ pub fn is_monospace_font(name: &str) -> bool {
     .any(|marker| name.contains(marker))
 }
 
-/// The buffer line at the top of the editor's viewport.
-///
-/// `range_to_bounds` maps offsets above the visible layout to the first visible
-/// line, so walking up from an estimate derived from the pixel scroll offset
-/// finds the first fully or partially visible logical line without needing the
-/// editor's display map. The estimate and the walk are both in wrapped display
-/// rows, which is exactly what makes the preview jump with paragraphs instead
-/// of drifting proportionally.
-#[cfg(editor_gpuikit)]
-fn source_top_line(editor: &EditorState) -> Option<usize> {
-    let line_height = f32::from(editor.line_height()?);
-    if line_height <= 0.0 {
-        return None;
-    }
-    let first_top = editor.range_to_bounds(&(0..1))?.top();
-    let text = editor.text();
-    let line_count = text.lines_len();
-    if line_count == 0 {
-        return None;
-    }
-
-    let estimate = (-f32::from(editor.scroll_offset().y) / line_height).max(0.0);
-    let mut line = if estimate.is_finite() {
-        (estimate.floor() as usize).min(line_count - 1)
-    } else {
-        0
-    };
-    loop {
-        let start = text.line_start_offset(line);
-        if let Some(bounds) = editor.range_to_bounds(&(start..start + 1))
-            && bounds.top() <= first_top + px(0.5)
-        {
-            break;
-        }
-        if line == 0 {
-            break;
-        }
-        line -= 1;
-    }
-    Some(line)
-}
-
 /// The block at the top of the editor's viewport.
+///
+/// `visible_row_range` is the range of *unwrapped buffer lines* the last
+/// layout had on screen, so its start is the top line directly. Soft wrap and
+/// folding only affect the preview-to-editor direction, which uses the display
+/// map instead.
 #[cfg(editor_gpuikit)]
 pub(crate) fn source_top_block(document: &Document, cx: &App) -> Option<usize> {
     if document.blocks.is_empty() {
         return None;
     }
     let editor = document.editor.read(cx);
-    let line = source_top_line(editor)?;
+    let line = editor.visible_row_range()?.start;
     let byte = editor.text().line_start_offset(line);
     Some(document.block_for_byte(byte))
 }

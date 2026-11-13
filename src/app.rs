@@ -1405,8 +1405,7 @@ impl ScicoApp {
         }
         #[cfg(editor_gpuikit)]
         {
-            let _ = window;
-            self.editor_gpuikit(cx)
+            self.editor_gpuikit(window, cx)
         }
     }
 
@@ -1524,7 +1523,7 @@ impl ScicoApp {
     }
 
     #[cfg(editor_gpuikit)]
-    fn editor_gpuikit(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn editor_gpuikit(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let active = {
             let state = self.state.read(cx);
@@ -1537,6 +1536,7 @@ impl ScicoApp {
                     .or_else(|| std::env::current_dir().ok())
                     .unwrap_or_else(|| PathBuf::from("."));
                 (
+                    document.id,
                     document.editor.clone(),
                     document.preview.clone(),
                     state.editor_font_family(cx),
@@ -1549,6 +1549,7 @@ impl ScicoApp {
             })
         };
         let Some((
+            id,
             editor,
             preview,
             font_family,
@@ -1561,6 +1562,31 @@ impl ScicoApp {
         else {
             return self.empty_editor(cx);
         };
+
+        // Wheel and scrollbar input over the preview repaints this view but
+        // sends no event to the preview entity, and the 0.9 scroll bounce
+        // bypasses the list's own scroll handler. Read the top block once per
+        // frame and hand a change to the state after the frame.
+        if sync_scroll {
+            let observed_top = preview.read(cx).list_state().logical_scroll_top().item_ix;
+            let pending = self
+                .state
+                .read(cx)
+                .document(id)
+                .map(|document| (document.preview_follow_block, document.preview_reveal_at));
+            if let Some((follow, reveal_at)) = pending {
+                let expired =
+                    reveal_at.is_none_or(|at| at.elapsed() >= crate::state::PREVIEW_REVEAL_BUDGET);
+                if follow != Some(observed_top) && expired {
+                    let state = self.state.clone();
+                    cx.defer_in(window, move |_, _, cx| {
+                        state.update(cx, |state, cx| {
+                            state.preview_scrolled(id, observed_top, cx);
+                        });
+                    });
+                }
+            }
+        }
         let source = div()
             .id("editor-source")
             .flex_1()
@@ -3707,8 +3733,6 @@ mod tests {
     #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn preview_sync_survives_soft_wrapping(cx: &mut TestAppContext) {
-        use gpui_kit::InputEvent as _;
-
         let (app, cx) = mount(cx);
         let state = cx.update(|_, cx| app.read(cx).state.clone());
         let (editor, preview) = cx.update(|_, cx| {
@@ -3730,16 +3754,10 @@ mod tests {
         let count = cx.update(|_, cx| preview.read(cx).list_state().item_count());
         assert!(count > 50, "the preview must have parsed its blocks");
         let position = cx.update(|_, cx| preview.read(cx).list_state().viewport_bounds().center());
-        cx.update(|window, cx| {
-            window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
-                    position,
-                    delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-4_000.))),
-                    ..Default::default()
-                }
-                .to_platform_input(),
-                cx,
-            );
+        cx.simulate_event(gpui_kit::ScrollWheelEvent {
+            position,
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-4_000.))),
+            ..Default::default()
         });
         cx.run_until_parked();
         pump_frames(cx, 40);
