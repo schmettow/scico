@@ -23,8 +23,7 @@ use ragrig_gpui::editor::{
     SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
 };
 use ragrig_gpui::{
-    ChatProvider, ExternalServices, MemoryChoice, RagChanges, RagController, RagOnboarding,
-    RagSettings,
+    ExternalServices, MemoryChoice, RagChanges, RagController, RagOnboarding, RagSettings,
 };
 #[cfg(editor_zorite)]
 use zorite_editor::EditorEvent;
@@ -153,7 +152,11 @@ impl AppState {
         initial_workspace: Option<PathBuf>,
     ) -> Self {
         let first_launch = !settings_path.exists();
-        let mut rag_values = RagSettings::default();
+        let mut rag_values = if first_launch {
+            crate::settings::standard_rag_settings()
+        } else {
+            RagSettings::default()
+        };
         persisted.apply_to(&mut rag_values);
 
         // A workspace is only scaffolded when it was actually configured; an
@@ -305,11 +308,13 @@ impl AppState {
         let setup = match rag_values.to_setup() {
             Ok(setup) => setup,
             Err(error) => {
-                status = format!("RAG settings: {error} — using local defaults").into();
-                rag_values.provider = ChatProvider::Ollama;
-                rag_values
-                    .to_setup()
-                    .unwrap_or_else(|_| RagSettings::default().to_setup().expect("valid defaults"))
+                status = format!("RAG settings: {error} — using standard defaults").into();
+                crate::settings::apply_standard_rag_settings(&mut rag_values);
+                rag_values.to_setup().unwrap_or_else(|_| {
+                    crate::settings::standard_rag_settings()
+                        .to_setup()
+                        .expect("valid defaults")
+                })
             }
         };
         let rag = cx.new(|_| rag_values);

@@ -38,9 +38,11 @@ stabilised.
   expose the retrieved sources beside the replacement.
 - **First-run setup** now walks through the embedding model, chat provider and
   model, token limits, retrieval, and optional GROBID, with Docker/existing
-  container choices and model-aware token suggestions. Next: exercise it with a
-  genuinely empty settings directory on Windows and macOS and add a short
-  "what next" tour after finishing.
+  container choices and model-aware token suggestions. The embedding step still
+  assumes a local Ollama model, while the standard settings are OpenRouter;
+  next, add an embedding-provider choice there so the guide and the defaults
+  agree. Then exercise it with a genuinely empty settings directory on Windows
+  and macOS and add a short "what next" tour after finishing.
 - **External services** now manages three local services: GROBID, Ollama, and
   llama.cpp. Each can use an existing server, start and stop a hand-configured
   container by name, or run a managed Docker container; Ollama models are pulled

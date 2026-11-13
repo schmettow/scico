@@ -143,7 +143,11 @@ pub struct PersistedSettings {
     pub embed_model: String,
     /// Embedding backend label (`Ollama` / `llama.cpp` / `OpenAI` / `Mistral` /
     /// `OpenRouter`).
-    pub embed_provider: String,
+    ///
+    /// `None` means the settings file predates the field. The app then keeps
+    /// the backend carried by its base settings: OpenRouter for a fresh
+    /// installation, the previous local default for an existing file.
+    pub embed_provider: Option<String>,
     /// Hybrid retrieval (BM25 + embeddings). Off needs no embedding model.
     pub hybrid: bool,
     /// Retrieval budget.
@@ -228,20 +232,43 @@ pub struct PersistedSettings {
     pub viewers: ExternalViewers,
 }
 
+/// The cloud-first RagRig defaults Scico ships with.
+///
+/// OpenRouter serves both chat and embeddings, so a standard installation
+/// needs one account instead of a local model stack. The budgets match cloud
+/// models: 2^16 answer tokens, a 2^19 context window, temperature 0.5,
+/// transcript-only memory, top-k 50, and a 0.045 similarity threshold.
+pub(crate) fn standard_rag_settings() -> RagSettings {
+    let mut settings = RagSettings::default();
+    apply_standard_rag_settings(&mut settings);
+    settings
+}
+
+/// Apply the standard cloud choices, keeping host state such as the
+/// workspace, bibliography, prompt, and service containers.
+pub(crate) fn apply_standard_rag_settings(settings: &mut RagSettings) {
+    settings.provider = ChatProvider::OpenRouter;
+    settings.set_model(ChatProvider::OpenRouter.default_model());
+    settings.embed_provider = EmbedProvider::OpenRouter;
+    settings.embed_model = EmbedProvider::OpenRouter.default_model().to_owned();
+    settings.max_tokens = 1 << 16;
+    settings.context_tokens = 1 << 19;
+    settings.temperature = 0.5;
+    settings.memory = MemoryChoice::Transcript;
+    settings.hybrid = true;
+    settings.top_k = 50;
+    settings.similarity_threshold = 0.045;
+}
+
 impl Default for PersistedSettings {
     fn default() -> Self {
-        let rag = RagSettings::default();
-        let provider = if std::env::var_os("DEEPSEEK_API_KEY").is_some() {
-            ChatProvider::DeepSeek
-        } else {
-            rag.provider
-        };
+        let rag = standard_rag_settings();
         Self {
             workspace: String::new(),
             corpus: String::new(),
             corpus_dirs: Vec::new(),
             bibliography: String::new(),
-            provider: provider.label().to_owned(),
+            provider: rag.provider.label().to_owned(),
             ollama_model: rag.model_for(ChatProvider::Ollama).to_owned(),
             deepseek_model: rag.model_for(ChatProvider::DeepSeek).to_owned(),
             provider_models: BTreeMap::new(),
@@ -253,7 +280,7 @@ impl Default for PersistedSettings {
             system_prompt_path: String::new(),
             stream: true,
             embed_model: rag.embed_model,
-            embed_provider: rag.embed_provider.label().to_owned(),
+            embed_provider: None,
             hybrid: rag.hybrid,
             top_k: rag.top_k,
             similarity_threshold: rag.similarity_threshold,
@@ -378,8 +405,10 @@ impl PersistedSettings {
             None => CHAT_PROMPT.to_owned(),
         };
         settings.stream = self.stream;
-        settings.embed_provider =
-            EmbedProvider::from_label(&self.embed_provider).unwrap_or(settings.embed_provider);
+        if let Some(label) = &self.embed_provider {
+            settings.embed_provider =
+                EmbedProvider::from_label(label).unwrap_or(settings.embed_provider);
+        }
         settings.embed_model = self.embed_model.clone();
         settings.hybrid = self.hybrid;
         settings.top_k = self.top_k;
@@ -451,7 +480,7 @@ impl PersistedSettings {
         self.context_tokens = settings.context_tokens;
         self.system_prompt_path = settings.system_prompt_path.clone();
         self.stream = settings.stream;
-        self.embed_provider = settings.embed_provider.label().to_owned();
+        self.embed_provider = Some(settings.embed_provider.label().to_owned());
         self.embed_model = settings.embed_model.clone();
         self.hybrid = settings.hybrid;
         self.top_k = settings.top_k;
@@ -543,6 +572,81 @@ mod tests {
         assert!(!settings.raw_mode);
         assert_eq!(settings.library_width, 340.0);
         assert_eq!(settings.agent_width, 430.0);
+    }
+
+    #[test]
+    fn standard_settings_are_cloud_first() {
+        let rag = standard_rag_settings();
+        assert_eq!(rag.provider, ChatProvider::OpenRouter);
+        assert_eq!(rag.model(), ChatProvider::OpenRouter.default_model());
+        assert_eq!(rag.embed_provider, EmbedProvider::OpenRouter);
+        assert_eq!(rag.embed_model, EmbedProvider::OpenRouter.default_model());
+        assert_eq!(rag.max_tokens, 1 << 16);
+        assert_eq!(rag.context_tokens, 1 << 19);
+        assert_eq!(rag.temperature, 0.5);
+        assert_eq!(rag.memory, MemoryChoice::Transcript);
+        assert!(rag.hybrid);
+        assert_eq!(rag.top_k, 50);
+        assert_eq!(rag.similarity_threshold, 0.045);
+    }
+
+    #[test]
+    fn a_fresh_settings_file_offers_the_standard_choices() {
+        let persisted = PersistedSettings::default();
+        let mut rag = standard_rag_settings();
+        persisted.apply_to(&mut rag);
+
+        assert_eq!(persisted.provider, "OpenRouter");
+        assert_eq!(persisted.embed_provider, None);
+        assert_eq!(
+            persisted.embed_model,
+            EmbedProvider::OpenRouter.default_model()
+        );
+        assert_eq!(persisted.max_tokens, 1 << 16);
+        assert_eq!(persisted.context_tokens, 1 << 19);
+        assert_eq!(rag.embed_provider, EmbedProvider::OpenRouter);
+    }
+
+    #[test]
+    fn an_existing_file_keeps_its_local_embedding_backend() {
+        // Files written before `embed_provider` existed carry `None`; the
+        // base settings choose the backend, so an upgrade stays local.
+        let persisted = PersistedSettings::default();
+        let mut rag = RagSettings::default();
+        persisted.apply_to(&mut rag);
+
+        assert_eq!(rag.embed_provider, EmbedProvider::Ollama);
+    }
+
+    #[test]
+    fn resetting_applies_the_standard_choices_and_keeps_host_state() {
+        let mut rag = RagSettings {
+            workspace: "/tmp/paper".to_owned(),
+            bibliography: "/tmp/library.bib".to_owned(),
+            provider: ChatProvider::Ollama,
+            temperature: 0.2,
+            max_tokens: 2048,
+            context_tokens: 8192,
+            embed_provider: EmbedProvider::Ollama,
+            embed_model: "nomic-embed-text:latest".to_owned(),
+            memory: MemoryChoice::Rewrite,
+            top_k: 5,
+            similarity_threshold: 0.04,
+            ..RagSettings::default()
+        };
+
+        apply_standard_rag_settings(&mut rag);
+
+        assert_eq!(rag.workspace, "/tmp/paper");
+        assert_eq!(rag.bibliography, "/tmp/library.bib");
+        assert_eq!(rag.provider, ChatProvider::OpenRouter);
+        assert_eq!(rag.embed_provider, EmbedProvider::OpenRouter);
+        assert_eq!(rag.max_tokens, 1 << 16);
+        assert_eq!(rag.context_tokens, 1 << 19);
+        assert_eq!(rag.temperature, 0.5);
+        assert_eq!(rag.memory, MemoryChoice::Transcript);
+        assert_eq!(rag.top_k, 50);
+        assert_eq!(rag.similarity_threshold, 0.045);
     }
 
     #[test]

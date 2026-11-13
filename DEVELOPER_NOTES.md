@@ -57,10 +57,14 @@ not stabilised.
   sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
   ```
 
-- A chat backend:
-  - **Ollama** (default): start `ollama serve` and pull the configured chat and
-    embedding models, or use the managed Ollama container under **Settings →
-    External services** and press **Pull models** there.
+- A chat and embedding backend:
+  - **OpenRouter** (standard): export `OPENROUTER_API_KEY` (or put it in
+    `~/.config/scico/env`). Chat uses `openrouter/auto`; embeddings use
+    `openai/text-embedding-3-small`. OpenAI, Mistral, and llama.cpp embeddings
+    can be selected under **Settings → RAG → Retrieval**.
+  - **Ollama** (local alternative): start `ollama serve` and pull the configured
+    chat and embedding models, or use the managed Ollama container under
+    **Settings → External services** and press **Pull models** there.
   - **llama.cpp**: run `llama-server`, or use the managed container with a
     Hugging Face model or local `.gguf` file.
   - **DeepSeek**: export `DEEPSEEK_API_KEY`; the key is read from the
@@ -344,9 +348,9 @@ of the controls column and the chosen width is remembered.
   sit a per-section count of pending changes and the action row: **Apply**,
   **Profile Defaults**, and **Update Profile**. Apply is disabled (grey) while
   nothing is pending and violet when a rebuild is due. Profile Defaults
-  re-reads the selected profile, or the built-in defaults when none exists;
-  Update Profile writes the current values to the selected name. The last
-  selected profile persists in `settings.json`.
+  re-reads the selected profile, or the standard OpenRouter configuration when
+  none exists; Update Profile writes the current values to the selected name.
+  The last selected profile persists in `settings.json`.
 - **Workspace** — workspace folder, corpus folder, bibliography, pane
   visibility, external viewers for PDF/EPUB/HTML, the default library
   attachment, and reference processing (renaming, OpenAlex, `@key` citations). Every path
@@ -370,9 +374,12 @@ of the controls column and the chosen width is remembered.
   preview (zorite); editor font family and size; Chat visibility; and the
   default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval (including the
-  **Hybrid retrieval** switch), parsing/chunking, and memory. The token budgets
-  are sliders over powers of two (512, 1024,
-  2048, …).
+  **Hybrid retrieval** switch), parsing/chunking, and memory. A fresh install
+  uses OpenRouter for chat and embeddings, 2^16 answer tokens, a 2^19 context
+  window, temperature 0.5, transcript-only memory, top-k 50, and a 0.045
+  similarity threshold. A settings file written before the embedding-provider
+  field existed keeps its local embedding backend. The token budgets are
+  sliders over powers of two (512, 1024, 2048, …).
 - **Chat prompt** (RAG → Chat) — the compiled-in `Chat.md` is the default; an
   empty path uses it. **Browse…** selects a Markdown file that overrides it,
   **Open prompt** shows the effective prompt in the editor (a file, or an

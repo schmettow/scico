@@ -5,7 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.7.2 — 2026-11-13
+## v0.8.0 — 2026-11-13
+
+### Changed
+
+- **Cloud-first standard settings.** A fresh Scico uses OpenRouter for chat
+  (`openrouter/auto`) and embeddings (`openai/text-embedding-3-small`), with
+  2^16 answer tokens, a 2^19 context window, temperature 0.5, transcript-only
+  memory, top-k 50, and a 0.045 similarity threshold. Only
+  `OPENROUTER_API_KEY` is required; Ollama, llama.cpp, and the other chat
+  providers remain selectable. **Profile Defaults** with no profile selected
+  restores the same choices. Settings files written before the embedding
+  provider existed keep their local embedding backend, so upgrading does not
+  silently move an existing workspace to the cloud (`src/settings.rs`,
+  `src/state.rs`, `src/app_settings.rs`).
 
 ### Fixed
 
@@ -46,36 +59,26 @@ not measured on stable Rust):
 
 | Metric | Covered | Total | Cover |
 | --- | ---: | ---: | ---: |
-| Regions | 12,617 | 17,701 | 71.28% |
-| Functions | 820 | 1,307 | 62.74% |
-| Lines | 7,366 | 10,162 | 72.49% |
+| Regions | 12,720 | 17,813 | 71.41% |
+| Functions | 826 | 1,314 | 62.86% |
+| Lines | 7,445 | 10,249 | 72.64% |
 
 `--all-features` selects the zorite backend, so the gpuikit-only
 `src/highlight.rs` is not measured in this run; `src/main.rs` is the binary
-entry point and stays at 0% lines. The new attachment-note helper and the
+entry point and stays at 0% lines. `src/settings.rs` (95.47% lines) covers the
+standard cloud choices, the fresh/upgrade distinction, and the persisted
+embedding-provider round trip. The attachment-note helper and the
 preserved/dropped session cases in `src/agent.rs` are covered by unit and app
-tests respectively, and `src/settings.rs` (94.76% lines) covers the persisted
-embedding-provider round trip.
+tests respectively.
 
-**Tests.** `cargo test --all-features`: 99 passed, 0 failed (97 lib, 1 prompt
+**Tests.** `cargo test --all-features`: 103 passed, 0 failed (101 lib, 1 prompt
 protocol, 1 working directory; no doctests).
 
 **Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
 `cargo clippy --all-targets --all-features -- -D warnings`,
-`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`, and `cargo
-package --list --allow-dirty` all pass.
-
-**Release blocker.** `cargo publish --dry-run --allow-dirty` fails until
-`ragrig-gpui` 0.9.2 is live:
-
-```text
-failed to select a version for the requirement `ragrig-gpui = "^0.9.2"`
-candidate versions found which didn't match: 0.9.1, 0.9.0, 0.7.1, ...
-```
-
-Publish `ragrig-gpui` 0.9.2 first, wait for the crates.io index to update, then
-publish this crate. The `[patch.crates-io]` entries are development-only and
-are stripped from the package.
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`, `cargo package
+--list`, and `cargo publish --dry-run` all pass against the published
+`ragrig-gpui` 0.9.2.
 
 ## v0.7.1 — 2026-11-10
 

@@ -9,8 +9,9 @@ place, ask questions about them, and let the co-writer turn an answer into a
 revision of the exact passage you marked — without leaving your draft.
 
 **Designed for students and researchers.**  
-Start with a folder, add your PDFs, and write. With Ollama, the whole stack
-runs on your own machine; no account and no cloud upload.
+Start with a folder, add your PDFs, and write. Chat and embeddings use
+OpenRouter out of the box; point Scico at Ollama or a local llama.cpp server
+when you want the whole stack on your own machine.
 
 - **Ask your own literature.** Index a corpus once, then ask questions and get
   answers grounded in the papers you chose, with sources attached.
@@ -24,9 +25,9 @@ runs on your own machine; no account and no cloud upload.
   sentence, caret, and pane layout — even after a crash or a forced shutdown.
 - **Write, don't typeset.** Markdown and Quarto with inline images, tables,
   and a live preview. Use Quarto or Pandoc when it is time to make the PDF.
-- **Local or hosted.** Ollama or a local llama.cpp server by default;
-  DeepSeek & Co when you want a larger model. Choose your favorite provider
-  and create a profile.
+- **Local or hosted.** OpenRouter is the standard provider; Ollama and a local
+  llama.cpp server keep the whole stack on your machine. Choose your favorite
+  provider and create a profile.
 - **One workspace, one folder.** Paper, sources, bibliography, index, and
   sessions live together, so a project is easy to back up, share, version with
   Git, or archive.
@@ -39,27 +40,44 @@ runs on your own machine; no account and no cloud upload.
 
 ## Quick Start
 
-### You need three things
+### You need two things
 
 1. **Rust** — [rustup.rs](https://rustup.rs)
-2. An **LLM provider**: 
-  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is the default local provider for chat and embeddings. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM. Scico can also pull and run the official Ollama container from *Settings → External services*.
-  b. **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it. *Settings → External services* can also run the official llama.cpp container with a Hugging Face model or a local `.gguf` file.
-  c. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
-3. **A chat model and an embedding model.** For example:
+2. **An OpenRouter API key** — create one at
+   [openrouter.ai/keys](https://openrouter.ai/keys) and export it as
+   `OPENROUTER_API_KEY`. On Linux desktop launches, put it in
+   `~/.config/scico/env`; see **Provider API keys** below.
 
-```bash
-ollama pull nomic-embed-text    # retrieval
-ollama pull qwen2.5:1.5b        # optional: memory and query rewriting
-ollama pull qwen3.5:9b          # chat agent
-```
+The standard settings use OpenRouter for chat (`openrouter/auto`) and
+embeddings (`openai/text-embedding-3-small`), with a 2^16 answer budget and a
+2^19 context window. PDF parsing and chunking run locally; indexing sends the
+chunks to the embedding provider.
 
-Embeddings can also come from OpenAI, Mistral, OpenRouter, or a local
-llama.cpp server: pick the backend under *Settings → RAG → Retrieval* and
-provide `OPENAI_API_KEY`, `MISTRAL_API_KEY`, or `OPENROUTER_API_KEY` (llama.cpp
-reads `LLAMACPP_API_BASE_URL` and an optional `LLAMACPP_API_KEY`).
+### Local and alternative providers
 
-Run `ollama serve` if the desktop app is not already doing it for you.
+Choose any of these under *Settings → RAG*; **Profile Defaults** restores the
+standard cloud choices.
+
+- **Ollama** — [ollama.com/download](https://ollama.com/download) keeps chat
+  and embeddings on your machine. Pull a chat and an embedding model:
+
+  ```bash
+  ollama pull nomic-embed-text    # retrieval
+  ollama pull qwen3.5:9b          # chat agent
+  ```
+
+  Run `ollama serve` if the desktop app is not already doing it for you. For
+  query rewriting or summaries, pull `qwen2.5:1.5b` as well and choose
+  **Rewrite** or **Summary** memory. Scico can also pull and run the official
+  Ollama container from *Settings → External services*.
+- **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and
+  select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there
+  (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it.
+  *Settings → External services* can also run the official llama.cpp container
+  with a Hugging Face model or a local `.gguf` file.
+- **Other cloud chat providers** — OpenAI, DeepSeek, Claude, and Mistral can
+  replace OpenRouter for chat while embeddings stay on OpenRouter or a local
+  embedder.
 
 ### Get Scico
 
@@ -223,11 +241,11 @@ my-paper/
   overrides the keys it names; context size, token limits, and the
   service/container choices from `settings.json` stay in effect.
 - **First-run setup.** On first launch, when the selected workspace has no
-  Ragrig or Scico data, Scico opens a guided setup: choose a local embedding
-  model and its Ollama source, pick a frontier or local chat model (with
-  API-key guidance), accept model-aware context and answer limits, tune
-  retrieval, and optionally connect GROBID. **Set up later** keeps the previous
-  settings. Run the guide again with **Settings → Overview → Setup guide**.
+  Ragrig or Scico data, Scico opens a guided setup for a local Ollama
+  embedding model, the chat provider and API-key guidance, model-aware context
+  and answer limits, retrieval, and optional GROBID. **Set up later** keeps the
+  standard OpenRouter settings. Run the guide again with
+  **Settings → Overview → Setup guide**.
 - **Profiles** live in `.ragrig/profiles`. In *Settings → Overview*, choosing
   a profile in the picker loads it; **New** asks for a name before snapshotting
   the current settings, and **Update Profile** saves to the selected profile.

@@ -183,8 +183,14 @@ fn actions_row(state: Entity<AppState>, cx: &mut App) -> gpui_kit::AnyElement {
             .on_click(move |_, _, cx| {
                 state.update(cx, |state, cx| {
                     state.rag.update(cx, |rag, cx| {
+                        let uses_profile = rag
+                            .profiles
+                            .iter()
+                            .any(|profile| profile == rag.profile_name.trim());
                         if let Err(message) = rag.reset_to_profile_defaults() {
                             rag.status = Some(message);
+                        } else if !uses_profile {
+                            crate::settings::apply_standard_rag_settings(rag);
                         }
                         cx.notify();
                     });
