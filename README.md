@@ -43,7 +43,7 @@ runs on your own machine; no account and no cloud upload.
 
 1. **Rust** — [rustup.rs](https://rustup.rs)
 2. An **LLM provider**: 
-  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is required for retrieval,  and also is the default provider for the chat agent. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM. Scico can also pull and run the official Ollama container from *Settings → External services*.
+  a. **Ollama** — [ollama.com/download](https://ollama.com/download) is the default local provider for chat and embeddings. It runs locally on your machine. Using local LLMs as chat agents is a quite limited experience, unless you demand over a GPU with 24+ GB VRAM. Scico can also pull and run the official Ollama container from *Settings → External services*.
   b. **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it. *Settings → External services* can also run the official llama.cpp container with a Hugging Face model or a local `.gguf` file.
   c. **Frontier model** — Optional, but recommended: You can choose between a growing number of paid cloud providers for the chat agent, such as OpenAI, Deepseek, Claude and OpenRouter.
 3. **A chat model and an embedding model.** For example:
@@ -53,6 +53,11 @@ ollama pull nomic-embed-text    # retrieval
 ollama pull qwen2.5:1.5b        # optional: memory and query rewriting
 ollama pull qwen3.5:9b          # chat agent
 ```
+
+Embeddings can also come from OpenAI, Mistral, OpenRouter, or a local
+llama.cpp server: pick the backend under *Settings → RAG → Retrieval* and
+provide `OPENAI_API_KEY`, `MISTRAL_API_KEY`, or `OPENROUTER_API_KEY` (llama.cpp
+reads `LLAMACPP_API_BASE_URL` and an optional `LLAMACPP_API_KEY`).
 
 Run `ollama serve` if the desktop app is not already doing it for you.
 

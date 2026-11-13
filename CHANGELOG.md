@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## v0.7.2 — 2026-11-11
+## v0.7.2 — 2026-11-13
 
 ### Fixed
 
@@ -31,25 +31,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RagController::session_preserves_context()`: a rebuild keeps the queued
   context and a sent direct edit releases its lock, while an explicit New or
   Load still starts clean (`src/agent.rs`).
+- **The embedding provider survives a restart.** The RagRig page now offers
+  Ollama, llama.cpp, OpenAI, Mistral, and OpenRouter embeddings;
+  `PersistedSettings` stores the provider label and restores it before the
+  agent is built, so a cloud embedding choice is not reset to Ollama
+  (`src/settings.rs`).
 
 ### Quality
 
-Release validation on 2026-11-11 (Cargo 1.99.0, rustc 1.99.0).
+Release validation on 2026-11-13 (Cargo 1.99.0, rustc 1.99.0).
 
 **Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
 not measured on stable Rust):
 
 | Metric | Covered | Total | Cover |
 | --- | ---: | ---: | ---: |
-| Regions | 12,607 | 17,691 | 71.26% |
+| Regions | 12,617 | 17,701 | 71.28% |
 | Functions | 820 | 1,307 | 62.74% |
-| Lines | 7,360 | 10,156 | 72.47% |
+| Lines | 7,366 | 10,162 | 72.49% |
 
 `--all-features` selects the zorite backend, so the gpuikit-only
 `src/highlight.rs` is not measured in this run; `src/main.rs` is the binary
 entry point and stays at 0% lines. The new attachment-note helper and the
 preserved/dropped session cases in `src/agent.rs` are covered by unit and app
-tests respectively.
+tests respectively, and `src/settings.rs` (94.76% lines) covers the persisted
+embedding-provider round trip.
 
 **Tests.** `cargo test --all-features`: 99 passed, 0 failed (97 lib, 1 prompt
 protocol, 1 working directory; no doctests).

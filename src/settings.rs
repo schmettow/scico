@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ragrig_gpui::{
-    ChatProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings, ServiceSource,
+    ChatProvider, EmbedProvider, GrobidSource, MemoryChoice, PdfBackend, RagSettings, ServiceSource,
 };
 use serde::{Deserialize, Serialize};
 
@@ -141,6 +141,9 @@ pub struct PersistedSettings {
     pub stream: bool,
     /// Embedding model.
     pub embed_model: String,
+    /// Embedding backend label (`Ollama` / `llama.cpp` / `OpenAI` / `Mistral` /
+    /// `OpenRouter`).
+    pub embed_provider: String,
     /// Hybrid retrieval (BM25 + embeddings). Off needs no embedding model.
     pub hybrid: bool,
     /// Retrieval budget.
@@ -250,6 +253,7 @@ impl Default for PersistedSettings {
             system_prompt_path: String::new(),
             stream: true,
             embed_model: rag.embed_model,
+            embed_provider: rag.embed_provider.label().to_owned(),
             hybrid: rag.hybrid,
             top_k: rag.top_k,
             similarity_threshold: rag.similarity_threshold,
@@ -374,6 +378,8 @@ impl PersistedSettings {
             None => CHAT_PROMPT.to_owned(),
         };
         settings.stream = self.stream;
+        settings.embed_provider =
+            EmbedProvider::from_label(&self.embed_provider).unwrap_or(settings.embed_provider);
         settings.embed_model = self.embed_model.clone();
         settings.hybrid = self.hybrid;
         settings.top_k = self.top_k;
@@ -445,6 +451,7 @@ impl PersistedSettings {
         self.context_tokens = settings.context_tokens;
         self.system_prompt_path = settings.system_prompt_path.clone();
         self.stream = settings.stream;
+        self.embed_provider = settings.embed_provider.label().to_owned();
         self.embed_model = settings.embed_model.clone();
         self.hybrid = settings.hybrid;
         self.top_k = settings.top_k;
@@ -661,6 +668,7 @@ mod tests {
             context_tokens: 16_384,
             stream: false,
             embed_model: "mxbai-embed-large".to_owned(),
+            embed_provider: EmbedProvider::OpenAi,
             hybrid: false,
             top_k: 11,
             similarity_threshold: 0.21,
@@ -732,6 +740,7 @@ mod tests {
         assert_eq!(restored.context_tokens, 16_384);
         assert!(!restored.stream);
         assert_eq!(restored.embed_model, "mxbai-embed-large");
+        assert_eq!(restored.embed_provider, EmbedProvider::OpenAi);
         assert!(!restored.hybrid);
         assert_eq!(restored.top_k, 11);
         assert_eq!(restored.similarity_threshold, 0.21);
