@@ -23,7 +23,7 @@ gpuikit = ["dep:syntect"]
 blake3 = "1.5"
 comrak = "0.22"
 dirs = "5"
-gpui-kit = "0.7.3"
+gpui-kit = "0.9.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 open = "5"
 ragrig-gpui = { version = "0.9.2", features = ["grobid"] }
@@ -31,10 +31,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-onig"], optional = true }
-zorite-editor = { version = "0.11.2", optional = true }
+zorite-editor = { version = "0.11.3", optional = true }
 
 [dev-dependencies]
-gpui-kit = { version = "0.7.3", features = ["test-support"] }
+gpui-kit = { version = "0.9.1", features = ["test-support"] }
 
 # Development against the sibling checkouts. Remove these before publishing and
 # let Cargo resolve the released versions instead.
