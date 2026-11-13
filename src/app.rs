@@ -1478,24 +1478,22 @@ impl ScicoApp {
                     .flex()
                     .flex_col()
                     .overflow_y_scroll()
-                    .on_scroll_wheel(cx.listener(
-                        |this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
-                            if !event.modifiers.control && !event.modifiers.platform {
-                                return;
-                            }
-                            let lines = match event.delta {
-                                gpui_kit::ScrollDelta::Lines(delta) => delta.y,
-                                gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
-                            };
-                            if lines.abs() < f32::EPSILON {
-                                return;
-                            }
-                            let step = if lines > 0.0 { -1.0 } else { 1.0 };
-                            this.state
-                                .update(cx, |state, cx| state.zoom_editor_font(step, cx));
-                            cx.stop_propagation();
-                        },
-                    ))
+                    .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
+                        if !event.modifiers.control && !event.modifiers.platform {
+                            return;
+                        }
+                        let lines = match event.delta {
+                            gpui_kit::ScrollDelta::Lines(delta) => delta.y,
+                            gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
+                        };
+                        if lines.abs() < f32::EPSILON {
+                            return;
+                        }
+                        let step = if lines > 0.0 { -1.0 } else { 1.0 };
+                        this.state
+                            .update(cx, |state, cx| state.zoom_editor_font(step, cx));
+                        cx.stop_propagation();
+                    }))
                     .track_scroll(&scroll)
                     .child(
                         div()
@@ -1592,24 +1590,22 @@ impl ScicoApp {
             .flex_1()
             .min_w(px(0.))
             .h_full()
-            .on_scroll_wheel(
-                cx.listener(|this, event: &gpui_kit::ScrollWheelEvent, _, cx| {
-                    if !event.modifiers.control && !event.modifiers.platform {
-                        return;
-                    }
-                    let lines = match event.delta {
-                        gpui_kit::ScrollDelta::Lines(delta) => delta.y,
-                        gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
-                    };
-                    if lines.abs() < f32::EPSILON {
-                        return;
-                    }
-                    let step = if lines > 0.0 { -1.0 } else { 1.0 };
-                    this.state
-                        .update(cx, |state, cx| state.zoom_editor_font(step, cx));
-                    cx.stop_propagation();
-                }),
-            )
+            .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
+                if !event.modifiers.control && !event.modifiers.platform {
+                    return;
+                }
+                let lines = match event.delta {
+                    gpui_kit::ScrollDelta::Lines(delta) => delta.y,
+                    gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
+                };
+                if lines.abs() < f32::EPSILON {
+                    return;
+                }
+                let step = if lines > 0.0 { -1.0 } else { 1.0 };
+                this.state
+                    .update(cx, |state, cx| state.zoom_editor_font(step, cx));
+                cx.stop_propagation();
+            }))
             .child(
                 gpui_kit::component::input::Editor::new(&editor)
                     .bordered(false)
@@ -3366,7 +3362,7 @@ mod tests {
 
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-40.))),
                     modifiers: gpui_kit::Modifiers {
@@ -3389,7 +3385,7 @@ mod tests {
 
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(40.))),
                     modifiers: gpui_kit::Modifiers {
@@ -3657,7 +3653,7 @@ mod tests {
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_200.))),
                     ..Default::default()
@@ -3708,7 +3704,7 @@ mod tests {
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-3_000.))),
                     ..Default::default()
@@ -3754,7 +3750,7 @@ mod tests {
         let count = cx.update(|_, cx| preview.read(cx).list_state().item_count());
         assert!(count > 50, "the preview must have parsed its blocks");
         let position = cx.update(|_, cx| preview.read(cx).list_state().viewport_bounds().center());
-        cx.simulate_event(gpui_kit::ScrollWheelEvent {
+        cx.simulate_event(gpui_kit::ScrollEvent {
             position,
             delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-4_000.))),
             ..Default::default()
@@ -3801,7 +3797,7 @@ mod tests {
         let position = cx.update(|_, cx| preview.read(cx).list_state().viewport_bounds().center());
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_500.))),
                     ..Default::default()
@@ -3849,7 +3845,7 @@ mod tests {
         let position = cx.update(|_, cx| editor.read(cx).input_bounds().center());
         cx.update(|window, cx| {
             window.dispatch_event(
-                gpui_kit::ScrollWheelEvent {
+                gpui_kit::ScrollEvent {
                     position,
                     delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-1_200.))),
                     ..Default::default()

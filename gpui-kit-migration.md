@@ -37,7 +37,7 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 ### Adoption backlog
 
 - [x] Task 1 — plan, version bump, `TextViewStyle` check (no change needed).
-- [ ] Task 2 — wheel handler on `on_scroll` / `ScrollEvent`; suites green.
+- [x] Task 2 — wheel handler on `on_scroll` / `ScrollEvent`; suites green.
 - [x] Task 3 — `DisplayMap` + `reveal_range`; delete `source_top_line`,
       `PreviewScrollTarget`, and the probing loop. One `list_state()` read
       remains, sampling the preview top once per frame (see below).
