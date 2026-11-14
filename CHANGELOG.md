@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.8.1 — 2026-11-14
 
 ### Added
 
@@ -37,6 +37,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounds, which zorite only provides for rows inside its shaped band; a jump to
   a distant entry moved the caret but left the viewport at the top. It now
   reads `offset_screen_top` from the full line map (`src/document.rs`).
+
+### Quality
+
+Release validation on 2026-11-14 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 13,349 | 18,332 | 72.82% |
+| Functions | 881 | 1,363 | 64.64% |
+| Lines | 7,795 | 10,543 | 73.94% |
+
+`--all-features` selects the zorite backend, so the gpuikit-only
+`src/highlight.rs` is not measured in this run; `src/main.rs` is the binary
+entry point and stays at 0% lines. The least covered areas are the Library
+pane (`src/library.rs`, 49.03%), the agent pane (`src/agent.rs`, 50.73%; its
+armed-edit paths are covered by the app tests), and the settings pages
+(`src/app_settings.rs`, 57.31%). The core editing surface stays high:
+`src/document.rs` 91.94%, `src/workspace.rs` 90.72%, `src/settings.rs`
+95.47%, `src/app.rs` 84.32%.
+
+**Tests.** `cargo test --all-features` (zorite): 116 passed, 1 ignored (111
+lib, 1 prompt protocol, 1 working directory, 3 zorite performance guards with
+the slow large-document measurement ignored; no doctests). `cargo test`
+(gpuikit): 125 passed (123 lib + 2 integration).
+`cargo test --no-default-features --features zorite`: 116 passed, 1 ignored.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`, and
+`cargo package --list` are green. The end-to-end GROBID exercise was not run
+(no server was provided).
+
+**Release blocker (expected publication order).** Scico 0.8.1 requires
+`ragrig-gpui = "^0.9.3"`, which is not on crates.io yet. Publish
+`ragrig-gpui` 0.9.3 first, remove scico's `[patch.crates-io]` section, refresh
+`Cargo.lock`, and re-run `cargo publish --dry-run`. `ragrig` 1.4.0,
+`grobid-bibtex` 0.4.0, and `zorite-editor` 0.11.3 are already published.
 
 ## v0.8.0 — 2026-11-13
 
