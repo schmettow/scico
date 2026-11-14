@@ -265,13 +265,13 @@ my-paper/
    single **Direct edit** chip; its **Marked region** chip is suppressed because
    it would repeat the same passage. Closing the **Direct edit** chip cancels
    the mode, removes the editor marker, collapses the native selection, and
-   drops the target (other marked regions stay). On submit, the target
-   document becomes read-only; user edits are rejected until the replacement is
-   applied or the request fails or is stopped. The agent's own write-back
-   bypasses the lock (`Document::replace` is programmatic), and navigation,
-   selection, and copy still work. The zorite backend has no range-decoration
-   API, so the armed passage is not visually marked there; it still locks the
-   document by moving the focus off the editor and shielding it from clicks.
+   drops the target (other marked regions stay). On submit the document stays
+   editable: the author can keep writing anywhere outside the marked passage
+   while the answer streams, and the replacement is located by the passage's
+   text when it arrives. If the marked passage itself changed, nothing is
+   written and an **Insert** chip is offered instead. The zorite backend has no
+   range-decoration API, so the armed passage is not visually marked there; the
+   gpuikit backend keeps the selection fill and frame.
 6. If the passage changed while the chat agent was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
@@ -529,7 +529,7 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 117 unit tests with the `gpuikit` backend and 105 with `zorite`,
+Current suite: 123 unit tests with the `gpuikit` backend and 111 with `zorite`,
 plus the protocol and working-directory integration tests and three zorite
 performance guards, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
@@ -544,7 +544,7 @@ word movement, multiple-selection capture, edit and enrich modes, undo/dirty
 tracking, preview and settings toggling, pane toggling, the unsaved-changes
 close guard, crash recovery into a second window, selection capture, guarded
 write-back plus undo in a headless GPUI window, persistent edit decorations
-with the read-only guard, the Library's BibTeX jump and bibliography file
+during an armed edit, the Library's BibTeX jump and bibliography file
 lookup, the open-bibliography GROBID guard, canonical PDF imports,
 incremental Markdown/BibTeX highlighting, editor font
 defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in

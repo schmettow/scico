@@ -5,6 +5,7 @@
 //! containers (document, bibliography, marked selections) and a finished answer
 //! may carry a replacement block that belongs back in the document.
 
+use std::ops::Range;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -908,6 +909,27 @@ impl AgentPane {
         cx.notify();
     }
 
+    /// Build the write-back target, following the passage if the author edited
+    /// before it while the answer was streaming.
+    fn replacement_target(
+        &self,
+        selection: &PendingSelection,
+        cx: &gpui_kit::App,
+    ) -> ReplacementTarget {
+        let captured = selection.context.range().unwrap_or(0..0);
+        let range = self
+            .state
+            .read(cx)
+            .document(selection.tab_id)
+            .and_then(|document| relocate_passage(&document.text(cx), &selection.context))
+            .unwrap_or(captured);
+        ReplacementTarget {
+            document_id: selection.tab_id,
+            range,
+            digest: selection.context.digest().to_owned(),
+        }
+    }
+
     fn handle_finished(&mut self, reply: RagReply, pending: PendingTurn, cx: &mut Context<Self>) {
         let direct = pending.target.is_some();
         let Some((prose, blocks)) = Replacement::extract(&reply.answer) else {
@@ -940,13 +962,9 @@ impl AgentPane {
         };
         let extra = blocks.len().saturating_sub(1);
         if let Some(target) = pending.target {
-            let target = ReplacementTarget {
-                document_id: target.tab_id,
-                range: target.context.range().unwrap_or(0..0),
-                digest: target.context.digest().to_owned(),
-            };
+            let replacement = self.replacement_target(&target, cx);
             self.pending_write = Some(PendingWrite {
-                target,
+                target: replacement,
                 text: block.body.clone(),
                 message: pending.message,
                 empty_prose,
@@ -1412,14 +1430,39 @@ fn citation_note(resolved: &[CitationAttachment], missed: &[String]) -> Option<S
     Some(lines.join("\n"))
 }
 
+/// Where the marked passage is now, when the author edited around it.
+///
+/// The capture is char-indexed against the text at submit time. The digest
+/// still identifies the passage text, so relocate by content: only an
+/// unchanged, unique, untruncated passage moves. Anything else keeps the
+/// captured range, whose digest then fails and becomes an Insert offer.
+pub(crate) fn relocate_passage(current: &str, context: &RoundtripContext) -> Option<Range<usize>> {
+    if context.chars() != context.text().chars().count() {
+        return None; // only a full, untruncated passage is identifiable
+    }
+    let passage = context.text();
+    if passage.is_empty() {
+        return None;
+    }
+    let mut matches = current.match_indices(passage);
+    let (byte, _) = matches.next()?;
+    if matches.next().is_some() {
+        return None; // ambiguous
+    }
+    let start = current[..byte].chars().count();
+    Some(start..start + passage.chars().count())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use gpui_kit::SvgRenderer;
 
-    use super::{attachment_notes, context_char_limit};
-    use ragrig_gpui::prelude::PendingAttachment;
+    use super::{attachment_notes, context_char_limit, relocate_passage};
+    use ragrig_gpui::prelude::{
+        EditorBuffer, MAX_CONTEXT_CHARS, PendingAttachment, RoundtripContext,
+    };
 
     #[test]
     fn the_chat_marks_render_and_keep_their_colours() {
@@ -1493,5 +1536,51 @@ mod tests {
             ]
         );
         assert!(attachment_notes(&[]).is_empty());
+    }
+
+    fn selection_context(
+        content: &str,
+        range: std::ops::Range<usize>,
+        limit: usize,
+    ) -> RoundtripContext {
+        RoundtripContext::selection_with_limit(
+            EditorBuffer {
+                name: "doc",
+                path: None,
+                cursor: (0, 0),
+                content,
+            },
+            range,
+            limit,
+        )
+        .expect("selection")
+    }
+
+    #[test]
+    fn a_passage_is_relocated_by_its_text() {
+        let context = selection_context("alpha beta gamma", 6..10, MAX_CONTEXT_CHARS);
+        assert_eq!(
+            relocate_passage("XX alpha beta gamma", &context),
+            Some(9..13)
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_passage_is_not_relocated() {
+        let context = selection_context("alpha beta gamma", 6..10, MAX_CONTEXT_CHARS);
+        assert_eq!(relocate_passage("beta x beta", &context), None);
+    }
+
+    #[test]
+    fn a_truncated_passage_is_not_relocated() {
+        let context = selection_context("alpha beta gamma", 6..10, 1);
+        assert_eq!(context.text(), "b");
+        assert_eq!(relocate_passage("alpha beta gamma", &context), None);
+    }
+
+    #[test]
+    fn a_missing_passage_is_not_relocated() {
+        let context = selection_context("alpha beta gamma", 6..10, MAX_CONTEXT_CHARS);
+        assert_eq!(relocate_passage("alpha gamma", &context), None);
     }
 }

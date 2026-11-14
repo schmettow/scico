@@ -3401,6 +3401,136 @@ mod tests {
         });
     }
 
+    fn marked_alpha_beta(
+        cx: &mut VisualTestContext,
+        app: &Entity<ScicoApp>,
+    ) -> (
+        Entity<AppState>,
+        u64,
+        ragrig_gpui::prelude::RoundtripContext,
+    ) {
+        type_into_active(cx, app, "alpha beta gamma");
+        let (state, document_id, text) = cx.update(|_, cx| {
+            let app = app.read(cx);
+            let document = app.state.read(cx).active_document().expect("a document");
+            (app.state.clone(), document.id, document.text(cx))
+        });
+        let context = ragrig_gpui::prelude::RoundtripContext::selection(
+            ragrig_gpui::prelude::EditorBuffer {
+                name: "doc",
+                path: None,
+                cursor: (0, 0),
+                content: &text,
+            },
+            6..10,
+        )
+        .expect("selection");
+        (state, document_id, context)
+    }
+
+    fn replace_bytes(
+        cx: &mut VisualTestContext,
+        state: &Entity<AppState>,
+        document_id: u64,
+        range: std::ops::Range<usize>,
+        text: &str,
+    ) {
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state
+                    .document(document_id)
+                    .expect("a document")
+                    .replace(range, text, window, cx);
+            });
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_edit_before_the_passage_still_applies(cx: &mut TestAppContext) {
+        use ragrig_gpui::prelude::{ReplacementOutcome, ReplacementTarget};
+
+        let (app, cx) = mount(cx);
+        let (state, document_id, context) = marked_alpha_beta(cx, &app);
+        replace_bytes(cx, &state, document_id, 0..0, "XX ");
+
+        let relocated = cx.update(|_, cx| {
+            let state = state.read(cx);
+            let document = state.document(document_id).expect("a document");
+            crate::agent::relocate_passage(&document.text(cx), &context).expect("relocated")
+        });
+        assert_eq!(relocated, 9..13);
+        let outcome = cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.apply_replacement(
+                    ReplacementTarget {
+                        document_id,
+                        range: relocated,
+                        digest: context.digest().to_owned(),
+                    },
+                    "BETA",
+                    window,
+                    cx,
+                )
+            })
+        });
+        assert!(
+            matches!(outcome, ReplacementOutcome::Applied { .. }),
+            "got {outcome:?}"
+        );
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert_eq!(
+                state.document(document_id).expect("a document").text(cx),
+                "XX alpha BETA gamma"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn an_edit_inside_the_passage_becomes_an_offer(cx: &mut TestAppContext) {
+        use ragrig_gpui::prelude::{ReplacementOutcome, ReplacementTarget, char_range_to_bytes};
+
+        let (app, cx) = mount(cx);
+        let (state, document_id, context) = marked_alpha_beta(cx, &app);
+        let captured = context.range().unwrap_or(0..0);
+        let bytes = char_range_to_bytes("alpha beta gamma", 6..10);
+        replace_bytes(cx, &state, document_id, bytes, "zeta");
+
+        let range = cx
+            .update(|_, cx| {
+                let state = state.read(cx);
+                let document = state.document(document_id).expect("a document");
+                crate::agent::relocate_passage(&document.text(cx), &context)
+            })
+            .unwrap_or(captured);
+        let outcome = cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state.apply_replacement(
+                    ReplacementTarget {
+                        document_id,
+                        range,
+                        digest: context.digest().to_owned(),
+                    },
+                    "BETA",
+                    window,
+                    cx,
+                )
+            })
+        });
+        assert!(
+            matches!(outcome, ReplacementOutcome::Offered { .. }),
+            "got {outcome:?}"
+        );
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert_eq!(
+                state.document(document_id).expect("a document").text(cx),
+                "alpha zeta gamma",
+                "a conflicting passage is left untouched"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn hiding_and_showing_the_agent_round_trips(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
