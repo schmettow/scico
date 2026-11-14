@@ -5,15 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.10.0 — 2026-11-14
 
 ### Added
 
-- **A third editor backend: `gpuikit-markdown-editor`.** The experimental
+- **A third editor backend: `gpuikit-markdown-editor` (experimental).** The
   feature wires `gpui-kit-markdown-editor`'s block-based WYSIWYG editor into
   `Document`, the render shell, subscriptions, and the settings page
   (`src/editor_block.rs`, `src/document.rs`, `src/state.rs`, `src/app.rs`,
-  `src/app_settings.rs`, `Cargo.toml`, `build.rs`).
+  `src/app_settings.rs`, `Cargo.toml`, `build.rs`). **`gpuikit` remains the
+  default**; this backend is opt-in with
+  `--no-default-features --features gpuikit-markdown-editor`.
 - The adapter maps canonical-source bytes to top-level blocks, so the Library
   still reveals a bibliography entry and the caret line still follows typing.
   Insertions at the caret use the editor's native capture API; guarded
@@ -36,7 +38,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Focus/Edit/Enrich are unavailable there; it has no range decoration, no
   separate preview/raw mode, and no byte-exact save. Its serializer normalizes
   soft line breaks, and reveal is top-level-block granular. `UPSTREAM.md`
-  records the upstream APIs that would close the gaps.
+  records the upstream APIs that would close the gaps. The published crate
+  cannot build this feature until upstream releases a version compatible with
+  `gpui-base 0.9.1` (UM001); the compatibility fork is excluded from the
+  package.
+
+### Quality
+
+Release validation on 2026-11-14 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 12,375 | 17,738 | 69.77% |
+| Functions | 811 | 1,328 | 61.07% |
+| Lines | 7,188 | 10,202 | 70.46% |
+
+`--all-features` selects the block backend, so the gpuikit-only
+`src/highlight.rs` is not measured and the selection-driven agent paths are
+compiled out. The new adapter is at 86.19% lines (`src/editor_block.rs`), the
+shell at 81.26% (`src/app.rs`), and document handling at 84.39%
+(`src/document.rs`). The agent pane is lower than in the gpuikit run (34.54%)
+because Focus/Edit/Enrich are unavailable on this backend and the worker loop
+cannot run under GPUI's deterministic scheduler; the Library remains at 49.03%
+for the same virtual-list reasons as v0.9.0.
+
+**Tests.** `cargo test --all-features` (block): 106 passed, 0 failed (104 lib,
+1 prompt protocol, 1 working directory; no doctests). `cargo test` (gpuikit):
+125 passed (123 lib + 2 integration).
+`cargo test --no-default-features --features zorite`: 116 passed, 1 ignored
+(111 lib, 2 integration, 3 performance guards with the slow large-document
+measurement ignored).
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`, and
+`cargo package --list` are green. The end-to-end GROBID exercise was not run
+(no server was provided).
+
+**Publication.** No sibling crate needs a new release: `ragrig-gpui` 0.10.0 and
+`grobid-bibtex` 0.4.0 are already on crates.io. Scico's `[patch.crates-io]`
+entries are development-only and Cargo strips them from the packaged manifest.
 
 ## v0.9.0 — 2026-11-14
 

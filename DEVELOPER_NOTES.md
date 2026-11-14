@@ -41,7 +41,10 @@ rasterised `Scico-square.png` beside it is what GPUI hands to the platform.
   canonicalising serializer normalizes soft line breaks, and its positions are
   block/cell based, so marking a passage for the RAG roundtrip is not available
   (see `UPSTREAM.md`). The vendored 0.2.0 copy carries a one-field
-  gpui-base 0.9.1 compatibility fix; `src/editor_block.rs` is the adapter.
+  gpui-base 0.9.1 compatibility fix; `src/editor_block.rs` is the adapter. The
+  vendor copy is excluded from the published package, so the feature is
+  buildable from a checkout but not from the crates.io package until UM001
+  lands.
 
 Cargo features are additive: when several backends are enabled, `build.rs`
 selects the block editor first, then `zorite`, so `--all-features` builds the
