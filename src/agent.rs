@@ -18,7 +18,7 @@ use gpui_kit::{
 };
 use ragrig_gpui::prelude::*;
 
-use crate::document::{RangeHighlight, mark_editor_range, set_editor_readonly};
+use crate::document::{RangeHighlight, mark_editor_range};
 use crate::state::{AppState, AppStateHost};
 
 /// The monochrome Chat mark used in buttons and message headers.
@@ -43,8 +43,8 @@ struct PendingSelection {
     context: RoundtripContext,
 }
 
-/// An armed direct edit: the marked range stays highlighted and its document is
-/// read-only while the agent's replacement is on the way.
+/// An armed direct edit: the marked range stays highlighted while the agent's
+/// replacement is on the way.
 struct EditGuard {
     selection_id: String,
     document_id: u64,
@@ -92,7 +92,7 @@ pub struct AgentPane {
     edit_target: Option<String>,
     /// Selection id whose text also drives retrieval for the next prompt.
     enrich_target: Option<String>,
-    /// The visible highlight and edit lock for the armed direct edit.
+    /// The visible highlight for the armed direct edit.
     edit_guard: Option<EditGuard>,
     offer: Option<ReplacementOffer>,
     streaming: bool,
@@ -249,7 +249,7 @@ impl AgentPane {
             .find(|target| target.id == id)
             .cloned()
         {
-            self.arm_edit_guard(&target, false, cx);
+            self.arm_edit_guard(&target, cx);
         }
         self.set_status(
             "Edit mode — the marked region stays highlighted; the answer replaces it",
@@ -283,7 +283,7 @@ impl AgentPane {
             .find(|target| target.id == id)
             .cloned()
         {
-            self.arm_edit_guard(&target, false, cx);
+            self.arm_edit_guard(&target, cx);
         }
         self.set_status(
             "Enrich mode — the marked region is the retrieval query; the answer replaces it",
@@ -293,27 +293,15 @@ impl AgentPane {
         cx.notify();
     }
 
-    /// Keep the marked range visible and optionally lock its document.
+    /// Keep the marked range visible while the edit is pending.
     ///
-    /// Arming only highlights the range; the lock starts when the prompt is
-    /// sent, so the author can still revise the instruction without touching
-    /// the target.
-    fn arm_edit_guard(&mut self, target: &PendingSelection, lock: bool, cx: &mut Context<Self>) {
+    /// The editor stays editable, so the author can revise anything outside
+    /// the marked passage; the digest guards the passage itself.
+    fn arm_edit_guard(&mut self, target: &PendingSelection, cx: &mut Context<Self>) {
         if let Some(guard) = &self.edit_guard
             && guard.selection_id == target.id
+            && guard.document_id == target.tab_id
         {
-            if lock {
-                let editor = {
-                    let state = self.state.read(cx);
-                    state
-                        .document(guard.document_id)
-                        .map(|document| document.editor.clone())
-                };
-                self.set_document_readonly(guard.document_id, true, cx);
-                if let Some(editor) = editor {
-                    set_editor_readonly(&editor, true, cx);
-                }
-            }
             return;
         }
         self.release_edit_guard(cx);
@@ -331,10 +319,6 @@ impl AgentPane {
         let range = char_range_to_bytes(&text, range);
         let (fill, frame) = (cx.theme().selection.opacity(0.24), cx.theme().primary);
         let highlight = mark_editor_range(&editor, range, fill, frame, cx);
-        if lock {
-            self.set_document_readonly(target.tab_id, true, cx);
-            set_editor_readonly(&editor, true, cx);
-        }
         self.edit_guard = Some(EditGuard {
             selection_id: target.id.clone(),
             document_id: target.tab_id,
@@ -342,26 +326,16 @@ impl AgentPane {
         });
     }
 
-    /// Remove the highlight and unlock the document of the armed edit.
+    /// Remove the highlight of the armed edit.
     fn release_edit_guard(&mut self, cx: &mut Context<Self>) {
         let Some(guard) = self.edit_guard.take() else {
             return;
         };
         guard.highlight.clear(cx);
-        let editor = {
-            let state = self.state.read(cx);
-            state
-                .document(guard.document_id)
-                .map(|document| document.editor.clone())
-        };
-        self.set_document_readonly(guard.document_id, false, cx);
-        if let Some(editor) = editor {
-            set_editor_readonly(&editor, false, cx);
-        }
     }
 
     /// Cancel an armed Edit/Enrich: drop its target, clear the highlight,
-    /// unlock the document, and collapse the native selection.
+    /// and collapse the native selection.
     pub(crate) fn cancel_edit(&mut self, cx: &mut Context<Self>) {
         let target = self.edit_target.take();
         self.enrich_target = None;
@@ -397,16 +371,6 @@ impl AgentPane {
         };
         let start = char_range_to_bytes(&text, range).start;
         crate::document::set_editor_cursor(&editor, start, cx);
-    }
-
-    /// Keep the declarative editor lock in step with the guard.
-    fn set_document_readonly(&mut self, id: u64, readonly: bool, cx: &mut Context<Self>) {
-        self.state.update(cx, |state, cx| {
-            if let Some(document) = state.document_mut(id) {
-                document.set_readonly(readonly);
-            }
-            cx.notify();
-        });
     }
 
     /// Capture the current selection, returning `(id, added)`.
@@ -665,7 +629,7 @@ impl AgentPane {
             None
         };
         if let Some(target) = target {
-            self.arm_edit_guard(target, true, cx);
+            self.arm_edit_guard(target, cx);
         }
         let controller = self.controller(cx);
         match controller.update(cx, |controller, cx| {
@@ -681,9 +645,7 @@ impl AgentPane {
                 self.streaming = true;
                 self.chat.update(cx, |chat, cx| chat.scroll_to_end(cx));
                 self.set_status(
-                    if target.is_some() {
-                        "Generating… (marked region locked)"
-                    } else if attachment_count > 0 {
+                    if attachment_count > 0 {
                         "Generating… (with editor context)"
                     } else {
                         "Generating…"
@@ -843,18 +805,7 @@ impl AgentPane {
                     self.streaming = true;
                     self.composer
                         .update(cx, |composer, cx| composer.set_streaming(true, cx));
-                    let locked = self
-                        .pending
-                        .as_ref()
-                        .is_some_and(|pending| pending.target.is_some());
-                    self.set_status(
-                        if locked {
-                            "Generating… (marked region locked)"
-                        } else {
-                            "Generating…"
-                        },
-                        cx,
-                    );
+                    self.set_status("Generating…", cx);
                 }
             }
             RagEvent::Chunk { id, delta } => {
@@ -1100,7 +1051,7 @@ impl AgentPane {
             self.release_edit_guard(cx);
         } else if self.edit_target.is_none() {
             // The rebuild cancelled a sent direct edit. An edit that is armed
-            // but not sent keeps its highlight and lock.
+            // but not sent keeps its highlight.
             self.release_edit_guard(cx);
         }
         match loaded {

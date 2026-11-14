@@ -45,8 +45,6 @@ pub struct Document {
     pub editor: Entity<EditorState>,
     /// Whether the buffer changed since the last save.
     pub dirty: bool,
-    /// Whether the editor rejects user edits; programmatic writes still work.
-    pub readonly: bool,
     /// The text as last written to disk (or first loaded).
     pub saved_text: String,
     /// Cached caret position, refreshed when the editor notifies.
@@ -178,19 +176,6 @@ pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut A
     });
     #[cfg(editor_zorite)]
     editor.update(cx, |editor, cx| editor.set_cursor(offset, cx));
-}
-
-/// Lock or unlock user edits in an editor.
-///
-/// gpuikit rejects what the user types while programmatic replacements still
-/// land, which is exactly what the agent needs. zorite has no lock of its own:
-/// [`Document::set_readonly`] makes the render path defocus the editor and
-/// shield it from clicks. This function is the gpuikit half; callers set both.
-pub fn set_editor_readonly(editor: &Entity<EditorState>, readonly: bool, cx: &mut App) {
-    #[cfg(editor_gpuikit)]
-    editor.update(cx, |editor, cx| editor.set_readonly(readonly, cx));
-    #[cfg(not(editor_gpuikit))]
-    let _ = (editor, readonly, cx);
 }
 
 /// One top-level Markdown block and where it starts in the source.
@@ -333,7 +318,6 @@ impl Document {
             title: init.title,
             editor,
             dirty: false,
-            readonly: false,
             saved_text,
             cursor,
             chars,
@@ -507,11 +491,6 @@ impl Document {
         self.replace(range, text, window, cx);
     }
 
-    /// Set the declarative read-only flag; the next render applies it.
-    pub fn set_readonly(&mut self, readonly: bool) {
-        self.readonly = readonly;
-    }
-
     /// Whether saving must ask for a real file name first.
     ///
     /// True for a buffer that has never been written and for the
@@ -618,13 +597,6 @@ impl EditorSurface for Document {
                     ));
                 }
             }
-        }
-
-        #[cfg(editor_zorite)]
-        if self.readonly {
-            // The locked editor is defocused on purpose; do not hand the focus
-            // back for a programmatic jump.
-            return;
         }
 
         window.focus(&self.editor.read(cx).focus_handle(cx), cx);

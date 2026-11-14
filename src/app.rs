@@ -1454,20 +1454,12 @@ impl ScicoApp {
                     document.scroll.clone(),
                     state.editor_font_family(cx),
                     state.editor_font_size,
-                    document.readonly,
                 )
             })
         };
-        let Some((editor, scroll_id, scroll_cell, font_family, font_size, readonly)) = editor
-        else {
+        let Some((editor, scroll_id, scroll_cell, font_family, font_size)) = editor else {
             return self.empty_editor(cx);
         };
-        // Zorite has no read-only mode. A locked document is defocused before it
-        // can accept a keystroke, and the click shield below keeps a click from
-        // giving the focus back.
-        if readonly && editor.read(cx).focus_handle(cx).is_focused(window) {
-            window.focus(&self.focus_handle, cx);
-        }
         let scroll = window
             .use_keyed_state(scroll_id.clone(), cx, |_, _| ScrollHandle::new())
             .read(cx)
@@ -1517,9 +1509,6 @@ impl ScicoApp {
                             .child(editor),
                     ),
             )
-            .when(readonly, |this| {
-                this.child(div().absolute().inset_0().block_mouse_except_scroll())
-            })
             .child(
                 div()
                     .absolute()
@@ -1553,21 +1542,11 @@ impl ScicoApp {
                     state.show_preview,
                     state.sync_scroll,
                     base,
-                    document.readonly,
                 )
             })
         };
-        let Some((
-            id,
-            editor,
-            preview,
-            font_family,
-            font_size,
-            show_preview,
-            sync_scroll,
-            base,
-            readonly,
-        )) = active
+        let Some((id, editor, preview, font_family, font_size, show_preview, sync_scroll, base)) =
+            active
         else {
             return self.empty_editor(cx);
         };
@@ -1620,7 +1599,6 @@ impl ScicoApp {
             .child(
                 gpui_kit::component::input::Editor::new(&editor)
                     .bordered(false)
-                    .readonly(readonly)
                     .font_family(font_family)
                     .text_size(px(font_size))
                     .h_full(),
@@ -3367,7 +3345,7 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn a_locked_editor_still_accepts_agent_insertions(cx: &mut TestAppContext) {
+    fn arming_an_edit_keeps_the_editor_editable(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         type_into_active(cx, &app, "hello");
         let (editor, handle) = cx.update(|_, cx| {
@@ -3380,7 +3358,6 @@ mod tests {
             (document.editor.clone(), document.focus_handle(cx))
         });
 
-        let state_entity = cx.update(|_, cx| app.read(cx).state.clone());
         let highlight = cx.update(|_, cx| {
             let highlight = crate::document::mark_editor_range(
                 &editor,
@@ -3395,65 +3372,32 @@ mod tests {
                 assert!(!ranges.is_empty(), "the passage is marked");
                 assert!(ranges.iter().all(|range| range == &(0..5)));
             }
-            state_entity.update(cx, |state, _| {
-                state
-                    .active_document_mut()
-                    .expect("a document")
-                    .set_readonly(true);
-            });
-            crate::document::set_editor_readonly(&editor, true, cx);
-            #[cfg(editor_gpuikit)]
-            assert!(!editor.read(cx).is_editable(), "the user cannot edit");
             highlight
         });
-        // The zorite backend enforces the lock at render time: it moves the
-        // focus off the editor and shields it from clicks.
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.run_until_parked();
-        #[cfg(editor_zorite)]
         cx.update(|window, _| {
             assert!(
-                !handle.is_focused(window),
-                "a locked editor must not keep the focus"
+                handle.is_focused(window),
+                "marking a passage must not steal the focus"
             );
         });
-        cx.simulate_input("X");
-        cx.update(|window, cx| {
-            app.update(cx, |app, cx| {
-                app.state
-                    .update(cx, |state, cx| state.insert_at_caret(" world", window, cx));
-            });
+        #[cfg(editor_gpuikit)]
+        cx.update(|_, cx| {
+            assert!(editor.read(cx).is_editable(), "the editor stays editable");
         });
+        cx.simulate_input("!");
 
         cx.update(|_, cx| {
             let state = app.read(cx).state.read(cx);
             assert_eq!(
                 state.active_document().expect("a document").text(cx),
-                "hello world",
-                "programmatic agent writes still land in a read-only editor"
+                "hello!",
+                "the user can still type while the agent writes"
             );
             highlight.clear(cx);
             #[cfg(editor_gpuikit)]
             assert!(highlight.ranges(cx).is_empty(), "the marker can be removed");
-            state_entity.update(cx, |state, _| {
-                state
-                    .active_document_mut()
-                    .expect("a document")
-                    .set_readonly(false);
-            });
-            crate::document::set_editor_readonly(&editor, false, cx);
-        });
-        // The user clicks back into the editor after the agent unlocks it.
-        cx.update(|window, cx| window.focus(&handle, cx));
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        cx.simulate_input("!");
-        cx.update(|_, cx| {
-            let state = app.read(cx).state.read(cx);
-            assert_eq!(
-                state.active_document().expect("a document").text(cx),
-                "hello world!",
-                "unlocking restores user editing"
-            );
         });
     }
 
