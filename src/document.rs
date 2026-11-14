@@ -182,8 +182,10 @@ pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut A
 
 /// Lock or unlock user edits in an editor.
 ///
-/// gpuikit keeps programmatic replacements editable while read-only mode only
-/// rejects what the user types, which is exactly what the agent needs.
+/// gpuikit rejects what the user types while programmatic replacements still
+/// land, which is exactly what the agent needs. zorite has no lock of its own:
+/// [`Document::set_readonly`] makes the render path defocus the editor and
+/// shield it from clicks. This function is the gpuikit half; callers set both.
 pub fn set_editor_readonly(editor: &Entity<EditorState>, readonly: bool, cx: &mut App) {
     #[cfg(editor_gpuikit)]
     editor.update(cx, |editor, cx| editor.set_readonly(readonly, cx));
@@ -592,21 +594,22 @@ impl EditorSurface for Document {
         let byte = char_range_to_bytes(&content, offset..offset).start;
         self.set_cursor(byte, cx);
 
-        // Zorite leaves scrolling to the host. The caret bounds come from the
-        // last paint and stay valid for a caret move that does not edit text.
+        // Zorite leaves scrolling to the host. Only the rows inside its shaped
+        // band have cached line layouts, so a deep jump cannot use the caret
+        // bounds; `offset_screen_top` reads the row top from the full line map.
         #[cfg(editor_zorite)]
         {
             let editor = self.editor.read(cx);
-            if let Some(caret) = editor.caret_screen_bounds() {
+            if let Some(top) = editor.offset_screen_top(byte) {
                 let scroll = self.scroll.borrow();
                 let viewport = scroll.bounds();
                 if viewport.size.height > gpui_kit::px(0.) {
                     let margin = gpui_kit::px(64.);
                     let mut target = f32::from(scroll.offset().y);
-                    if caret.top() < viewport.top() + margin {
-                        target += f32::from(viewport.top() + margin - caret.top());
-                    } else if caret.bottom() > viewport.bottom() - margin {
-                        target -= f32::from(caret.bottom() - (viewport.bottom() - margin));
+                    if top < viewport.top() + margin {
+                        target += f32::from(viewport.top() + margin - top);
+                    } else if top > viewport.bottom() - margin {
+                        target -= f32::from(top - (viewport.bottom() - margin));
                     }
                     let max = f32::from(scroll.max_offset().y);
                     scroll.set_offset(gpui_kit::point(
@@ -615,6 +618,13 @@ impl EditorSurface for Document {
                     ));
                 }
             }
+        }
+
+        #[cfg(editor_zorite)]
+        if self.readonly {
+            // The locked editor is defocused on purpose; do not hand the focus
+            // back for a programmatic jump.
+            return;
         }
 
         window.focus(&self.editor.read(cx).focus_handle(cx), cx);

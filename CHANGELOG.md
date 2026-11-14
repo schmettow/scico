@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Zorite performance guards.** `tests/zorite_performance.rs` opens a
+  paper-sized document (about 19 KB), types ten characters and toggles raw
+  mode, with budgets about five times the debug-build cost (open < 1.5 s,
+  typing < 2.5 s, toggle < 1.5 s). The ignored large-document test measures a
+  300-section redraw. Run with `--nocapture` to see the measured times.
+
+### Changed
+
+- **gpui-kit 0.9.1.** The editor observer takes the text from
+  `InputEditsEvent` instead of re-reading the buffer; preview scroll sync reads
+  the top buffer line from `visible_row_range` and maps a preview block to an
+  exact display row, deleting the pixel estimate and the bisection probe;
+  wheel handlers use `on_scroll` / `ScrollEvent`. The migration record lives in
+  `gpui-kit-migration.md`.
+- **Zorite parity.** The zorite backend is covered by the locked-editor, zoom,
+  reveal and block-provider tests, and the performance guards above.
+
+### Fixed
+
+- **Deep Library jumps scroll in zorite.** `Document::reveal` used the caret
+  bounds, which zorite only provides for rows inside its shaped band; a jump to
+  a distant entry moved the caret but left the viewport at the top. It now
+  reads `offset_screen_top` from the full line map (`src/document.rs`).
+- **Zorite enforces read-only documents.** While the agent edits a passage,
+  zorite moves the focus off the editor and shields it from clicks. Before,
+  user keystrokes could land in a locked target (`src/app.rs`, `src/document.rs`).
+
 ## v0.8.0 — 2026-11-13
 
 ### Changed

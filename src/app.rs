@@ -1454,12 +1454,20 @@ impl ScicoApp {
                     document.scroll.clone(),
                     state.editor_font_family(cx),
                     state.editor_font_size,
+                    document.readonly,
                 )
             })
         };
-        let Some((editor, scroll_id, scroll_cell, font_family, font_size)) = editor else {
+        let Some((editor, scroll_id, scroll_cell, font_family, font_size, readonly)) = editor
+        else {
             return self.empty_editor(cx);
         };
+        // Zorite has no read-only mode. A locked document is defocused before it
+        // can accept a keystroke, and the click shield below keeps a click from
+        // giving the focus back.
+        if readonly && editor.read(cx).focus_handle(cx).is_focused(window) {
+            window.focus(&self.focus_handle, cx);
+        }
         let scroll = window
             .use_keyed_state(scroll_id.clone(), cx, |_, _| ScrollHandle::new())
             .read(cx)
@@ -1509,6 +1517,9 @@ impl ScicoApp {
                             .child(editor),
                     ),
             )
+            .when(readonly, |this| {
+                this.child(div().absolute().inset_0().block_mouse_except_scroll())
+            })
             .child(
                 div()
                     .absolute()
@@ -3192,6 +3203,91 @@ mod tests {
         assert!(back < after, "pageup must move back ({after} -> {back})");
     }
 
+    /// Zorite leaves scrolling to the host, so a Library jump must move the
+    /// host's scroll handle, not just the caret.
+    #[cfg(editor_zorite)]
+    #[gpui_kit::test]
+    fn reveal_scrolls_the_host_viewport(cx: &mut TestAppContext) {
+        use ragrig_gpui::EditorSurface as _;
+
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let text = (0..300)
+            .map(|line| format!("line {line} of a long document\n"))
+            .collect::<String>();
+        cx.update(|_, cx| {
+            editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+        });
+        // The first paint fills the host scroll handle and the caret layout.
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let target = text.len().saturating_sub(60);
+        cx.update(|window, cx| {
+            state.update(cx, |state, cx| {
+                state
+                    .active_document()
+                    .expect("a document")
+                    .reveal(target, window, cx);
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let offset = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .scroll
+                .borrow()
+                .offset()
+        });
+        assert!(
+            offset.y < px(0.),
+            "revealing a deep offset must scroll the host viewport, got {offset:?}"
+        );
+    }
+
+    /// The block providers are wired on the editor state, so painting an image
+    /// and a document chip must not panic or rewrite the source.
+    #[cfg(editor_zorite)]
+    #[gpui_kit::test]
+    fn block_providers_paint_images_and_chips(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let editor = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .editor
+                .clone()
+        });
+        let text =
+            "# Figures\n\n![plot](missing-plot.png)\n\n[paper](papers/paper.pdf)\n\n".to_owned();
+        cx.update(|_, cx| {
+            editor.update(cx, |editor, cx| editor.set_text(text.clone(), cx));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            assert_eq!(
+                document.text(cx),
+                text,
+                "providers never rewrite the source"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn several_selections_can_be_attached_and_edit_and_enrich_modes_arm(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -3270,19 +3366,18 @@ mod tests {
         });
     }
 
-    #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn a_locked_editor_still_accepts_agent_insertions(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         type_into_active(cx, &app, "hello");
-        let editor = cx.update(|_, cx| {
-            app.read(cx)
+        let (editor, handle) = cx.update(|_, cx| {
+            let document = app
+                .read(cx)
                 .state
                 .read(cx)
                 .active_document()
-                .expect("a document")
-                .editor
-                .clone()
+                .expect("a document");
+            (document.editor.clone(), document.focus_handle(cx))
         });
 
         let state_entity = cx.update(|_, cx| app.read(cx).state.clone());
@@ -3294,9 +3389,12 @@ mod tests {
                 gpui_kit::blue(),
                 cx,
             );
-            let ranges = highlight.ranges(cx);
-            assert!(!ranges.is_empty(), "the passage is marked");
-            assert!(ranges.iter().all(|range| range == &(0..5)));
+            #[cfg(editor_gpuikit)]
+            {
+                let ranges = highlight.ranges(cx);
+                assert!(!ranges.is_empty(), "the passage is marked");
+                assert!(ranges.iter().all(|range| range == &(0..5)));
+            }
             state_entity.update(cx, |state, _| {
                 state
                     .active_document_mut()
@@ -3304,13 +3402,19 @@ mod tests {
                     .set_readonly(true);
             });
             crate::document::set_editor_readonly(&editor, true, cx);
+            #[cfg(editor_gpuikit)]
             assert!(!editor.read(cx).is_editable(), "the user cannot edit");
             highlight
         });
-        cx.update(|_, cx| {
+        // The zorite backend enforces the lock at render time: it moves the
+        // focus off the editor and shields it from clicks.
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        #[cfg(editor_zorite)]
+        cx.update(|window, _| {
             assert!(
-                !editor.read(cx).is_editable(),
-                "still read-only before typing"
+                !handle.is_focused(window),
+                "a locked editor must not keep the focus"
             );
         });
         cx.simulate_input("X");
@@ -3329,6 +3433,7 @@ mod tests {
                 "programmatic agent writes still land in a read-only editor"
             );
             highlight.clear(cx);
+            #[cfg(editor_gpuikit)]
             assert!(highlight.ranges(cx).is_empty(), "the marker can be removed");
             state_entity.update(cx, |state, _| {
                 state
@@ -3338,6 +3443,9 @@ mod tests {
             });
             crate::document::set_editor_readonly(&editor, false, cx);
         });
+        // The user clicks back into the editor after the agent unlocks it.
+        cx.update(|window, cx| window.focus(&handle, cx));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.simulate_input("!");
         cx.update(|_, cx| {
             let state = app.read(cx).state.read(cx);
@@ -3363,7 +3471,56 @@ mod tests {
         });
     }
 
-    #[cfg(editor_gpuikit)]
+    #[cfg(editor_zorite)]
+    #[gpui_kit::test]
+    fn ctrl_wheel_zooms_the_editor_font(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let (editor, scroll) = cx.update(|_, cx| {
+            let document = state.read(cx).active_document().expect("a document");
+            (document.editor.clone(), document.scroll.borrow().clone())
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let position = cx.update(|_, cx| {
+            editor
+                .read(cx)
+                .bounds_for_offset(0)
+                .map(|bounds| bounds.center())
+                .unwrap_or_default()
+        });
+        let size = |cx: &mut VisualTestContext| cx.update(|_, cx| state.read(cx).editor_font_size);
+        let before = size(cx);
+
+        cx.simulate_event(gpui_kit::ScrollEvent {
+            position,
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-40.))),
+            modifiers: gpui_kit::Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert!(size(cx) > before, "wheel down must zoom in");
+        assert_eq!(
+            scroll.offset(),
+            gpui_kit::Point::default(),
+            "Ctrl+wheel must zoom, not scroll"
+        );
+
+        cx.simulate_event(gpui_kit::ScrollEvent {
+            position,
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(40.))),
+            modifiers: gpui_kit::Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert!(size(cx) < before + 1.0, "wheel up must zoom out");
+    }
+
     #[cfg(editor_gpuikit)]
     #[gpui_kit::test]
     fn ctrl_wheel_zooms_the_editor_font(cx: &mut TestAppContext) {

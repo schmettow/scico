@@ -265,12 +265,13 @@ my-paper/
    single **Direct edit** chip; its **Marked region** chip is suppressed because
    it would repeat the same passage. Closing the **Direct edit** chip cancels
    the mode, removes the editor marker, collapses the native selection, and
-   drops the target (other marked regions stay). On submit (`gpuikit`), the
-   target document becomes read-only; user edits are rejected until the
-   replacement is applied or the request fails or is stopped. The agent's own
-   write-back bypasses the lock (`Document::replace` is programmatic), and
-   navigation, selection, and copy still work. The `zorite` backend has no
-   range decoration or read-only mode and only arms the mode.
+   drops the target (other marked regions stay). On submit, the target
+   document becomes read-only; user edits are rejected until the replacement is
+   applied or the request fails or is stopped. The agent's own write-back
+   bypasses the lock (`Document::replace` is programmatic), and navigation,
+   selection, and copy still work. The zorite backend has no range-decoration
+   API, so the armed passage is not visually marked there; it still locks the
+   document by moving the focus off the editor and shielding it from clicks.
 6. If the passage changed while the chat agent was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
@@ -528,8 +529,9 @@ cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
 ```
 
-Current suite: 96 unit tests with the `gpuikit` backend and 83 with `zorite`,
-plus the protocol and working-directory integration tests, covering the
+Current suite: 117 unit tests with the `gpuikit` backend and 105 with `zorite`,
+plus the protocol and working-directory integration tests and three zorite
+performance guards, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, layered workspace settings that keep host choices,
 profile loading that keeps host-owned state and inactive-provider models,
@@ -549,12 +551,33 @@ defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
 both directions (including soft-wrapped paragraphs), and the Chat marks,
 their colour retention, and the window icon.
 
+## Zorite performance guards
+
+`tests/zorite_performance.rs` times a paper-sized document (30 sections,
+about 19 KB) through open, ten keystrokes, and a raw-mode round trip. Budgets
+are about five times the debug-build cost on a developer machine: they catch
+the order-of-magnitude regression that once pushed us off zorite, not small
+drift. Run with `--nocapture` to see the measured times.
+
+The ignored test `a_large_document_redraw_stays_within_budget` measures a
+300-section redraw. Zorite shapes a band per frame, but its per-frame cost still
+grows faster than linearly with document size: a debug build draws about 19 KB
+in 48 ms and 370 KB in 11.6 s. The budget is therefore deliberately loose
+(30 s); the honest large-document signal is the printed time, not the pass/fail
+bit. Run it with:
+
+```sh
+cargo test --no-default-features --features zorite --test zorite_performance \
+    -- --ignored --nocapture
+```
+
 ## Known limitations
 
-- The checked-in `Cargo.lock` is intentional: `gpui-kit 0.7.3`'s optional
+- The checked-in `Cargo.lock` is intentional: `gpui-kit 0.9.1`'s optional
   `gpui-fast` branch pins `cocoa =0.26.0` and `unicode-properties =0.1.3`,
   while a fresh resolve may pick newer patch versions. A stale lockfile fails
-  with a cocoa/unicode conflict; use the checked-in one.
+  with a cocoa/unicode conflict; use the checked-in one. The 0.9.1 baseline is
+  `gpui-pre 0.3.12` and `gpui-fast 0.1.14`.
 - Focus mode is a toolbar action; there is no floating button at the selection
   corner.
 - Library rows insert on click; drag-to-cite is not implemented.
@@ -564,9 +587,9 @@ their colour retention, and the window icon.
 - The `gpuikit` backend shows inline images and tables in the rendered preview,
   not as atomic objects inside the source editor. Scroll sync maps top-level
   Markdown blocks; the preview parser and comrak can disagree on exotic
-  constructs, in which case the two panes can be one block apart. Aligning a
-  preview jump to a distant source line costs a few frames while the offset
-  search converges; it never moves the preview itself.
+  constructs, in which case the two panes can be one block apart. Editor-to-
+  preview jumps use `reveal_range`, which brings the block into view rather
+  than pixel-aligning it, so a block taller than the preview may show its end.
 - The Syntect grammars are packaged with the binary; themes still come from
   the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the
