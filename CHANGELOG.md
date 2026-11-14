@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **A third editor backend: `gpuikit-markdown-editor`.** The experimental
+  feature wires `gpui-kit-markdown-editor`'s block-based WYSIWYG editor into
+  `Document`, the render shell, subscriptions, and the settings page
+  (`src/editor_block.rs`, `src/document.rs`, `src/state.rs`, `src/app.rs`,
+  `src/app_settings.rs`, `Cargo.toml`, `build.rs`).
+- The adapter maps canonical-source bytes to top-level blocks, so the Library
+  still reveals a bibliography entry and the caret line still follows typing.
+  Insertions at the caret use the editor's native capture API; guarded
+  replacements rebuild the canonical source because the backend has no
+  arbitrary source range.
+- `vendor/gpui-kit-markdown-editor` is 0.2.0 plus the `task_marker: None`
+  field that `gpui-base 0.9.1` requires, selected through
+  `[patch.crates-io]`. Upstream has no compatible release yet; see
+  `UPSTREAM.md` (UM001).
+
+### Changed
+
+- **Backend precedence.** When several editor features are enabled,
+  `build.rs` now selects the block editor first, then `zorite`, then
+  `gpuikit`. `--all-features` therefore builds the block backend.
+
+### Known limitations
+
+- The block backend cannot express its selection as canonical-source bytes, so
+  Focus/Edit/Enrich are unavailable there; it has no range decoration, no
+  separate preview/raw mode, and no byte-exact save. Its serializer normalizes
+  soft line breaks, and reveal is top-level-block granular. `UPSTREAM.md`
+  records the upstream APIs that would close the gaps.
+
 ## v0.9.0 — 2026-11-14
 
 ### Added

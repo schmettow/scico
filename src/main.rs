@@ -1,18 +1,18 @@
 //! Scico GPUI entry point.
 
-#[cfg(any(editor_zorite, editor_gpuikit))]
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 use std::sync::Arc;
 
-#[cfg(any(editor_zorite, editor_gpuikit))]
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 use gpui_kit::{AppContext as _, WindowBounds, WindowOptions, px, size};
-#[cfg(any(editor_zorite, editor_gpuikit))]
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 use scico::{app, workspace};
 
 /// The desktop mark rasterised from `assets/logo/Scico square.svg`.
 ///
 /// GPUI's window icon takes RGBA pixels, so the vector master is rendered once
 /// to a 256 px PNG next to it. Re-render the PNG when the SVG changes.
-#[cfg(any(editor_zorite, editor_gpuikit))]
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 fn window_icon() -> Option<Arc<image::RgbaImage>> {
     let bytes = include_bytes!("../assets/logo/Scico-square.png");
     match image::load_from_memory(bytes) {
@@ -24,7 +24,7 @@ fn window_icon() -> Option<Arc<image::RgbaImage>> {
     }
 }
 
-#[cfg(any(editor_zorite, editor_gpuikit))]
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 fn main() {
     // Desktop launchers do not source shell startup files, so exports such as
     // `DEEPSEEK_API_KEY` from `~/.bashrc` never reach a GUI launch. Load the
@@ -47,6 +47,8 @@ fn main() {
             cx.set_app_identity(scico::APP_ID, "Scico");
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             app::bind_keys(cx);
 
             let bounds = gpui_kit::Bounds::centered(None, size(px(1600.), px(980.)), cx);
@@ -74,5 +76,5 @@ fn main() {
 
 /// The library reports which backend to enable; the binary target still needs
 /// a `main` so that report is the only configuration error.
-#[cfg(not(any(editor_zorite, editor_gpuikit)))]
+#[cfg(not(any(editor_zorite, editor_gpuikit, editor_block)))]
 fn main() {}

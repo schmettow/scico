@@ -1,7 +1,7 @@
 //! Application state: documents, workspace paths, and the RAG controller.
 
 use std::cell::Cell;
-#[cfg(editor_gpuikit)]
+#[cfg(any(editor_gpuikit, editor_block))]
 use std::cell::RefCell;
 use std::fs;
 use std::ops::Range;
@@ -19,6 +19,8 @@ use gpui_kit::{App, AppContext as _, Context, Entity, Focusable as _, SharedStri
 use gpui_kit::{Bounds, Pixels};
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::{point, px};
+#[cfg(editor_block)]
+use markdown_editor::BlockEditorEvent;
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
@@ -570,6 +572,15 @@ impl AppState {
                 .and_then(|document| document.selection_chars(window, cx))
                 .is_some_and(|range| !range.is_empty())
         }
+        #[cfg(editor_block)]
+        {
+            // The block editor has a native selection, but the roundtrip
+            // cannot address it as canonical-source bytes. Report no usable
+            // selection so the toolbar does not promise a capture it cannot
+            // deliver; see UPSTREAM.md.
+            let _ = (window, cx);
+            false
+        }
     }
 
     /// The active document mutably, if any.
@@ -619,9 +630,6 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, id, cx);
-        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -672,9 +680,6 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, id, cx);
-        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -808,9 +813,6 @@ impl AppState {
                     raw: self.raw_mode,
                 },
             );
-            #[cfg(editor_gpuikit)]
-            self.subscribe_editor(&document.editor, id, cx);
-            #[cfg(editor_zorite)]
             self.subscribe_editor(&document.editor, id, cx);
             document.set_cursor(snapshot.cursor, cx);
             let mut document = document;
@@ -851,7 +853,7 @@ impl AppState {
                     path: document.path.clone(),
                     title: document.title.to_string(),
                     text: document.text(cx),
-                    cursor: document.editor.read(cx).cursor(),
+                    cursor: document.cursor_byte(cx),
                     dirty: document.dirty,
                 })
                 .collect(),
@@ -970,9 +972,6 @@ impl AppState {
                 raw: self.raw_mode,
             },
         );
-        #[cfg(editor_gpuikit)]
-        self.subscribe_editor(&document.editor, id, cx);
-        #[cfg(editor_zorite)]
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
         self.active = self.documents.len() - 1;
@@ -1498,7 +1497,7 @@ impl AppState {
         }
     }
 
-    #[cfg(editor_zorite)]
+    #[cfg(not(editor_gpuikit))]
     fn sync_active_preview(&mut self, _cx: &mut Context<Self>) {}
 
     /// Adopt a prepared workspace: paths, layered RAG settings, and prompt.
@@ -2209,7 +2208,7 @@ impl AppState {
         .detach();
     }
 
-    #[cfg(editor_gpuikit)]
+    #[cfg(not(editor_zorite))]
     fn follow_caret(&mut self, _id: u64, _cx: &mut Context<Self>) {}
 
     /// Place a revealed bibliography key two lines below the viewport top.
@@ -2278,7 +2277,7 @@ impl AppState {
         // The text as of the last input edit. Reading it here, where the event
         // carries it, means the observer does not have to re-read the editor
         // for a change it already knows.
-        #[cfg(editor_gpuikit)]
+        #[cfg(any(editor_gpuikit, editor_block))]
         let edited_text: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         #[cfg(editor_gpuikit)]
         {
@@ -2303,6 +2302,39 @@ impl AppState {
                     revision.set(revision.get().wrapping_add(1));
                 }
             })
+            .detach();
+        }
+        #[cfg(editor_block)]
+        {
+            let revision = content_revision.clone();
+            let pending = edited_text.clone();
+            cx.subscribe(
+                editor,
+                move |this, editor, event: &BlockEditorEvent, cx| match event {
+                    BlockEditorEvent::Changed { .. } => {
+                        *pending.borrow_mut() = Some(editor.read(cx).source());
+                        revision.set(revision.get().wrapping_add(1));
+                    }
+                    BlockEditorEvent::LinkClicked { url } => {
+                        let target = url.as_ref();
+                        let path = Path::new(target);
+                        let resolved = if path.is_absolute() || target.contains("://") {
+                            path.to_path_buf()
+                        } else {
+                            this.document(id)
+                                .and_then(|document| document.path.as_deref())
+                                .and_then(Path::parent)
+                                .map(|parent| parent.join(path))
+                                .unwrap_or_else(|| path.to_path_buf())
+                        };
+                        match this.open_external(&resolved) {
+                            Ok(()) => cx.notify(),
+                            Err(error) => this.set_status(error, cx),
+                        };
+                    }
+                    _ => {}
+                },
+            )
             .detach();
         }
 
@@ -2357,10 +2389,15 @@ impl AppState {
                 let editor = editor.read(cx);
                 (editor.text().len(), editor.cursor(), 0..0)
             };
+            #[cfg(editor_block)]
+            let fingerprint = {
+                let editor = editor.read(cx);
+                (editor.revision(), editor.selection().clone())
+            };
             let revision = observed_revision.get();
-            #[cfg(editor_gpuikit)]
+            #[cfg(any(editor_gpuikit, editor_block))]
             let edited = edited_text.borrow_mut().take();
-            #[cfg(not(editor_gpuikit))]
+            #[cfg(not(any(editor_gpuikit, editor_block)))]
             let edited: Option<String> = None;
             let context_changed = edited.is_some()
                 || revision != last_revision
@@ -2377,11 +2414,19 @@ impl AppState {
                     // A later edit or an undo may have landed before this
                     // notification; the stored text is only authoritative while
                     // it still matches the editor's length.
+                    #[cfg(editor_block)]
+                    let text = edited.unwrap_or_else(|| document.text(cx));
+                    #[cfg(not(editor_block))]
                     let text = match edited {
                         Some(text) if text.len() == document.editor.read(cx).text().len() => text,
                         _ => document.text(cx),
                     };
-                    (text, document.editor.read(cx).cursor())
+                    #[cfg(editor_block)]
+                    let cursor_offset =
+                        crate::editor_block::cursor_byte(document.editor.read(cx), &text);
+                    #[cfg(not(editor_block))]
+                    let cursor_offset = document.editor.read(cx).cursor();
+                    (text, cursor_offset)
                 }) else {
                     return;
                 };

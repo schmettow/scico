@@ -10,9 +10,10 @@ with the decisions we made and the verification we ran.
 - Tests before implementation where behaviour changes.
 - Regenerate `Cargo.lock` deliberately. The checked-in lockfile is intentional
   (see `DEVELOPER_NOTES.md`); never blanket-update it.
-- Verify three configurations: `--no-default-features --features gpuikit`,
-  `--no-default-features --features zorite`, and `--all-features` (build.rs
-  selects zorite when both are on).
+- Verify four configurations: `--no-default-features --features gpuikit`,
+  `--no-default-features --features zorite`,
+  `--no-default-features --features gpuikit-markdown-editor`, and
+  `--all-features` (build.rs selects the block editor when several are on).
 - `ragrig-gpui` is path-patched into scico and pins the same `gpui-kit`.
   Upgrade both in the same working session.
 
@@ -44,6 +45,9 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 - [x] Task 4 — `InputEditsEvent` in `subscribe_editor`; the observer uses the
       carried text, and falls back to reading the editor when a later edit or
       undo coalesces before the notification.
+- [x] Task 5 — third backend behind `gpuikit-markdown-editor`, with a
+      compatibility patch for 0.2.0; see `gpui-kit-markdown-editor.md` and
+      `UPSTREAM.md`.
 - [ ] Later — gutter/overview decorations for pending edits and enrichment
       targets.
 - [ ] Later — `TextView::on_task_toggle` for clickable task lists.
@@ -56,9 +60,10 @@ Status: **0.9.1 adopted.** Adoption backlog tracked below.
 
 | Configuration | Suite | Result |
 |---|---|---|
-| gpuikit | `cargo test --no-default-features --features gpuikit --lib` | 117 passed |
-| zorite | `cargo test --no-default-features --features zorite --lib` | 101 passed |
-| all features | `cargo test --all-features --lib` | 101 passed (build.rs selects zorite) |
+| gpuikit (default) | `cargo test --lib` | 123 passed |
+| zorite | `cargo test --no-default-features --features zorite --lib` | 111 passed |
+| block editor | `cargo test --no-default-features --features gpuikit-markdown-editor --lib` | 104 passed |
+| all features | `cargo test --all-features --lib` | 104 passed (build.rs selects the block editor) |
 
 ### Rollback
 

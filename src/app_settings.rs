@@ -713,6 +713,8 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
                     .description("Off shows raw Markdown; Ctrl+Shift+E toggles it."),
             )
         };
+        #[cfg(editor_block)]
+        let group = group.item(font_row).item(font_size_row);
         group.item(
             SettingItem::new("Show Chat", show_chat)
                 .description("Right pane with the RAG transcript."),

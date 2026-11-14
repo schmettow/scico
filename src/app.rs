@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-#[cfg(editor_zorite)]
+#[cfg(any(editor_zorite, editor_block))]
 use gpui_kit::ScrollHandle;
-#[cfg(editor_zorite)]
+#[cfg(any(editor_zorite, editor_block))]
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
@@ -701,7 +701,7 @@ impl ScicoApp {
         }
     }
 
-    #[cfg(editor_gpuikit)]
+    #[cfg(not(editor_zorite))]
     fn editor_page(
         &mut self,
         _up: bool,
@@ -738,6 +738,10 @@ impl ScicoApp {
         self.state.update(cx, |state, cx| {
             let raw = !state.raw_mode;
             state.set_raw_mode(raw, cx);
+        });
+        #[cfg(editor_block)]
+        self.state.update(cx, |state, cx| {
+            state.set_status("This editor renders Markdown in place", cx);
         });
     }
 
@@ -1110,6 +1114,8 @@ impl ScicoApp {
             let preview_on = state.show_preview;
             #[cfg(editor_zorite)]
             let preview_on = !state.raw_mode;
+            #[cfg(editor_block)]
+            let preview_on = false;
             (
                 preview_on,
                 state.show_library,
@@ -1126,6 +1132,8 @@ impl ScicoApp {
         let preview_label = if preview_on { "Preview" } else { "Preview off" };
         #[cfg(editor_zorite)]
         let preview_label = if preview_on { "Preview" } else { "Raw" };
+        #[cfg(editor_block)]
+        let preview_label = "WYSIWYG";
 
         h_flex()
             .items_center()
@@ -1206,7 +1214,7 @@ impl ScicoApp {
                     .small()
                     .selected(preview_on)
                     .ghost()
-                    .disabled(!has_document)
+                    .disabled(!has_document || cfg!(editor_block))
                     .when(cfg!(editor_gpuikit), |button| {
                         button.icon(if preview_on {
                             IconName::PanelRightClose
@@ -1214,7 +1222,9 @@ impl ScicoApp {
                             IconName::PanelRightOpen
                         })
                     })
-                    .tooltip(if cfg!(editor_gpuikit) {
+                    .tooltip(if cfg!(editor_block) {
+                        "The block editor renders Markdown in place"
+                    } else if cfg!(editor_gpuikit) {
                         if preview_on {
                             "Hide the rendered preview (Ctrl+Shift+E)"
                         } else {
@@ -1406,6 +1416,10 @@ impl ScicoApp {
         #[cfg(editor_gpuikit)]
         {
             self.editor_gpuikit(window, cx)
+        }
+        #[cfg(editor_block)]
+        {
+            self.editor_block(window, cx)
         }
     }
 
@@ -1692,6 +1706,90 @@ impl ScicoApp {
                     .text_size(px(font_size))
                     .text_color(theme.foreground)
                     .child(body),
+            )
+            .into_any_element()
+    }
+
+    #[cfg(editor_block)]
+    fn editor_block(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        use markdown_editor::BlockEditor;
+
+        let theme = cx.theme().clone();
+        let active = {
+            let state = self.state.read(cx);
+            state.active_document().map(|document| {
+                (
+                    document.editor.clone(),
+                    document.scroll_id.clone(),
+                    document.scroll.clone(),
+                    state.editor_font_family(cx),
+                    state.editor_font_size,
+                )
+            })
+        };
+        let Some((editor, scroll_id, scroll_cell, font_family, font_size)) = active else {
+            return self.empty_editor(cx);
+        };
+        let scroll = window
+            .use_keyed_state(scroll_id.clone(), cx, |_, _| ScrollHandle::new())
+            .read(cx)
+            .clone();
+        *scroll_cell.borrow_mut() = scroll.clone();
+        editor.update(cx, |editor, _| editor.set_scroll_handle(scroll.clone()));
+        div()
+            .flex_1()
+            .min_w(px(0.))
+            .min_h(px(0.))
+            .relative()
+            .bg(theme.background)
+            .child(
+                div()
+                    .id(scroll_id)
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .on_scroll(cx.listener(|this, event: &gpui_kit::ScrollEvent, _, cx| {
+                        if !event.modifiers.control && !event.modifiers.platform {
+                            return;
+                        }
+                        let lines = match event.delta {
+                            gpui_kit::ScrollDelta::Lines(delta) => delta.y,
+                            gpui_kit::ScrollDelta::Pixels(delta) => f32::from(delta.y) / 20.0,
+                        };
+                        if lines.abs() < f32::EPSILON {
+                            return;
+                        }
+                        let step = if lines > 0.0 { -1.0 } else { 1.0 };
+                        this.state
+                            .update(cx, |state, cx| state.zoom_editor_font(step, cx));
+                        cx.stop_propagation();
+                    }))
+                    .track_scroll(&scroll)
+                    .child(
+                        div()
+                            .flex_none()
+                            .min_h_full()
+                            .max_w(px(900.))
+                            .mx_auto()
+                            .px_8()
+                            .py_6()
+                            .child(
+                                BlockEditor::new(&editor)
+                                    .min_h_full()
+                                    .font_family(font_family)
+                                    .text_size(px(font_size))
+                                    .text_color(theme.foreground),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.))
+                    .left(px(0.))
+                    .size_full()
+                    .child(Scrollbar::vertical(&scroll).viewport_from_layout()),
             )
             .into_any_element()
     }
@@ -2004,6 +2102,8 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
         let (settings, session) = scratch_paths();
@@ -2030,11 +2130,29 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
         cx.add_window_view(move |window, cx| {
             ScicoApp::new_with_paths_and_workspace(window, cx, settings, session, workspace)
         })
+    }
+
+    /// Compare document text. The block editor canonicalizes soft wraps, so it
+    /// is compared token by token; the source editors keep the bytes.
+    #[cfg(editor_block)]
+    fn assert_same_document_text(actual: &str, expected: &str) {
+        assert_eq!(
+            actual.split_whitespace().collect::<Vec<_>>(),
+            expected.split_whitespace().collect::<Vec<_>>(),
+            "the block editor normalizes soft line breaks"
+        );
+    }
+
+    #[cfg(not(editor_block))]
+    fn assert_same_document_text(actual: &str, expected: &str) {
+        assert_eq!(actual, expected);
     }
 
     fn type_into_active(cx: &mut VisualTestContext, app: &Entity<ScicoApp>, text: &str) {
@@ -2310,7 +2428,7 @@ mod tests {
                 crate::settings::CHAT_PROMPT_FILE,
                 "the buffer is named after the compiled prompt"
             );
-            assert_eq!(document.text(cx), crate::settings::CHAT_PROMPT);
+            assert_same_document_text(&document.text(cx), crate::settings::CHAT_PROMPT);
         });
     }
 
@@ -2346,7 +2464,7 @@ mod tests {
             let state = app.read(cx).state.read(cx);
             let document = state.active_document().expect("prompt document");
             assert_eq!(document.path.as_deref(), Some(path.as_path()));
-            assert_eq!(document.text(cx), crate::settings::CHAT_PROMPT);
+            assert_same_document_text(&document.text(cx), crate::settings::CHAT_PROMPT);
             assert_eq!(state.rag.read(cx).system_prompt_path, exported);
         });
 
@@ -2552,6 +2670,8 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
 
@@ -2634,6 +2754,8 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
 
@@ -2703,6 +2825,8 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
 
@@ -2771,6 +2895,8 @@ mod tests {
             ragrig_gpui::init(cx);
             #[cfg(editor_zorite)]
             zorite_editor::bind_keys(cx);
+            #[cfg(editor_block)]
+            markdown_editor::init(cx);
             bind_keys(cx);
         });
 
@@ -2814,10 +2940,13 @@ mod tests {
                 document.path.as_deref(),
                 Some(report.bibliography.as_path())
             );
-            assert_eq!(
-                document.cursor_position(cx).0,
-                4,
-                "the caret is on the @book line"
+            let (line, _) = document.cursor_position(cx);
+            let text = document.text(cx);
+            assert!(
+                text.lines()
+                    .nth(line)
+                    .is_some_and(|line| line.starts_with("@book")),
+                "the caret is on the @book line, got line {line} of {text:?}"
             );
         });
 
@@ -2872,6 +3001,7 @@ mod tests {
         });
     }
 
+    #[cfg(not(editor_block))]
     #[gpui_kit::test]
     fn select_all_and_focus_selection_captures_the_passage(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -2897,6 +3027,7 @@ mod tests {
         });
     }
 
+    #[cfg(not(editor_block))]
     #[gpui_kit::test]
     fn the_toolbar_selection_needs_marked_text_even_whitespace(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -2939,9 +3070,16 @@ mod tests {
             assert!(!app.read(cx).state.read(cx).show_preview);
             #[cfg(editor_zorite)]
             assert!(app.read(cx).state.read(cx).raw_mode);
+            #[cfg(editor_block)]
+            assert!(
+                app.read(cx).state.read(cx).show_preview,
+                "the block editor has no separate preview to hide"
+            );
         });
         cx.simulate_keystrokes("ctrl-shift-e");
         cx.update(|_, cx| {
+            #[cfg(editor_block)]
+            let _ = cx;
             #[cfg(editor_gpuikit)]
             assert!(app.read(cx).state.read(cx).show_preview);
             #[cfg(editor_zorite)]
@@ -3011,6 +3149,7 @@ mod tests {
         });
     }
 
+    #[cfg(not(editor_block))]
     #[gpui_kit::test]
     fn a_guarded_replacement_replaces_the_marked_passage(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -3266,6 +3405,7 @@ mod tests {
         });
     }
 
+    #[cfg(not(editor_block))]
     #[gpui_kit::test]
     fn several_selections_can_be_attached_and_edit_and_enrich_modes_arm(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
@@ -3593,6 +3733,37 @@ mod tests {
         });
         cx.run_until_parked();
         assert!(size(cx) < before + 1.0, "wheel up must zoom out");
+    }
+
+    #[cfg(editor_block)]
+    #[gpui_kit::test]
+    fn ctrl_wheel_zooms_the_block_editor_font(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let position = cx.update(|_, cx| {
+            state
+                .read(cx)
+                .active_document()
+                .expect("a document")
+                .scroll
+                .borrow()
+                .bounds()
+                .center()
+        });
+        let size = |cx: &mut VisualTestContext| cx.update(|_, cx| state.read(cx).editor_font_size);
+        let before = size(cx);
+        cx.simulate_event(gpui_kit::ScrollEvent {
+            position,
+            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(px(0.), px(-40.))),
+            modifiers: gpui_kit::Modifiers {
+                control: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert!(size(cx) > before, "wheel down must zoom in");
     }
 
     #[cfg(editor_gpuikit)]

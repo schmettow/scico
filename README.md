@@ -96,6 +96,13 @@ cd scico
 cargo run
 ```
 
+The default editor is a source editor with a rendered preview. An optional
+live-preview editor is available with `--features zorite`. An experimental
+WYSIWYG block editor is available with `--no-default-features --features
+gpuikit-markdown-editor`; it renders Markdown in place but cannot mark a
+passage for the RAG roundtrip and normalizes line breaks when saving. See
+[DEVELOPER_NOTES.md](DEVELOPER_NOTES.md) for the trade-offs.
+
 On Linux, the window toolkit needs two system libraries:
 
 ```bash

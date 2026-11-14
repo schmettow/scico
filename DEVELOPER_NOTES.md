@@ -14,7 +14,8 @@ the earlier egui prototype and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
 [`gpuikit`](https://crates.io/crates/gpui-kit) source editor and a rendered
 Markdown preview. The optional `zorite` backend remains available for the
-original live-preview experience.
+original live-preview experience, and an experimental block-based WYSIWYG
+backend is gated behind `gpuikit-markdown-editor`.
 
 The defining feature is the **roundtrip**: the agent reads the document, the
 bibliography, and a marked passage; its answer can replace the marked passage
@@ -32,9 +33,19 @@ rasterised `Scico-square.png` beside it is what GPUI hands to the platform.
 - **`zorite`** — live-preview Markdown editor, including inline images, tables,
   math, and clickable PDF/EPUB/HTML chips. Build with
   `cargo run --no-default-features --features zorite` (plain
-  `--features zorite` also works). Cargo features are additive: if both
-  backends are enabled, `build.rs` selects zorite, so `--all-features` and
-  editor integrations do not compile duplicate backend code.
+  `--features zorite` also works).
+- **`gpuikit-markdown-editor` (experimental)** — `gpui-kit-markdown-editor`'s
+  block-based WYSIWYG editor: Markdown is rendered in place, with stable block
+  and cell positions, IME, tables, and undo. Build with
+  `cargo run --no-default-features --features gpuikit-markdown-editor`. Its
+  canonicalising serializer normalizes soft line breaks, and its positions are
+  block/cell based, so marking a passage for the RAG roundtrip is not available
+  (see `UPSTREAM.md`). The vendored 0.2.0 copy carries a one-field
+  gpui-base 0.9.1 compatibility fix; `src/editor_block.rs` is the adapter.
+
+Cargo features are additive: when several backends are enabled, `build.rs`
+selects the block editor first, then `zorite`, so `--all-features` builds the
+newest integration and never compiles two `EditorSurface` implementations.
 
 Syntax highlighting is language-independent: a Syntect-backed adapter maps
 TextMate scopes onto the semantic colours of the component theme, so the
@@ -96,6 +107,12 @@ This starts the default `gpuikit` backend. For the zorite live-preview editor:
 
 ```sh
 cargo run --no-default-features --features zorite
+```
+
+For the experimental WYSIWYG block editor:
+
+```sh
+cargo run --no-default-features --features gpuikit-markdown-editor
 ```
 
 Useful environment variables:
@@ -210,7 +227,9 @@ my-paper/
   at the top of the code window, including through soft-wrapped paragraphs,
   and the preview stays exactly where you left it.
 - The `zorite` backend keeps its **Preview / Raw** behaviour on the same
-  shortcut: it switches every tab between live preview and raw Markdown.
+  shortcut: it switches every tab between live preview and raw Markdown. The
+  block editor always renders in place, so the shortcut only reports that fact
+  and the toolbar button is fixed to **WYSIWYG**.
 - Images referenced as `![](figure.png)` render inline relative to the
   document. `![](paper.pdf)`, `.epub`, `.docx`, `.html`, and `.txt` lines render
   as clickable file chips and open in the configured viewer (zorite).
@@ -269,9 +288,12 @@ my-paper/
    editable: the author can keep writing anywhere outside the marked passage
    while the answer streams, and the replacement is located by the passage's
    text when it arrives. If the marked passage itself changed, nothing is
-   written and an **Insert** chip is offered instead. The zorite backend has no
-   range-decoration API, so the armed passage is not visually marked there; the
-   gpuikit backend keeps the selection fill and frame.
+   written and an **Insert** chip is offered instead. The zorite and block
+   backends have no host range-decoration API, so the armed passage is not
+   visually marked there; the gpuikit backend keeps the selection fill and
+   frame. The block backend also cannot capture a marked passage as canonical
+   source bytes, so **Focus selection** and the two edit modes are unavailable
+   there.
 6. If the passage changed while the chat agent was writing, nothing is written: an
    **Insert** chip appears above the composer instead.
 
@@ -371,9 +393,9 @@ of the controls column and the chosen width is remembered.
   reported in the group; a timeout includes the last container log lines.
   GROBID full images are pulled as `linux/amd64` (the official full image is
   not multi-architecture); `-crf` images run natively.
-- **Editor** — rendered preview visibility and scroll sync (gpuikit), or live
-  preview (zorite); editor font family and size; Chat visibility; and the
-  default document attachment.
+- **Editor** — rendered preview visibility and scroll sync (gpuikit), live
+  preview (zorite), or font only (block editor); editor font family and size;
+  Chat visibility; and the default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval (including the
   **Hybrid retrieval** switch), parsing/chunking, and memory. A fresh install
   uses OpenRouter for chat and embeddings, 2^16 answer tokens, a 2^19 context
@@ -441,7 +463,10 @@ scico
   settings.rs     persisted JSON settings, viewer programs, and the Chat prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
+  editor_block.rs block-editor adapter: entity, top-level source map, reveal
   document.rs     backend-selected editor entity + EditorSurface implementation
+vendor/
+  gpui-kit-markdown-editor/  0.2.0 plus the gpui-base 0.9.1 task_marker fix
         │
 ragrig-gpui (path dependency)
   editor/         EditorSurface + RoundtripHost + Roundtrip; containers, digest guard
@@ -521,17 +546,21 @@ cargo fmt --check
 cargo check --all-targets
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
-# both features at once resolve to zorite (see build.rs)
+# all features: the block editor wins (see build.rs)
 cargo check --all-features --all-targets
+cargo test --all-features --all-targets
+cargo clippy --all-features --all-targets -- -D warnings
 # zorite backend explicitly
 cargo check --no-default-features --features zorite --all-targets
 cargo test --no-default-features --features zorite --all-targets
 cargo clippy --no-default-features --features zorite --all-targets -- -D warnings
+# block editor explicitly (same selection as --all-features)
+cargo test --no-default-features --features gpuikit-markdown-editor
 ```
 
-Current suite: 123 unit tests with the `gpuikit` backend and 111 with `zorite`,
-plus the protocol and working-directory integration tests and three zorite
-performance guards, covering the
+Current suite: 123 unit tests with the `gpuikit` backend, 111 with `zorite`,
+and 104 with the block editor, plus the protocol and working-directory
+integration tests and three zorite performance guards, covering the
 protocol, digest guard, multi-byte ranges, replacement extraction, settings and
 prompt-file persistence, layered workspace settings that keep host choices,
 profile loading that keeps host-owned state and inactive-provider models,
@@ -590,6 +619,12 @@ cargo test --no-default-features --features zorite --test zorite_performance \
   constructs, in which case the two panes can be one block apart. Editor-to-
   preview jumps use `reveal_range`, which brings the block into view rather
   than pixel-aligning it, so a block taller than the preview may show its end.
+- The block editor backend is deliberately reduced: it has no canonical-source
+  selection (so no Focus/Edit/Enrich roundtrip), no host range decoration, no
+  separate preview or raw mode, and no byte-exact save. Reveal and the caret
+  line map at top-level block granularity. Saving a hand-wrapped file rewrites
+  it in the editor's canonical form. `UPSTREAM.md` lists the upstream APIs
+  that would close these gaps.
 - The Syntect grammars are packaged with the binary; themes still come from
   the component theme rather than a separate syntax-theme picker.
 - There is no workspace file tree yet; files are opened with `Ctrl+O` or the

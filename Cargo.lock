@@ -2871,7 +2871,9 @@ dependencies = [
  "similar",
  "smallvec",
  "smol",
+ "syntect",
  "tracing",
+ "two-face",
  "unicode-segmentation",
  "unicode-width",
  "uuid",
@@ -3234,6 +3236,15 @@ dependencies = [
  "rust-embed",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "gpui-kit-markdown-editor"
+version = "0.2.0"
+dependencies = [
+ "gpui-kit",
+ "markdown",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -7535,6 +7546,7 @@ dependencies = [
  "comrak",
  "dirs 5.0.1",
  "gpui-kit",
+ "gpui-kit-markdown-editor",
  "image",
  "open",
  "ragrig-gpui",
@@ -8839,6 +8851,17 @@ dependencies = [
  "rustls-pki-types",
  "sha1 0.10.7",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "two-face"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39e51b6e60e545cfdae5a4639ff423818f52372211a8d9a3e892b4b0761f76b2"
+dependencies = [
+ "serde",
+ "serde_derive",
+ "syntect",
 ]
 
 [[package]]

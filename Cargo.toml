@@ -10,20 +10,26 @@ repository = "https://github.com/schmettow/scico"
 homepage = "https://github.com/schmettow/scico"
 keywords = ["markdown", "editor", "rag", "llm", "gpui"]
 categories = ["text-editors", "gui"]
+# Development-only compatibility fork for the experimental block editor; the
+# experimental feature is not publishable until upstream releases a fix.
+exclude = ["vendor/**"]
 
 [features]
 default = ["gpuikit"]
-# Cargo features are additive. If both backends are enabled (for example with
-# `--features zorite` on top of the default, or `--all-features`), build.rs
-# selects zorite so the two editor implementations never collide.
+# Cargo features are additive. When several backends are enabled (for example
+# with `--features zorite` on top of the default, or `--all-features`), build.rs
+# selects the block editor first, then zorite, so the editor implementations
+# never collide.
 zorite = ["dep:zorite-editor"]
 gpuikit = ["dep:syntect"]
+gpuikit-markdown-editor = ["dep:gpui-kit-markdown-editor"]
 
 [dependencies]
 blake3 = "1.5"
 comrak = "0.22"
 dirs = "5"
 gpui-kit = "0.9.1"
+gpui-kit-markdown-editor = { version = "0.2", optional = true }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 open = "5"
 ragrig-gpui = { version = "0.10.0", features = ["grobid"] }
@@ -41,3 +47,7 @@ gpui-kit = { version = "0.9.1", features = ["test-support"] }
 [patch.crates-io]
 grobid-bibtex = { path = "../grobid-bibtex" }
 ragrig-gpui = { path = "../ragrig-gpui" }
+# gpui-kit-markdown-editor 0.2.0 predates gpui-base 0.9.1's `task_marker`
+# field. The vendor copy is 0.2.0 plus that one field; drop the patch when
+# upstream publishes a compatible release.
+gpui-kit-markdown-editor = { path = "vendor/gpui-kit-markdown-editor" }

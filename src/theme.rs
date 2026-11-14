@@ -1,11 +1,11 @@
 //! Theme glue for the Markdown editor.
 
-#[cfg(editor_gpuikit)]
+#[cfg(any(editor_gpuikit, editor_block))]
 use gpui_kit::App;
 #[cfg(editor_zorite)]
 use gpui_kit::{App, component::ActiveTheme as _, font};
 
-#[cfg(editor_gpuikit)]
+#[cfg(any(editor_gpuikit, editor_block))]
 use crate::document::SyntaxStyle;
 #[cfg(editor_zorite)]
 use zorite_editor::SyntaxStyle;
@@ -49,7 +49,7 @@ pub fn syntax_style(cx: &App) -> SyntaxStyle {
             property_icon: None,
         }
     }
-    #[cfg(editor_gpuikit)]
+    #[cfg(any(editor_gpuikit, editor_block))]
     {
         let _ = cx;
         SyntaxStyle

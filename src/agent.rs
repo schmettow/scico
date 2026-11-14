@@ -449,7 +449,7 @@ impl AgentPane {
     }
 
     /// The first pending selection's tab, char range, and digest, for write-back tests.
-    #[cfg(test)]
+    #[cfg(all(test, not(editor_block)))]
     pub(crate) fn pending_selection_guard(&self) -> Option<(u64, std::ops::Range<usize>, String)> {
         self.selections.first().map(|selection| {
             (
@@ -461,19 +461,19 @@ impl AgentPane {
     }
 
     /// Whether direct-edit mode is armed.
-    #[cfg(test)]
+    #[cfg(all(test, not(editor_block)))]
     pub(crate) fn edit_target_is_set(&self) -> bool {
         self.edit_target.is_some()
     }
 
     /// Whether enriched retrieval is armed.
-    #[cfg(test)]
+    #[cfg(all(test, not(editor_block)))]
     pub(crate) fn enrich_target_is_set(&self) -> bool {
         self.enrich_target.is_some()
     }
 
     /// Whether the marked range is currently highlighted for an edit.
-    #[cfg(test)]
+    #[cfg(all(test, not(editor_block)))]
     pub(crate) fn edit_guard_is_set(&self) -> bool {
         self.edit_guard.is_some()
     }

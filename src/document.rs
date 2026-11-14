@@ -10,13 +10,14 @@ use std::rc::Rc;
 #[cfg(editor_zorite)]
 use std::sync::Arc;
 
+#[cfg(not(editor_block))]
+use gpui_kit::AppContext as _;
 #[cfg(editor_zorite)]
 use gpui_kit::EntityInputHandler as _;
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use gpui_kit::RenderImage;
 use gpui_kit::{
-    App, AppContext as _, ElementId, Entity, FocusHandle, Focusable as _, Hsla, ScrollHandle,
-    SharedString, Window,
+    App, ElementId, Entity, FocusHandle, Focusable as _, Hsla, ScrollHandle, SharedString, Window,
 };
 #[cfg(any(editor_zorite, editor_gpuikit))]
 use image::Frame;
@@ -26,10 +27,13 @@ use ragrig_gpui::editor::{EditorSurface, byte_to_char_index, char_range_to_bytes
 use gpui_kit::base::text::TextViewState;
 #[cfg(editor_gpuikit)]
 pub use gpui_kit::component::input::EditorState;
+#[cfg(editor_block)]
+pub use markdown_editor::BlockEditorState as EditorState;
 #[cfg(editor_zorite)]
 pub use zorite_editor::{EditorState, SyntaxStyle};
-#[cfg(editor_gpuikit)]
-/// Placeholder for zorite's theme type; the gpuikit editor follows the app theme.
+#[cfg(any(editor_gpuikit, editor_block))]
+/// Placeholder for zorite's theme type; the gpuikit and block editors follow
+/// the app theme.
 #[derive(Clone, Debug, Default)]
 pub struct SyntaxStyle;
 
@@ -134,7 +138,7 @@ impl RangeHighlight {
 /// Highlight a UTF-8 byte range until the returned handle is cleared.
 ///
 /// The gpuikit backend paints a selection-coloured fill with a primary frame;
-/// the zorite backend has no equivalent and returns an inert handle.
+/// the zorite and block backends have no equivalent and return an inert handle.
 pub fn mark_editor_range(
     editor: &Entity<EditorState>,
     range: Range<usize>,
@@ -176,6 +180,11 @@ pub fn set_editor_cursor(editor: &Entity<EditorState>, offset: usize, cx: &mut A
     });
     #[cfg(editor_zorite)]
     editor.update(cx, |editor, cx| editor.set_cursor(offset, cx));
+    #[cfg(editor_block)]
+    editor.update(cx, |editor, cx| {
+        let source = editor.source();
+        crate::editor_block::reveal(editor, &source, offset, cx);
+    });
 }
 
 /// One top-level Markdown block and where it starts in the source.
@@ -280,6 +289,12 @@ impl Document {
             })
         };
 
+        #[cfg(editor_block)]
+        let editor = {
+            let _ = (style, init.raw);
+            crate::editor_block::new_editor(window, cx, &init.text)
+        };
+
         #[cfg(editor_gpuikit)]
         let editor = {
             let _ = (style, init.raw);
@@ -304,6 +319,11 @@ impl Document {
             let text = editor.text().to_owned();
             #[cfg(editor_gpuikit)]
             let text = editor.value().to_string();
+            #[cfg(editor_block)]
+            let text = editor.source();
+            #[cfg(editor_block)]
+            let cursor = line_column(&text, crate::editor_block::cursor_byte(editor, &text));
+            #[cfg(not(editor_block))]
             let cursor = line_column(&text, editor.cursor());
             let chars = text.chars().count();
             (text, cursor, chars)
@@ -356,6 +376,23 @@ impl Document {
         #[cfg(editor_gpuikit)]
         {
             self.editor.read(cx).value().to_string()
+        }
+        #[cfg(editor_block)]
+        {
+            self.editor.read(cx).source()
+        }
+    }
+
+    /// The caret as a byte offset in [`Self::text`].
+    pub fn cursor_byte(&self, cx: &App) -> usize {
+        #[cfg(editor_block)]
+        {
+            let source = self.text(cx);
+            crate::editor_block::cursor_byte(self.editor.read(cx), &source)
+        }
+        #[cfg(not(editor_block))]
+        {
+            self.editor.read(cx).cursor()
         }
     }
 
@@ -429,11 +466,19 @@ impl Document {
             let range = self.editor.read(cx).selected_range();
             (!range.is_empty()).then_some(range)
         }
+        #[cfg(editor_block)]
+        {
+            // The block editor's selection is block/cell based and cannot be
+            // expressed as a canonical-source range. The roundtrip stays off
+            // for this backend; see UPSTREAM.md.
+            let _ = (window, cx);
+            None
+        }
     }
 
     /// The byte range of the current selection, or the caret when collapsed.
     pub fn edit_range(&self, window: &mut Window, cx: &mut App) -> Range<usize> {
-        let cursor = self.editor.read(cx).cursor();
+        let cursor = self.cursor_byte(cx);
         self.selection_bytes(window, cx).unwrap_or(cursor..cursor)
     }
 
@@ -449,7 +494,7 @@ impl Document {
     /// The caret's 0-based `(line, column)`.
     pub fn cursor_position(&self, cx: &App) -> (usize, usize) {
         let text = self.text(cx);
-        line_column(&text, self.editor.read(cx).cursor())
+        line_column(&text, self.cursor_byte(cx))
     }
 
     /// Focus this document's editor.
@@ -466,6 +511,11 @@ impl Document {
         self.editor.update(cx, |editor, cx| {
             editor.set_selected_range(offset..offset, cx)
         });
+        #[cfg(editor_block)]
+        self.editor.update(cx, |editor, cx| {
+            let source = editor.source();
+            crate::editor_block::reveal(editor, &source, offset, cx);
+        });
     }
 
     /// Replace one byte range as a single undo step.
@@ -481,6 +531,14 @@ impl Document {
             self.editor.update(cx, |editor, cx| {
                 editor.set_selected_range(range, cx);
                 editor.replace(text, window, cx);
+            });
+        }
+        #[cfg(editor_block)]
+        {
+            let _ = window;
+            let source = self.text(cx);
+            self.editor.update(cx, |editor, cx| {
+                crate::editor_block::replace_byte_range(editor, &source, range, text, cx);
             });
         }
     }
@@ -561,6 +619,31 @@ impl EditorSurface for Document {
 
     fn replace(&self, range: Range<usize>, text: &str, window: &mut Window, cx: &mut App) {
         Document::replace(self, range, text, window, cx);
+    }
+
+    fn insert_text(&self, text: &str, window: &mut Window, cx: &mut App) {
+        #[cfg(editor_block)]
+        {
+            let _ = window;
+            if text.is_empty() {
+                return;
+            }
+            self.editor.update(cx, |editor, cx| {
+                crate::editor_block::insert_at_caret(editor, text, cx);
+            });
+        }
+        #[cfg(not(editor_block))]
+        {
+            if text.is_empty() {
+                return;
+            }
+            let content = self.text(cx);
+            let range = self.selection(window, cx).unwrap_or_else(|| {
+                let caret = self.caret(cx);
+                caret..caret
+            });
+            self.replace(char_range_to_bytes(&content, range), text, window, cx);
+        }
     }
 
     fn focus(&self, window: &mut Window, cx: &mut App) {
