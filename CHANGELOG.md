@@ -5,6 +5,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.10.1 — 2026-11-14
+
+### Added
+
+- **Delete selected papers.** The Library's multi-selection bar gains a red
+  **Delete** action. It removes every selected BibTeX entry from the current
+  bibliography, deletes the associated files that live inside the corpus, and
+  drops the documents from the vector store so retrieval stops returning them
+  (`src/library.rs`). Deleting is refused while the BibTeX tab is open or
+  GROBID owns the bibliography.
+- **Index All after an embedding-model change.** When the workspace index was
+  built with another embedder, the Library's Index button becomes an outlined
+  **Index All** with a tooltip naming both models. It discards the store and
+  re-embeds every configured corpus with the current model, keeping the current
+  conversation (`src/library.rs`).
+- **Align with workspace.** *Settings → RAG → Retrieval* gains a button that
+  copies the embedding model recorded in the workspace index into the form and
+  selects the matching provider default; press **Apply** afterwards
+  (`src/app.rs`).
+
+### Changed
+
+- **Scico is the agent's name.** The assistant rows, empty transcript, pane
+  header, toolbar toggle, tooltips, and built-in prompt now call the agent
+  **Scico**; *Chat* remains the name of the chat feature, its settings group,
+  and the `Chat.md` prompt file (`src/agent.rs`, `src/app.rs`,
+  `src/app_settings.rs`, `assets/prompts/Chat.md`). Documentation follows.
+- **ragrig-gpui 0.11.0.** The dependency moves from 0.10.0 to 0.11.0 for batch
+  delete, full re-index, document removal, and workspace-embedding detection
+  (`Cargo.toml`).
+
+### Quality
+
+Focused tests cover bibliography/file deletion and the corpus boundary. Full
+release checks: `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo test --all-features` (106 library tests, 2 integration tests),
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`.
+
 ## v0.10.0 — 2026-11-14
 
 ### Added

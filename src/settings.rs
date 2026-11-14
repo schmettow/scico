@@ -14,7 +14,7 @@ use ragrig_gpui::{
 };
 use serde::{Deserialize, Serialize};
 
-/// The Chat prompt compiled into the binary.
+/// The Scico prompt compiled into the binary.
 pub const CHAT_PROMPT: &str = include_str!("../assets/prompts/Chat.md");
 
 /// The file name used when the prompt is exported into a workspace.
@@ -672,7 +672,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("prompt dir");
         let path = dir.join("Chat.md");
-        std::fs::write(&path, "Custom Chat prompt").expect("prompt file");
+        std::fs::write(&path, "Custom Scico prompt").expect("prompt file");
 
         let persisted = PersistedSettings {
             system_prompt_path: path.display().to_string(),
@@ -681,11 +681,11 @@ mod tests {
         let mut rag = RagSettings::default();
         persisted.apply_to(&mut rag);
 
-        assert_eq!(rag.system_prompt, "Custom Chat prompt");
+        assert_eq!(rag.system_prompt, "Custom Scico prompt");
         assert_eq!(rag.built_in_prompt.trim(), CHAT_PROMPT.trim());
         assert_eq!(
             rag.to_setup().expect("setup").system_prompt.as_deref(),
-            Some("Custom Chat prompt")
+            Some("Custom Scico prompt")
         );
 
         let _ = std::fs::remove_dir_all(dir);

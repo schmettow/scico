@@ -9,18 +9,24 @@ place, ask questions about them, and let the co-writer turn an answer into a
 revision of the exact passage you marked — without leaving your draft.
 
 **Designed for students and researchers.**  
-Start with a folder, add your PDFs, and write. Chat and embeddings use
+Start with a folder, add your PDFs, and write. Scico's chat and embeddings use
 OpenRouter out of the box; point Scico at Ollama or a local llama.cpp server
 when you want the whole stack on your own machine.
 
 - **Ask your own literature.** Index a corpus once, then ask questions and get
   answers grounded in the papers you chose, with sources attached.
-- **Revise in place.** Mark a paragraph and ask for a rewrite. The chat agent
-  replaces just that passage, as one undo step.
+- **Curate the library.** Select several references and use the red **Delete**
+  action: Scico removes their BibTeX entries, deletes the PDFs inside the
+  corpus, and drops them from the index.
+- **Change models without starting over.** When the workspace was indexed with
+  another embedder, **Index All** re-embeds the whole corpus; **Align with
+  workspace** in *Settings → RAG → Retrieval* restores the recorded model.
+- **Revise in place.** Mark a paragraph and ask for a rewrite. Scico replaces
+  just that passage, as one undo step.
 - **Search while you revise.** *Enrich selection* also searches the literature
   about the marked passage, so a rewrite can bring in the evidence you meant.
 - **References that come along.** Keep your `.bib`, insert `@key` citations
-  from the library, and let the chat agent resolve mentions into the right paper.
+  from the library, and let Scico resolve mentions into the right paper.
 - **Never lose work.** A crash-safe journal restores every tab, unsaved
   sentence, caret, and pane layout — even after a crash or a forced shutdown.
 - **Write, don't typeset.** Markdown and Quarto with inline images, tables,
@@ -63,7 +69,7 @@ standard cloud choices.
 
   ```bash
   ollama pull nomic-embed-text    # retrieval
-  ollama pull qwen3.5:9b          # chat agent
+  ollama pull qwen3.5:9b          # chat model
   ```
 
   Run `ollama serve` if the desktop app is not already doing it for you. For
@@ -119,7 +125,7 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
    your `.bib`, and indexes them. Originals are left where they are.
 3. **Write** in the left pane. The right pane previews Markdown, tables, and
    images. Drag the divider if you want more room.
-4. **Ask Chat** a question such as *“What do these papers report about
+4. **Ask Scico** a question such as *“What do these papers report about
    response times?”* Answers stream into the transcript and name the documents
    they used.
 5. **Mark a sentence**, press **Edit selection** (`Ctrl+Shift+D`), and type an
@@ -127,7 +133,7 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev
    `Ctrl+Enter`. The answer replaces only the marked passage; `Ctrl+Z` puts the
    original back.
 
-> No literature yet? The chat agent still works as a plain chat partner. Add papers
+> No literature yet? Scico still works as a plain chat partner. Add papers
 > whenever you are ready; the next question will use them.
 
 ---
@@ -274,7 +280,7 @@ my-paper/
 | `Ctrl+Shift+D` | Edit the marked selection |
 | `Ctrl+Shift+R` | Enrich and edit the marked selection |
 | `Ctrl+Shift+L` | Show or hide the Workspace |
-| `Ctrl+Shift+A` | Show or hide Chat |
+| `Ctrl+Shift+A` | Show or hide Scico |
 | `Ctrl+Shift+E` | Show or hide the preview |
 | `Ctrl+,` | Settings |
 | `Ctrl+S` / `Ctrl+Shift+S` | Save / Save as |
@@ -321,7 +327,7 @@ workspace homepage. **Save as** is also available as a toolbar button next to
   DEEPSEEK_API_KEY=sk-...
   OPENROUTER_API_KEY=sk-or-...
   ```
-- The **Chat prompt** can be project-specific. The built-in prompt is
+- The **Scico prompt** can be project-specific. The built-in prompt is
   compiled in; *Settings → RAG → Chat* lets you open it, export it as
   `Chat.md` into the workspace, or point to your own file. A workspace
   `Chat.md` is never overwritten.
@@ -356,10 +362,10 @@ Linux, `~/Library/Application Support/scico/env` on macOS) as `NAME=VALUE` and
 restart. Windows launches inherit user variables set with `setx`.
 
 **Answers ignore my library.** Check that the corpus has been indexed
-(**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Chat
+(**Workspace → Library → Index**), that **Hybrid retrieval** is on in the Scico
 status bar, and that the question is specific enough to match a passage. With
-hybrid retrieval off, the chat agent uses BM25 only; with no index at all it
-answers as a plain chat model.
+hybrid retrieval off, Scico uses BM25 only; with no index at all it answers as
+a plain chat model.
 
 **GROBID is not running.** That is fine. PDFs are still indexed; only the
 automatic author/title/year extraction is skipped. Use **Settings → External

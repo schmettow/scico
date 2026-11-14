@@ -8,7 +8,7 @@ Technical documentation for contributors: editor backends, workspaces, the
 roundtrip protocol, architecture, checks, and known limitations. The
 user-facing introduction lives in [README.md](README.md).
 
-A scientific Markdown editor with an integrated RAG assistant, Chat, and a
+A scientific Markdown editor with an integrated RAG assistant, Scico, and a
 reference library, built on [GPUI](https://gpui.rs). It is the GPUI re-implementation of
 the earlier egui prototype and composes the
 reusable components from [`ragrig-gpui`](../ragrig-gpui) with the
@@ -73,7 +73,7 @@ not stabilised.
 
 - A chat and embedding backend:
   - **OpenRouter** (standard): export `OPENROUTER_API_KEY` (or put it in
-    `~/.config/scico/env`). Chat uses `openrouter/auto`; embeddings use
+    `~/.config/scico/env`). Scico uses `openrouter/auto`; embeddings use
     `openai/text-embedding-3-small`. OpenAI, Mistral, and llama.cpp embeddings
     can be selected under **Settings → RAG → Retrieval**.
   - **Ollama** (local alternative): start `ollama serve` and pull the configured
@@ -154,8 +154,7 @@ cargo run
 The first launch scaffolds that workspace (`corpus/`, `.ragrig/`, a `.bib`,
 and `.scico/`) and opens `paper.md`.
 
-Chat still works with an empty index; Ragrig then answers as a plain chat
-model.
+Scico still works with an empty index; it then answers as a plain chat model.
 
 ## Workspaces
 
@@ -192,7 +191,7 @@ my-paper/
   `Untitled-1.md` when it has no document. A legacy `.ragrig_store` at the
   workspace root is moved into `.ragrig/` on the first open.
 - Both commands list everything they created and end with
-  **Import PDFs into the library and chat about them.** The Chat header repeats
+  **Import PDFs into the library and chat about them.** The Scico header repeats
   the message so the full list stays readable when the status bar truncates.
 - `.scico/workspace.toml` records the discovered `bibtex` and `document`
   lists, the `ragrig = "./.ragrig"` data folder, and the `homepage`. It is
@@ -251,7 +250,7 @@ my-paper/
   **New workspace** / **Open workspace**. The **Library** section underneath is
   one pipeline over that workspace — corpus, index, and references — so further
   pipelines can share the same project shell.
-- The toolbar toggles **Workspace** (left pane) and **Chat** (right pane). Both
+- The toolbar toggles **Workspace** (left pane) and **Scico** (right pane). Both
   buttons stay in the toolbar while the pane is hidden. Drag either divider to
   resize the pane; the width is remembered.
 - Closing the window with unsaved buffers asks **Save all / Discard / Cancel**.
@@ -350,12 +349,12 @@ target stays bound to the tab the passage came from.
 - The filter field matches keys, authors, years, titles, and venues; its **X**
   button clears the filter.
 
-### Chat
+### Scico
 
 - Answers stream token by token. **Stop** keeps the partial answer; a failed
   answer can be retried.
 - The conversation picker creates, loads, and refreshes saved sessions.
-- The status line reports indexing, extraction, and agent errors.
+- The status line reports indexing, extraction, and Scico errors.
 - The component bar opens each component's menu. **Chat memory** and
   **Hybrid retrieval** carry an **Enabled** switch there: memory off forgets
   the transcript and query rewriting, and hybrid retrieval off drops the
@@ -398,7 +397,7 @@ of the controls column and the chosen width is remembered.
   not multi-architecture); `-crf` images run natively.
 - **Editor** — rendered preview visibility and scroll sync (gpuikit), live
   preview (zorite), or font only (block editor); editor font family and size;
-  Chat visibility; and the default document attachment.
+  Scico visibility; and the default document attachment.
 - **RAG** — provider, models, generation, prompt, retrieval (including the
   **Hybrid retrieval** switch), parsing/chunking, and memory. A fresh install
   uses OpenRouter for chat and embeddings, 2^16 answer tokens, a 2^19 context
@@ -406,7 +405,7 @@ of the controls column and the chosen width is remembered.
   similarity threshold. A settings file written before the embedding-provider
   field existed keeps its local embedding backend. The token budgets are
   sliders over powers of two (512, 1024, 2048, …).
-- **Chat prompt** (RAG → Chat) — the compiled-in `Chat.md` is the default; an
+- **Scico prompt** (RAG → Chat) — the compiled-in `Chat.md` is the default; an
   empty path uses it. **Browse…** selects a Markdown file that overrides it,
   **Open prompt** shows the effective prompt in the editor (a file, or an
   untitled `Chat.md` buffer for the built-in), **Export Chat.md** writes the
@@ -421,7 +420,7 @@ changes” line; the Overview page lists how many fields changed per section.
 
 ## The roundtrip protocol
 
-The Chat prompt is compiled in from `assets/prompts/Chat.md`. A workspace
+The Scico prompt is compiled in from `assets/prompts/Chat.md`. A workspace
 file selected in **Settings → RAG → Chat** overrides it. Editor contexts use
 the versioned containers the prompt documents:
 
@@ -463,7 +462,7 @@ scico
   library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Import PDFs
   workspace.rs    workspace scaffold, descriptor, defaults
   app_settings.rs Overview, Workspace, and Editor settings pages; External services lives in ragrig-gpui
-  settings.rs     persisted JSON settings, viewer programs, and the Chat prompt path
+  settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
   editor_block.rs block-editor adapter: entity, top-level source map, reveal
@@ -485,7 +484,7 @@ The following were fixed in `ragrig-gpui` during development:
 
 - `ChatIcon` gained `Png` and an `element()` renderer, because GPUI paints
   every `svg()` as a monochrome alpha mask. `AgentComponent::icon` and
-  `Composer::send_icon` let this app plug in the Chat mark, and
+  `Composer::send_icon` let this app plug in the Scico mark, and
   `agent_components()` keeps **Chat memory** beside the chat model.
 - `number_control` validates on Enter/blur instead of every keystroke, keeps
   the previous value on invalid input, and renders the accepted range below
@@ -580,7 +579,7 @@ during an armed edit, the Library's BibTeX jump and bibliography file
 lookup, the open-bibliography GROBID guard, canonical PDF imports,
 incremental Markdown/BibTeX highlighting, editor font
 defaults and Ctrl-wheel zoom, two-way block-level scroll sync that stays put in
-both directions (including soft-wrapped paragraphs), and the Chat marks,
+both directions (including soft-wrapped paragraphs), and the Scico marks,
 their colour retention, and the window icon.
 
 ## Zorite performance guards

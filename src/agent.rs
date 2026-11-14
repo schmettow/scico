@@ -1,4 +1,4 @@
-//! The Chat pane: transcript, composer, context chips, and roundtrip.
+//! The Scico pane: transcript, composer, context chips, and roundtrip.
 //!
 //! This is the Scico-specific composite built on Ragrig's primitives
 //! instead of `RagChat`, because a question has to carry the editor's own
@@ -27,7 +27,7 @@ const CHAT_ICON: &[u8] = include_bytes!("../assets/logo/Scico icon.svg");
 /// The full-colour square used on the welcome screen.
 const CHAT_MARK: &[u8] = include_bytes!("../assets/logo/Scico-square.png");
 
-/// What the Chat pane tells its host.
+/// What the Scico pane tells its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentPaneEvent {
     /// A one-line status for the window's status bar.
@@ -75,7 +75,7 @@ struct PendingWrite {
     empty_prose: bool,
 }
 
-/// The Scico Chat pane.
+/// The Scico pane.
 pub struct AgentPane {
     state: Entity<AppState>,
     roundtrip: Roundtrip,
@@ -177,14 +177,14 @@ impl AgentPane {
                     icon: ChatIcon::png(CHAT_MARK),
                     title: "Scico knows your library.".into(),
                     description: "Index a corpus in the Library, attach your draft, \
-                                  then ask a question. Chat answers with the documents \
+                                  then ask a question. Scico answers with the documents \
                                   it used, and you can send its answer straight back \
                                   into the marked passage."
                         .into(),
                 },
                 cx,
             );
-            chat.set_assistant(ChatIdentity::new("Chat", ChatIcon::data(CHAT_ICON)), cx);
+            chat.set_assistant(ChatIdentity::new("Scico", ChatIcon::data(CHAT_ICON)), cx);
         });
         this
     }
@@ -443,7 +443,7 @@ impl AgentPane {
         self.selections.len()
     }
 
-    /// The latest Chat status line.
+    /// The latest Scico status line.
     pub fn status(&self) -> &SharedString {
         &self.status
     }
@@ -542,10 +542,10 @@ impl AgentPane {
         self.send_prompt(prompt.into(), true, cx);
     }
 
-    /// Show a host notice under the Chat title.
+    /// Show a host notice under the Scico title.
     ///
     /// Used for workspace feedback that is too long for the one-line window
-    /// status bar; the notice wraps in the Chat header and remains readable.
+    /// status bar; the notice wraps in the Scico header and remains readable.
     pub fn announce(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
         self.set_status(message, cx);
     }
@@ -1327,7 +1327,7 @@ impl Render for AgentPane {
                             .justify_between()
                             .items_center()
                             .gap_2()
-                            .child(div().text_lg().child("Chat"))
+                            .child(div().text_lg().child("Scico"))
                             .child(picker),
                     )
                     .child(

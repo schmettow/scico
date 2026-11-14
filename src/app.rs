@@ -263,6 +263,20 @@ impl ScicoApp {
                 }
             },
         ));
+        let controller = state.read(cx).controller.clone();
+        subscriptions.push(
+            cx.subscribe(&controller, |_, _, event: &ragrig_gpui::RagEvent, cx| {
+                // The alignment button depends on the index metadata reported
+                // with AgentReady, not on the token stream.
+                if matches!(
+                    event,
+                    ragrig_gpui::RagEvent::AgentReady(_)
+                        | ragrig_gpui::RagEvent::AgentFailed { .. }
+                ) {
+                    cx.notify();
+                }
+            }),
+        );
         let services = state.read(cx).services.clone();
         subscriptions.push(cx.subscribe(
             &services,
@@ -283,7 +297,6 @@ impl ScicoApp {
         // The panes announce themselves as soon as the worker builds; ask for
         // the session list and store snapshot explicitly so a restored window
         // is populated even before the user touches anything.
-        let controller = state.read(cx).controller.clone();
         controller.update(cx, |controller, cx| {
             controller.refresh_sessions(cx);
             controller.refresh_library(cx);
@@ -1292,7 +1305,7 @@ impl ScicoApp {
             )
             .child(
                 Button::new("toolbar-agent")
-                    .label("Chat")
+                    .label("Scico")
                     .icon(if show_agent {
                         IconName::PanelRightClose
                     } else {
@@ -1302,9 +1315,9 @@ impl ScicoApp {
                     .ghost()
                     .selected(show_agent)
                     .tooltip(if show_agent {
-                        "Hide Chat (Ctrl+Shift+A)"
+                        "Hide Scico (Ctrl+Shift+A)"
                     } else {
-                        "Show Chat (Ctrl+Shift+A)"
+                        "Show Scico (Ctrl+Shift+A)"
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_agent(&ToggleAgent, window, cx);
@@ -1866,6 +1879,7 @@ impl ScicoApp {
     fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rag = self.state.read(cx).rag.clone();
+        let controller = self.state.read(cx).controller.clone();
         let services = self.state.read(cx).services.clone();
         let changes: ragrig_gpui::Changes = {
             let state = self.state.clone();
@@ -1914,6 +1928,7 @@ impl ScicoApp {
             ))
             .page(ragrig_gpui::rag_model_page(
                 rag,
+                controller,
                 changes,
                 Some(prompt_actions(self.state.clone())),
                 cx,

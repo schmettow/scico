@@ -692,7 +692,7 @@ impl AppState {
         id
     }
 
-    /// Open the effective Chat prompt in the editor.
+    /// Open the effective Scico prompt in the editor.
     ///
     /// A selected prompt file opens as a normal document. Without one, the
     /// compiled-in `Chat.md` appears as an untitled buffer.

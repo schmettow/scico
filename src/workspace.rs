@@ -32,7 +32,7 @@ pub const WORKSPACE_FILE: &str = "workspace.toml";
 pub const RAGRIG_DIR: &str = ".ragrig";
 /// The folder scanned and indexed by the library.
 pub const CORPUS_DIR: &str = "corpus";
-/// The optional project-specific Chat prompt.
+/// The optional project-specific Scico prompt (`Chat.md`).
 pub const PROMPT_FILE: &str = "Chat.md";
 /// The document opened when a workspace has none.
 pub const DEFAULT_DOCUMENT: &str = "Untitled-1.md";

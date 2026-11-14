@@ -379,7 +379,7 @@ fn profile_options(state: &Entity<AppState>, cx: &App) -> Vec<(SharedString, Sha
         .collect()
 }
 
-/// Host actions for the Chat prompt row in **Settings → RAG → Chat**.
+/// Host actions for the Scico prompt row in **Settings → RAG → Chat**.
 ///
 /// The generic page owns the path field and dirty mark; these closures open the
 /// effective prompt in the editor and export the compiled-in `Chat.md` into the
@@ -716,7 +716,7 @@ pub fn app_editor_page(state: Entity<AppState>) -> SettingPage {
         #[cfg(editor_block)]
         let group = group.item(font_row).item(font_size_row);
         group.item(
-            SettingItem::new("Show Chat", show_chat)
+            SettingItem::new("Show Scico", show_chat)
                 .description("Right pane with the RAG transcript."),
         )
     };

@@ -1,5 +1,7 @@
 //! The library pipeline: bibliography rows, corpus actions, and status.
 
+use std::collections::HashSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -21,7 +23,7 @@ use gpui_kit::{
     prelude::FluentBuilder as _,
     px,
 };
-use ragrig_gpui::prelude::*;
+use ragrig_gpui::{editor::remove_bibtex_entry, prelude::*};
 
 use crate::agent::AgentPane;
 use crate::state::AppState;
@@ -152,25 +154,22 @@ impl LibraryPane {
         self.set_status("Reloading references…", cx);
     }
 
-    fn index_corpus(&mut self, cx: &mut Context<Self>) {
+    /// The corpus name and folder the library operates on.
+    fn corpus_identity(&self, cx: &Context<Self>) -> (String, PathBuf) {
         let folder = self.folder(cx);
-        if !folder.is_dir() {
-            self.set_status(format!("'{}' is not a folder", folder.display()), cx);
-            return;
-        }
         let name = folder
             .file_name()
             .and_then(|name| name.to_str())
             .filter(|name| !name.is_empty())
             .unwrap_or("corpus")
             .to_owned();
-        let controller = self.state.read(cx).controller.clone();
-        match controller.update(cx, |controller, cx| {
-            controller.sync_corpus(name.clone(), folder.clone(), cx)
-        }) {
-            Ok(_) => self.set_status(format!("Indexing {}…", folder.display()), cx),
-            Err(error) => self.set_status(error, cx),
-        }
+        (name, folder)
+    }
+
+    /// Keep the active corpus in the settings so the next rebuild indexes it.
+    fn remember_corpus(&mut self, name: &str, folder: &Path, cx: &mut Context<Self>) {
+        let folder = folder.to_path_buf();
+        let name = name.to_owned();
         self.state.update(cx, |state, cx| {
             state.corpus = Some(folder.clone());
             let entry = format!("{name}={}", folder.display());
@@ -185,6 +184,70 @@ impl LibraryPane {
             });
             state.persist(cx);
         });
+    }
+
+    fn index_corpus(&mut self, cx: &mut Context<Self>) {
+        let (name, folder) = self.corpus_identity(cx);
+        if !folder.is_dir() {
+            self.set_status(format!("'{}' is not a folder", folder.display()), cx);
+            return;
+        }
+        let controller = self.state.read(cx).controller.clone();
+        match controller.update(cx, |controller, cx| {
+            controller.sync_corpus(name.clone(), folder.clone(), cx)
+        }) {
+            Ok(_) => self.set_status(format!("Indexing {}…", folder.display()), cx),
+            Err(error) => self.set_status(error, cx),
+        }
+        self.remember_corpus(&name, &folder, cx);
+    }
+
+    /// Rebuild the workspace index with the current embedding model.
+    ///
+    /// An incremental sync cannot replace vectors from another model, so this
+    /// discards the store and re-embeds every configured corpus.
+    fn reindex_corpus(&mut self, cx: &mut Context<Self>) {
+        let (name, folder) = self.corpus_identity(cx);
+        if !folder.is_dir() {
+            self.set_status(format!("'{}' is not a folder", folder.display()), cx);
+            return;
+        }
+        let (model, indexed) = {
+            let controller = self.state.read(cx).controller.clone();
+            let controller = controller.read(cx);
+            let agent = controller.agent();
+            (
+                agent.map(|agent| agent.embed_model.clone()),
+                agent.and_then(|agent| agent.index_embed_model.clone()),
+            )
+        };
+        let controller = self.state.read(cx).controller.clone();
+        match controller.update(cx, |controller, cx| {
+            controller.reindex_corpus(name.clone(), folder.clone(), cx)
+        }) {
+            Ok(_) => {
+                let message = match (indexed, model) {
+                    (Some(indexed), Some(model)) => {
+                        format!("Re-indexing every corpus with {model} (was {indexed})…")
+                    }
+                    (_, Some(model)) => format!("Re-indexing every corpus with {model}…"),
+                    _ => "Re-indexing every corpus…".to_owned(),
+                };
+                self.set_status(message, cx);
+            }
+            Err(error) => self.set_status(error, cx),
+        }
+        self.remember_corpus(&name, &folder, cx);
+    }
+
+    /// Whether the workspace index was built with another embedding model.
+    fn embedding_mismatch(&self, cx: &App) -> bool {
+        self.state
+            .read(cx)
+            .controller
+            .read(cx)
+            .agent()
+            .is_some_and(|agent| agent.hybrid && agent.embedding_mismatch)
     }
 
     /// Make the canonical workspace corpus the folder extraction and indexing use.
@@ -416,6 +479,65 @@ impl LibraryPane {
         cx.notify();
     }
 
+    /// Delete the selected papers from the corpus and the bibliography.
+    fn delete_selected(&mut self, cx: &mut Context<Self>) {
+        let entries: Vec<ReferenceEntry> = self
+            .selected
+            .entries(&self.entries)
+            .into_iter()
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return;
+        }
+        if self.extracting(cx) {
+            self.set_status(
+                "GROBID is updating the bibliography — wait for it to finish",
+                cx,
+            );
+            return;
+        }
+        if self.state.read(cx).bibliography_open() {
+            self.set_status("Close the BibTeX tab before deleting references", cx);
+            return;
+        }
+        let Some(bibliography) = self.state.read(cx).bibliography.clone() else {
+            self.set_status(
+                "No bibliography configured. Choose a workspace in Settings.",
+                cx,
+            );
+            return;
+        };
+        let (corpus_name, folder) = self.corpus_identity(cx);
+        let report = match delete_references(&bibliography, &folder, &entries) {
+            Ok(report) => report,
+            Err(error) => {
+                self.set_status(error, cx);
+                return;
+            }
+        };
+        if !report.documents.is_empty() {
+            let documents = report.documents.clone();
+            self.state
+                .read(cx)
+                .controller
+                .clone()
+                .update(cx, |controller, cx| {
+                    controller.forget_documents(corpus_name, documents, cx);
+                });
+        }
+        self.selected.clear();
+        self.refresh_references(cx);
+        let mut message = format!(
+            "Deleted {} reference(s) and {} file(s)",
+            report.entries, report.files
+        );
+        if !report.problems.is_empty() {
+            message.push_str(&format!(" · {}", report.problems.join(" · ")));
+        }
+        self.set_status(message, cx);
+    }
+
     fn attach_selected(&mut self, cx: &mut Context<Self>) {
         let entries: Vec<ReferenceEntry> = self
             .selected
@@ -611,26 +733,60 @@ impl Render for LibraryPane {
                 "Open the raw bibliography; GROBID is blocked while it is open"
             })
             .on_click(cx.listener(|this, _, window, cx| this.toggle_bibtex(window, cx)));
-        let index = Button::new("library-index")
-            .label(if ingesting { "Stop" } else { "Index" })
-            .icon(if ingesting {
-                IconName::Square
-            } else {
-                IconName::FolderOpen
-            })
-            .small()
-            .primary()
-            .disabled(busy && !ingesting)
-            .tooltip("Incrementally index the corpus folder")
-            .on_click(cx.listener(|this, _, _, cx| {
-                let controller = this.state.read(cx).controller.clone();
-                if controller.read(cx).is_ingesting() {
-                    controller.update(cx, |controller, cx| controller.stop_sync(cx));
-                    this.set_status("Stopping indexing…", cx);
+        let mismatch = self.embedding_mismatch(cx);
+        let index_label = if ingesting {
+            "Stop"
+        } else if mismatch {
+            "Index All"
+        } else {
+            "Index"
+        };
+        let index_tooltip = if mismatch {
+            let controller = controller.read(cx);
+            match controller.agent() {
+                Some(agent) => format!(
+                    "Workspace embeddings use {}. Re-index every document with {}.",
+                    agent
+                        .index_embed_model
+                        .as_deref()
+                        .unwrap_or("another model"),
+                    agent.embed_model
+                ),
+                None => "Re-index every document with the current embedding model".to_owned(),
+            }
+        } else {
+            "Incrementally index the corpus folder".to_owned()
+        };
+        let index = if ingesting || mismatch {
+            Button::new("library-index")
+                .label(index_label)
+                .icon(if ingesting {
+                    IconName::Square
                 } else {
-                    this.index_corpus(cx);
-                }
-            }));
+                    IconName::FolderOpen
+                })
+                .small()
+                .outline()
+        } else {
+            Button::new("library-index")
+                .label(index_label)
+                .icon(IconName::FolderOpen)
+                .small()
+                .primary()
+        }
+        .disabled(busy && !ingesting)
+        .tooltip(index_tooltip)
+        .on_click(cx.listener(|this, _, _, cx| {
+            let controller = this.state.read(cx).controller.clone();
+            if controller.read(cx).is_ingesting() {
+                controller.update(cx, |controller, cx| controller.stop_sync(cx));
+                this.set_status("Stopping indexing…", cx);
+            } else if this.embedding_mismatch(cx) {
+                this.reindex_corpus(cx);
+            } else {
+                this.index_corpus(cx);
+            }
+        }));
         let refresh = Button::new("library-refresh")
             .icon(IconName::RefreshCw)
             .small()
@@ -705,6 +861,9 @@ impl Render for LibraryPane {
                     }
                     ReferenceAction::Attach => {
                         this.update(cx, |this, cx| this.attach_selected(cx));
+                    }
+                    ReferenceAction::Delete => {
+                        this.update(cx, |this, cx| this.delete_selected(cx));
                     }
                     ReferenceAction::Clear => {
                         this.update(cx, |this, cx| {
@@ -797,6 +956,91 @@ impl Focusable for LibraryPane {
 
 /// Approximate row height; the virtual list replaces it with measured values
 /// for rows that have been on screen.
+#[derive(Debug, Default)]
+struct DeletionReport {
+    entries: usize,
+    files: usize,
+    documents: Vec<String>,
+    problems: Vec<String>,
+}
+
+/// Remove the selected bibliography entries and their corpus files.
+///
+/// Files outside `corpus` are left alone. An entry whose `.bib` record is
+/// missing still has its file deleted; a missing bibliography aborts before
+/// any file is touched.
+fn delete_references(
+    bibliography: &Path,
+    corpus: &Path,
+    entries: &[ReferenceEntry],
+) -> Result<DeletionReport, String> {
+    let mut text = fs::read_to_string(bibliography)
+        .map_err(|error| format!("cannot read '{}': {error}", bibliography.display()))?;
+    let mut report = DeletionReport::default();
+    let mut missing = Vec::new();
+    let mut keys = HashSet::new();
+    for entry in entries {
+        if !keys.insert(entry.key.to_ascii_lowercase()) {
+            continue;
+        }
+        match remove_bibtex_entry(&text, &entry.key) {
+            Some(next) => {
+                text = next;
+                report.entries += 1;
+            }
+            None => missing.push(entry.key.clone()),
+        }
+    }
+    if report.entries > 0 {
+        fs::write(bibliography, &text)
+            .map_err(|error| format!("cannot write '{}': {error}", bibliography.display()))?;
+    }
+    if !missing.is_empty() {
+        report
+            .problems
+            .push(format!("no BibTeX entry for {}", missing.join(", ")));
+    }
+
+    let mut documents = HashSet::new();
+    for entry in entries {
+        let Some(path) = &entry.path else {
+            continue;
+        };
+        if !path_within(path, corpus) {
+            report
+                .problems
+                .push(format!("'{}' is outside the corpus", path.display()));
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.is_file() {
+            match fs::remove_file(path) {
+                Ok(()) => report.files += 1,
+                Err(error) => {
+                    report
+                        .problems
+                        .push(format!("cannot delete '{}': {error}", path.display()));
+                    continue;
+                }
+            }
+        }
+        if documents.insert(name.to_owned()) {
+            report.documents.push(name.to_owned());
+        }
+    }
+    Ok(report)
+}
+
+fn path_within(path: &Path, folder: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let folder = folder
+        .canonicalize()
+        .unwrap_or_else(|_| folder.to_path_buf());
+    path.starts_with(folder)
+}
+
 const REFERENCE_ROW_HEIGHT: gpui_kit::Pixels = px(66.);
 
 /// Entry indices that pass the filter, in bibliography order.
@@ -1105,6 +1349,95 @@ mod tests {
 
         let error = import_folder(None).expect_err("no workspace");
         assert!(error.contains("Open or create a workspace first"));
+    }
+
+    #[test]
+    fn deleting_references_removes_entries_and_corpus_files() {
+        let dir = temp_dir("delete");
+        let corpus = dir.join("corpus");
+        fs::create_dir_all(&corpus).expect("corpus");
+        let paper_a = corpus.join("a.pdf");
+        let paper_b = corpus.join("b.pdf");
+        fs::write(&paper_a, b"%PDF-A").expect("paper A");
+        fs::write(&paper_b, b"%PDF-B").expect("paper B");
+        let bibliography = dir.join("references.bib");
+        fs::write(
+            &bibliography,
+            "@article{A,\n  title = {A},\n}\n\n@article{B,\n  title = {B},\n}\n",
+        )
+        .expect("bibliography");
+
+        let entries = vec![
+            ReferenceEntry {
+                key: "A".to_owned(),
+                authors: String::new(),
+                year: String::new(),
+                title: "A".to_owned(),
+                source: String::new(),
+                path: Some(paper_a.clone()),
+            },
+            ReferenceEntry {
+                key: "B".to_owned(),
+                authors: String::new(),
+                year: String::new(),
+                title: "B".to_owned(),
+                source: String::new(),
+                path: Some(paper_b.clone()),
+            },
+        ];
+        let report = delete_references(&bibliography, &corpus, &entries).expect("delete");
+        assert_eq!(report.entries, 2);
+        assert_eq!(report.files, 2);
+        assert_eq!(report.documents.len(), 2);
+        let text = fs::read_to_string(&bibliography).expect("bibliography");
+        assert!(!text.contains("@article{A"));
+        assert!(!text.contains("@article{B"));
+        assert!(!paper_a.exists());
+        assert!(!paper_b.exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deleting_leaves_files_outside_the_corpus_alone() {
+        let dir = temp_dir("delete-outside");
+        let corpus = dir.join("corpus");
+        let elsewhere = dir.join("elsewhere");
+        fs::create_dir_all(&corpus).expect("corpus");
+        fs::create_dir_all(&elsewhere).expect("elsewhere");
+        let paper = elsewhere.join("a.pdf");
+        fs::write(&paper, b"%PDF-A").expect("paper");
+        let bibliography = dir.join("references.bib");
+        fs::write(&bibliography, "@article{A,\n}\n").expect("bibliography");
+        let entries = vec![ReferenceEntry {
+            key: "A".to_owned(),
+            authors: String::new(),
+            year: String::new(),
+            title: "A".to_owned(),
+            source: String::new(),
+            path: Some(paper.clone()),
+        }];
+
+        let report = delete_references(&bibliography, &corpus, &entries).expect("delete");
+        assert_eq!(report.entries, 1);
+        assert_eq!(report.files, 0);
+        assert!(report.problems.iter().any(|line| line.contains("outside")));
+        assert!(paper.is_file());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "scico-library-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
     }
 
     #[test]
