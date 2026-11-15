@@ -34,12 +34,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
-Report rendering, append-only sections, table escaping, quote-check columns,
-empty selections, job-level failures, and UTC timestamps are covered by unit
-tests. Full release checks: `cargo fmt --check`, `cargo check --all-targets
---all-features`, `cargo test --all-features`, `cargo clippy --all-targets
---all-features -- -D warnings`, and `RUSTDOCFLAGS="-D warnings" cargo doc
---no-deps --all-features`.
+Release validation on 2026-11-15 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests are
+not measured on stable Rust; `--all-features` selects the block editor):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 13,159 | 19,210 | 68.50% |
+| Functions | 855 | 1,408 | 60.72% |
+| Lines | 7,680 | 11,086 | 69.28% |
+
+`src/citation_check.rs` is at 86.32% lines; report rendering, append-only
+sections, table escaping, quote-check columns, empty selections, job-level
+failures, and UTC timestamps are covered there. `src/app.rs` is at 81.18%
+lines and `src/state.rs` at 67.08%. `src/agent.rs` (30.73%) and
+`src/library.rs` (50.00%) stay lower because the GPUI worker loop and the
+virtual list cannot run under the deterministic test scheduler and are
+exercised through the application.
+
+**Tests.** `cargo test --all-features` (block): 115 passed, 0 failed (113 lib,
+1 prompt protocol, 1 working directory; no doctests). `cargo test` (default
+gpuikit): 134 passed, 0 failed (132 lib + 2 integration).
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo test --all-features`, `cargo clippy --all-targets --all-features -- -D
+warnings`, `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features`,
+and `cargo package --list` (42 files) are green. `cargo publish --dry-run` is
+blocked only by the publication order: scico 0.11.0 requires `ragrig-gpui =
+"^0.12.0"`, which is not on crates.io yet. Cargo strips the development-only
+`[patch.crates-io]` entries from the packaged manifest, so publishing
+ragrig-gpui 0.12.0 first is the only remaining step.
+
+**Publication order.** Publish ragrig-gpui 0.12.0, then scico 0.11.0. The
+optional `gpuikit-markdown-editor` feature still needs the vendored
+compatibility patch (UM001), so that upstream limitation remains; the default
+feature set is unaffected.
 
 ## v0.10.1 — 2026-11-14
 
