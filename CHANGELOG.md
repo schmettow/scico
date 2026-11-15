@@ -5,6 +5,42 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.11.0 — 2026-11-15
+
+### Added
+
+- **Citation Check.** `Ctrl+Shift+K` or the toolbar button checks every
+  `@key` citation in the selected passage. The check runs in the background,
+  up to four citations at a time, and keeps the chat and editor responsive
+  (`src/agent.rs`, `src/app.rs`). Only keys whose PDF is in a corpus and
+  embedded in the index are checked; unresolved citations become error rows.
+- **`Citation_check.md`.** Each run appends a new analysis section to the
+  workspace report. Rows arrive incrementally while the run is active and the
+  report opens in a background tab when the analysis completes. The table has
+  Citation, Claim, Verdict, Evidence, Quote check, Source, and Error columns,
+  with verdicts shown as the exact `1 – 5` labels (`src/citation_check.rs`).
+- **Algorithmic quote checking.** Evidence quotes are verified against the
+  parsed PDF with a precise match first and a fuzzy token match second; the
+  Quote check column reports `accurate`, `approximate`, or `not found`.
+- **Background tab opening.** `AppState::open_path_in_background` opens the
+  finished report without switching the active document
+  (`src/state.rs`).
+
+### Changed
+
+- **ragrig-gpui 0.12.0.** The dependency moves from 0.11.0 to 0.12.0 for the
+  citation-check worker, protocol types, and quote verification
+  (`Cargo.toml`).
+
+### Quality
+
+Report rendering, append-only sections, table escaping, quote-check columns,
+empty selections, job-level failures, and UTC timestamps are covered by unit
+tests. Full release checks: `cargo fmt --check`, `cargo check --all-targets
+--all-features`, `cargo test --all-features`, `cargo clippy --all-targets
+--all-features -- -D warnings`, and `RUSTDOCFLAGS="-D warnings" cargo doc
+--no-deps --all-features`.
+
 ## v0.10.1 — 2026-11-14
 
 ### Added

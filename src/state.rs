@@ -24,7 +24,7 @@ use markdown_editor::BlockEditorEvent;
 pub use ragrig_gpui::editor::ReplacementOutcome;
 use ragrig_gpui::editor::{
     EditorSnapshot, EditorSurface, MARKER_REPLACE, Replacement, ReplacementTarget, RoundtripHost,
-    SelectionSnapshot, bibtex_entry_offset, replace_at, verified_bytes,
+    SelectionSnapshot, bibtex_entry_offset, char_range_to_bytes, replace_at, verified_bytes,
 };
 use ragrig_gpui::{
     ExternalServices, MemoryChoice, RagChanges, RagController, RagOnboarding, RagSettings,
@@ -934,6 +934,29 @@ impl AppState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.open_path_with(path, true, window, cx)
+    }
+
+    /// Open a file in a new tab without making it active.
+    ///
+    /// Used by background reports: the tab appears at the end, but the
+    /// author keeps the document they were working on.
+    pub fn open_path_in_background(
+        &mut self,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.open_path_with(path, false, window, cx)
+    }
+
+    fn open_path_with(
+        &mut self,
+        path: &Path,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         let resolved = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -951,9 +974,11 @@ impl AppState {
             .iter()
             .position(|document| document.path.as_deref() == Some(path))
         {
-            self.active = index;
-            window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
-            self.sync_active_preview(cx);
+            if activate {
+                self.active = index;
+                window.focus(&self.documents[index].editor.read(cx).focus_handle(cx), cx);
+                self.sync_active_preview(cx);
+            }
             cx.notify();
             return Ok(());
         }
@@ -974,14 +999,48 @@ impl AppState {
         );
         self.subscribe_editor(&document.editor, id, cx);
         self.documents.push(document);
-        self.active = self.documents.len() - 1;
-        window.focus(
-            &self.documents[self.active].editor.read(cx).focus_handle(cx),
-            cx,
-        );
-        self.set_status(format!("Opened {}", path.display()), cx);
+        if activate {
+            self.active = self.documents.len() - 1;
+            window.focus(
+                &self.documents[self.active].editor.read(cx).focus_handle(cx),
+                cx,
+            );
+            self.set_status(format!("Opened {}", path.display()), cx);
+            self.sync_active_preview(cx);
+        } else if self.documents.len() == 1 {
+            self.active = 0;
+        }
         self.persist_session(cx);
-        self.sync_active_preview(cx);
+        Ok(())
+    }
+
+    /// Replace a clean document's whole text while keeping its caret near
+    /// where it was. The caller has already written the same text to disk.
+    pub fn replace_clean_document_text(
+        &mut self,
+        id: u64,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Some(document) = self.document_mut(id) else {
+            return Err("that document is no longer open".to_owned());
+        };
+        if document.dirty {
+            return Err("the document has unsaved edits".to_owned());
+        }
+        let old = document.text(cx);
+        if old == text {
+            return Ok(());
+        }
+        let caret = document.caret(cx);
+        document.replace(0..old.len(), text, window, cx);
+        document.saved_text = text.to_owned();
+        document.dirty = false;
+        #[cfg(editor_gpuikit)]
+        document.refresh_preview(text, cx);
+        let caret_bytes = char_range_to_bytes(text, caret..caret).start;
+        document.set_cursor(caret_bytes, cx);
         Ok(())
     }
 

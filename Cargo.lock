@@ -6659,13 +6659,15 @@ dependencies = [
 
 [[package]]
 name = "ragrig-gpui"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
+ "anyhow",
  "ashpd",
  "async-channel",
  "biblatex",
  "blake3",
  "bollard",
+ "chunkedrs",
  "comrak",
  "dirs 5.0.1",
  "futures-util",
@@ -7540,7 +7542,7 @@ dependencies = [
 
 [[package]]
 name = "scico"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "blake3",
  "comrak",

@@ -21,6 +21,10 @@ when you want the whole stack on your own machine.
 - **Change models without starting over.** When the workspace was indexed with
   another embedder, **Index All** re-embeds the whole corpus; **Align with
   workspace** in *Settings → RAG → Retrieval* restores the recorded model.
+- **Check your citations.** Select a passage and press **Citation check**
+  (`Ctrl+Shift+K`). Scico verifies every `@key` against an ingested PDF, asks
+  the chat model how well the source supports your claim, and appends a table
+  with verdicts and verified quotes to `Citation_check.md` in the workspace.
 - **Revise in place.** Mark a paragraph and ask for a rewrite. Scico replaces
   just that passage, as one undo step.
 - **Search while you revise.** *Enrich selection* also searches the literature
@@ -279,6 +283,7 @@ my-paper/
 | `Ctrl+Shift+P` | Ask about the marked selection |
 | `Ctrl+Shift+D` | Edit the marked selection |
 | `Ctrl+Shift+R` | Enrich and edit the marked selection |
+| `Ctrl+Shift+K` | Check the citations in the marked selection |
 | `Ctrl+Shift+L` | Show or hide the Workspace |
 | `Ctrl+Shift+A` | Show or hide Scico |
 | `Ctrl+Shift+E` | Show or hide the preview |

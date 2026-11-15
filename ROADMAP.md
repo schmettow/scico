@@ -50,6 +50,10 @@ stabilised.
   local `.gguf`. Verified end to end on Linux for GROBID and for an existing
   Intel SYCL Ollama container. Next: exercise the managed containers on Windows
   and macOS; the GROBID full image runs emulated on Apple silicon.
+- Citation Check now verifies selected `@key` citations against ingested PDFs
+  in the background and appends verdicts, evidence, and quote-match quality to
+  `Citation_check.md`. Next: add a per-run model choice and an optional resume
+  for interrupted checks.
 - The Scico status bar switches **Chat memory** and hybrid retrieval from the
   component menu. Next: surface the running memory strategy and retrieval
   mode in the transcript meta so saved sessions explain how an answer was

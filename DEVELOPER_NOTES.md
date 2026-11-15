@@ -362,6 +362,27 @@ target stays bound to the tab the passage came from.
   reach the prompt). The status dots and the saved settings follow the
   switches, and switching memory back on restores the previous strategy.
 
+### Citation Check
+
+- The toolbar action `Ctrl+Shift+K` sends the selected passage and its full
+  document to the RAG worker. The worker resolves `@key` mentions that sit
+  outside Markdown code, requires the resolved PDF to be present in a corpus
+  and embedded in the vector store, and parses it with the configured PDF
+  backend.
+- Each citation gets a three-before / two-after sentence window capped at 500
+  tokens. Full PDF text is used when it fits the chat context; otherwise the
+  checker selects relevant chunks and records the fallback in the report's
+  Error column. Up to four citations are checked concurrently with an
+  independent generator, so the chat transcript and its session lock are not
+  involved.
+- Evidence quotes are verified with a precise match (whitespace, smart
+  punctuation, and PDF hyphenation normalised) and then a fuzzy token window.
+  The Quote check column reports `accurate`, `approximate`, or `not found`.
+- Results append a new `## Citation check — <UTC timestamp>` section to
+  `Citation_check.md` in the workspace. The report is tool-owned during a run;
+  if its tab has unsaved edits, live updates pause. The tab opens in the
+  background when the run finishes.
+
 ### Settings
 
 `Ctrl+,` opens the settings surface. The divider on the right adjusts the width
@@ -460,6 +481,7 @@ scico
   agent.rs        ChatView + Composer + RagController, context chips, roundtrip
   workspace_pane.rs Workspace shell: status, New/Open workspace, Library section
   library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Import PDFs
+  citation_check.rs  Citation Check report model and append-only Markdown table
   workspace.rs    workspace scaffold, descriptor, defaults
   app_settings.rs Overview, Workspace, and Editor settings pages; External services lives in ragrig-gpui
   settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path

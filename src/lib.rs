@@ -24,6 +24,8 @@ pub mod agent;
 pub mod app;
 #[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 pub mod app_settings;
+#[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
+pub mod citation_check;
 #[cfg(all(target_os = "linux", any(editor_zorite, editor_gpuikit, editor_block)))]
 pub mod desktop;
 #[cfg(any(editor_zorite, editor_gpuikit, editor_block))]

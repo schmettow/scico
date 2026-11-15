@@ -19,6 +19,7 @@ use gpui_kit::{
 };
 use ragrig_gpui::prelude::*;
 
+use crate::citation_check::{self, CitationCheckRun};
 use crate::document::{RangeHighlight, mark_editor_range};
 use crate::state::{AppState, AppStateHost};
 
@@ -98,6 +99,16 @@ pub struct AgentPane {
     offer: Option<ReplacementOffer>,
     streaming: bool,
     status: SharedString,
+    /// The citation check whose rows are arriving, if any.
+    citation_run: Option<CitationCheckRun>,
+    /// Request id of the active citation check.
+    citation_request: Option<RequestId>,
+    /// The report changed since it was last flushed.
+    citation_report_dirty: bool,
+    /// Open the report tab when the run finishes.
+    citation_report_open: bool,
+    /// The report tab is dirty; live updates are paused.
+    citation_report_blocked: bool,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -168,6 +179,11 @@ impl AgentPane {
             offer: None,
             streaming: false,
             status: status.into(),
+            citation_run: None,
+            citation_request: None,
+            citation_report_dirty: false,
+            citation_report_open: false,
+            citation_report_blocked: false,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -292,6 +308,101 @@ impl AgentPane {
         );
         self.focus_composer(window, cx);
         cx.notify();
+    }
+
+    /// Start checking every `@key` citation in the current selection.
+    pub fn start_citation_check(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.citation_check_running() {
+            self.set_status("A citation check is already running", cx);
+            return;
+        }
+        let Some(selection) = self.roundtrip.selection(window, cx) else {
+            self.set_status("Select a passage with @key citations first", cx);
+            return;
+        };
+        if selection.range.is_empty() {
+            self.set_status("Select a passage with @key citations first", cx);
+            return;
+        }
+        let Some(workspace) = self.state.read(cx).workspace.clone() else {
+            self.set_status("Open a workspace before checking citations", cx);
+            return;
+        };
+        let path = citation_check::report_path(&workspace);
+        if self
+            .state
+            .read(cx)
+            .documents
+            .iter()
+            .find(|document| document.path.as_deref() == Some(path.as_path()))
+            .is_some_and(|document| document.dirty)
+        {
+            self.set_status("Save or close Citation_check.md before starting", cx);
+            return;
+        }
+        let model = self
+            .state
+            .read(cx)
+            .controller
+            .read(cx)
+            .agent()
+            .map(|agent| format!("{} / {}", agent.chat_backend, agent.chat_model))
+            .unwrap_or_else(|| "chat model".to_owned());
+        let run = match CitationCheckRun::begin(
+            path,
+            selection.document.name.to_string(),
+            selection.range.clone(),
+            model,
+        ) {
+            Ok(run) => run,
+            Err(error) => {
+                self.set_status(error, cx);
+                return;
+            }
+        };
+        let request = CitationCheckRequest {
+            document: run.document.clone(),
+            document_text: selection.document.content.to_string(),
+            selection: selection.range,
+        };
+        let controller = self.state.read(cx).controller.clone();
+        match controller.update(cx, |controller, cx| controller.citation_check(request, cx)) {
+            Ok(id) => {
+                self.citation_run = Some(run);
+                self.citation_request = Some(id);
+                self.citation_report_dirty = true;
+                self.citation_report_open = false;
+                self.citation_report_blocked = false;
+                self.set_status("Citation check started", cx);
+            }
+            Err(error) => self.set_status(error, cx),
+        }
+    }
+
+    /// Stop the running citation check. Completed rows stay in the report.
+    pub fn stop_citation_check(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.citation_request else {
+            return;
+        };
+        let controller = self.state.read(cx).controller.clone();
+        controller.update(cx, |controller, cx| {
+            controller.stop_citation_check(id, cx);
+        });
+        self.set_status("Stopping citation check…", cx);
+    }
+
+    /// Whether a citation check is still running.
+    pub fn citation_check_running(&self) -> bool {
+        self.citation_request.is_some()
+            && self.citation_run.as_ref().is_some_and(|run| !run.finished)
+    }
+
+    /// Completed and total citation occurrences of the running check.
+    pub fn citation_check_progress(&self) -> Option<(usize, usize)> {
+        self.citation_check_running().then(|| {
+            let run = self.citation_run.as_ref().expect("running run");
+            (run.rows.len(), run.total)
+        })
     }
 
     /// Keep the marked range visible while the edit is pending.
@@ -869,6 +980,73 @@ impl AgentPane {
             RagEvent::AgentReady(info) => {
                 self.set_status(format!("{} ready", info.chat_model), cx);
             }
+            RagEvent::CitationCheckStarted {
+                id,
+                total,
+                document,
+                selection,
+            } => {
+                if self.citation_request == Some(id) {
+                    if let Some(run) = self.citation_run.as_mut() {
+                        run.document = document;
+                        run.selection = selection;
+                        run.started(total);
+                    }
+                    self.citation_report_dirty = true;
+                    self.set_status(format!("Citation check: 0/{total}"), cx);
+                }
+            }
+            RagEvent::CitationCheckRow { id, row } => {
+                if self.citation_request == Some(id) {
+                    let (done, total) = if let Some(run) = self.citation_run.as_mut() {
+                        run.push(row);
+                        (run.rows.len(), run.total)
+                    } else {
+                        (0, 0)
+                    };
+                    self.citation_report_dirty = true;
+                    self.set_status(format!("Citation check: {done}/{total}"), cx);
+                }
+            }
+            RagEvent::CitationCheckFinished { id, summary } => {
+                if self.citation_request == Some(id) {
+                    if let Some(run) = self.citation_run.as_mut() {
+                        run.finish(summary);
+                    }
+                    self.citation_request = None;
+                    self.citation_report_dirty = true;
+                    self.citation_report_open = true;
+                    self.set_status(
+                        format!(
+                            "Citation check finished: {} checked, {} errors",
+                            summary.checked, summary.errors
+                        ),
+                        cx,
+                    );
+                }
+            }
+            RagEvent::CitationCheckFailed { id, message } => {
+                if self.citation_request == Some(id) {
+                    if let Some(run) = self.citation_run.as_mut() {
+                        run.fail(message.clone());
+                    }
+                    self.citation_request = None;
+                    self.citation_report_dirty = true;
+                    self.citation_report_open = true;
+                    self.set_status(message, cx);
+                }
+            }
+            RagEvent::CitationCheckStopped { id } => {
+                if self.citation_request == Some(id) {
+                    if let Some(run) = self.citation_run.as_mut() {
+                        run.stop();
+                    }
+                    self.citation_request = None;
+                    self.citation_report_dirty = true;
+                    self.citation_report_open = true;
+                    self.set_status("Citation check stopped", cx);
+                }
+            }
             RagEvent::AgentFailed { message } => self.set_status(message, cx),
             RagEvent::SyncFinished { summary, .. } => {
                 self.set_status(
@@ -1039,6 +1217,65 @@ impl AgentPane {
             }
         }
         self.release_edit_guard(cx);
+    }
+
+    /// Write the report and keep an open report tab in sync.
+    ///
+    /// Runs from `render`, which has the window a guarded editor replacement
+    /// needs. The writer is deliberately silent unless something failed: the
+    /// author should not see a status line per checked citation.
+    fn flush_citation_report(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.citation_report_dirty && !self.citation_report_open {
+            return;
+        }
+        let Some(run) = self.citation_run.as_ref() else {
+            self.citation_report_dirty = false;
+            self.citation_report_open = false;
+            return;
+        };
+        let path = run.path.clone();
+        let content = run.render();
+        let finished = run.finished;
+        let open = self
+            .state
+            .read(cx)
+            .documents
+            .iter()
+            .find(|document| document.path.as_deref() == Some(path.as_path()))
+            .map(|document| (document.id, document.dirty));
+        if open.is_some_and(|(_, dirty)| dirty) {
+            if !self.citation_report_blocked {
+                self.citation_report_blocked = true;
+                self.set_status(
+                    "Citation_check.md has unsaved edits; live updates are paused",
+                    cx,
+                );
+            }
+            return;
+        }
+        if let Err(error) = citation_check::write_report(&path, &content) {
+            self.set_status(error, cx);
+            return;
+        }
+        if let Some((id, _)) = open {
+            let result = self.state.update(cx, |state, cx| {
+                state.replace_clean_document_text(id, &content, window, cx)
+            });
+            if let Err(error) = result {
+                self.set_status(error, cx);
+                return;
+            }
+        }
+        self.citation_report_dirty = false;
+        self.citation_report_blocked = false;
+        if finished && self.citation_report_open {
+            if open.is_none() {
+                let _ = self.state.update(cx, |state, cx| {
+                    state.open_path_in_background(&path, window, cx)
+                });
+            }
+            self.citation_report_open = false;
+        }
     }
 
     fn finish_streaming(&mut self, cx: &mut Context<Self>) {
@@ -1245,6 +1482,7 @@ impl AgentPane {
 impl Render for AgentPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_pending_write(window, cx);
+        self.flush_citation_report(window, cx);
         let controller = self.controller(cx);
         let (sessions, current, busy, mut components, status) = {
             let controller = controller.read(cx);

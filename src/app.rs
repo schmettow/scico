@@ -48,6 +48,7 @@ actions!(
         FocusSelection,
         EditSelection,
         EnrichSelection,
+        CitationCheck,
         CancelClose,
         EditorPageUp,
         EditorPageDown,
@@ -85,6 +86,8 @@ pub fn bind_keys(cx: &mut gpui_kit::App) {
         KeyBinding::new("cmd-shift-d", EditSelection, None),
         KeyBinding::new("ctrl-shift-r", EnrichSelection, None),
         KeyBinding::new("cmd-shift-r", EnrichSelection, None),
+        KeyBinding::new("ctrl-shift-k", CitationCheck, None),
+        KeyBinding::new("cmd-shift-k", CitationCheck, None),
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("cmd-,", ToggleSettings, None),
         KeyBinding::new("escape", CancelClose, None),
@@ -783,6 +786,17 @@ impl ScicoApp {
             .update(cx, |agent, cx| agent.enrich_selection(window, cx));
     }
 
+    fn citation_check(&mut self, _: &CitationCheck, window: &mut Window, cx: &mut Context<Self>) {
+        let running = self.agent.read(cx).citation_check_running();
+        self.agent.update(cx, |agent, cx| {
+            if running {
+                agent.stop_citation_check(cx);
+            } else {
+                agent.start_citation_check(window, cx);
+            }
+        });
+    }
+
     fn cancel_close(&mut self, _: &CancelClose, _: &mut Window, cx: &mut Context<Self>) {
         let mut changed = false;
         if self.close_prompt {
@@ -1140,6 +1154,13 @@ impl ScicoApp {
             && self
                 .state
                 .update(cx, |state, cx| state.has_selection(window, cx));
+        let citation_progress = self.agent.read(cx).citation_check_progress();
+        let citation_running = citation_progress.is_some();
+        let citation_label = match citation_progress {
+            Some((done, total)) if total > 0 => format!("Checking {done}/{total}"),
+            Some(_) => "Checking…".to_owned(),
+            None => "Citation check".to_owned(),
+        };
         let theme = cx.theme();
         #[cfg(editor_gpuikit)]
         let preview_label = if preview_on { "Preview" } else { "Preview off" };
@@ -1290,6 +1311,26 @@ impl ScicoApp {
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.enrich_selection(&EnrichSelection, window, cx);
+                    })),
+            )
+            .child(
+                Button::new("toolbar-citation-check")
+                    .label(citation_label)
+                    .icon(if citation_running {
+                        IconName::Square
+                    } else {
+                        IconName::CircleCheck
+                    })
+                    .small()
+                    .ghost()
+                    .disabled(!has_selection && !citation_running)
+                    .tooltip(if citation_running {
+                        "Stop the citation check; completed rows are kept"
+                    } else {
+                        "Check every @key citation in the selection (Ctrl+Shift+K)"
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.citation_check(&CitationCheck, window, cx);
                     })),
             )
             .child(div().flex_1())
@@ -2028,6 +2069,7 @@ impl Render for ScicoApp {
             .on_action(cx.listener(Self::focus_selection))
             .on_action(cx.listener(Self::edit_selection))
             .on_action(cx.listener(Self::enrich_selection))
+            .on_action(cx.listener(Self::citation_check))
             .on_action(cx.listener(Self::cancel_close))
             .on_action(cx.listener(Self::editor_page_up))
             .on_action(cx.listener(Self::editor_page_down))
@@ -2404,6 +2446,40 @@ mod tests {
             assert!(state.show_library);
             assert!(state.show_agent);
         });
+    }
+
+    #[gpui_kit::test]
+    fn a_background_tab_does_not_change_the_active_document(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        let state = cx.update(|_, cx| app.read(cx).state.clone());
+        let active = cx.update(|_, cx| state.read(cx).active);
+        let dir = std::env::temp_dir().join(format!(
+            "scico-background-tab-{}-{}",
+            std::process::id(),
+            NEXT_DIR.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("Citation_check.md");
+        std::fs::write(&path, "# report\n").expect("report");
+        cx.update(|window, cx| {
+            state
+                .update(cx, |state, cx| {
+                    state.open_path_in_background(&path, window, cx)
+                })
+                .expect("open in background");
+        });
+        cx.update(|_, cx| {
+            let state = state.read(cx);
+            assert_eq!(state.active, active, "the active tab must not change");
+            assert!(
+                state
+                    .documents
+                    .iter()
+                    .any(|document| document.path.as_deref() == Some(path.as_path())),
+                "the report tab must exist"
+            );
+        });
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[gpui_kit::test]
