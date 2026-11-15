@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings pages, public service groups, and the removal of
   `rag_model_page`/`external_services_page` (`Cargo.toml`).
 
+### Fixed
+
+- **Pane content stays visible beside a settings sheet.** The sliding layout now
+  stretches the visible pane on the cross axis, so the Workspace reference list
+  and the Scico transcript keep their height while the sheet opens
+  (`src/app.rs`).
+
 ## v0.11.0 — 2026-11-15
 
 ### Added

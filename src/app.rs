@@ -1271,12 +1271,28 @@ impl ScicoApp {
         match sheet.side {
             SettingsSide::Workspace => h_flex()
                 .size_full()
+                .items_stretch()
                 .child(panel)
-                .child(div().flex_1().min_w(px(0.)).child(self.workspace.clone()))
+                .child(
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .min_w(px(0.))
+                        .debug_selector(|| "workspace-settings-pane".to_owned())
+                        .child(self.workspace.clone()),
+                )
                 .into_any_element(),
             SettingsSide::Scico => h_flex()
                 .size_full()
-                .child(div().flex_1().min_w(px(0.)).child(self.agent.clone()))
+                .items_stretch()
+                .child(
+                    div()
+                        .flex_1()
+                        .h_full()
+                        .min_w(px(0.))
+                        .debug_selector(|| "scico-settings-pane".to_owned())
+                        .child(self.agent.clone()),
+                )
                 .child(panel)
                 .into_any_element(),
         }
@@ -3493,11 +3509,26 @@ mod tests {
         let sheet = cx
             .debug_bounds("workspace-settings-sheet")
             .expect("the workspace sheet");
-        let viewport = cx.update(|window, _| window.viewport_size().width);
+        let viewport = cx.update(|window, _| window.viewport_size());
         assert!(sheet.left() <= px(1.0), "workspace sheet {sheet:?}");
         assert!(
-            sheet.right() - sheet.left() > viewport / 2.0,
+            sheet.right() - sheet.left() > viewport.width / 2.0,
             "workspace sheet {sheet:?}"
+        );
+        let pane = cx
+            .debug_bounds("workspace-settings-pane")
+            .expect("the workspace pane beside the sheet");
+        assert!(
+            pane.size.height > viewport.height / 2.0,
+            "the Workspace pane collapsed: {pane:?}"
+        );
+        assert!(pane.size.width > px(0.), "the Workspace pane has no width");
+        let bar = cx
+            .debug_bounds("workspace-agent-bar-0-trigger")
+            .expect("the Workspace status bar beside the sheet");
+        assert!(
+            bar.size.height > px(0.),
+            "the Workspace pane content collapsed: {bar:?}"
         );
 
         app.update(cx, |app, cx| {
@@ -3511,14 +3542,29 @@ mod tests {
         let sheet = cx
             .debug_bounds("scico-settings-sheet")
             .expect("the Scico sheet");
-        let viewport = cx.update(|window, _| window.viewport_size().width);
+        let viewport = cx.update(|window, _| window.viewport_size());
         assert!(
-            (sheet.right() - viewport).abs() <= px(1.0),
+            (sheet.right() - viewport.width).abs() <= px(1.0),
             "Scico sheet {sheet:?}"
         );
         assert!(
-            sheet.right() - sheet.left() > viewport / 2.0,
+            sheet.right() - sheet.left() > viewport.width / 2.0,
             "Scico sheet {sheet:?}"
+        );
+        let pane = cx
+            .debug_bounds("scico-settings-pane")
+            .expect("the Scico pane beside the sheet");
+        assert!(
+            pane.size.height > viewport.height / 2.0,
+            "the Scico pane collapsed: {pane:?}"
+        );
+        assert!(pane.size.width > px(0.), "the Scico pane has no width");
+        let bar = cx
+            .debug_bounds("scico-agent-bar-0-trigger")
+            .expect("the Scico status bar beside the sheet");
+        assert!(
+            bar.size.height > px(0.),
+            "the Scico pane content collapsed: {bar:?}"
         );
     }
 
