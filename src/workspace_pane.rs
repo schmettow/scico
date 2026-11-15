@@ -8,13 +8,9 @@
 
 use gpui_kit::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement as _,
-    Render, SharedString, Styled as _, Window,
+    Render, SharedString, Styled as _, Subscription, Window,
     assets::IconName,
-    component::{
-        ActiveTheme as _, Sizable as _,
-        button::{Button, ButtonVariants as _},
-        h_flex, v_flex,
-    },
+    component::{ActiveTheme as _, Sizable as _, button::Button, h_flex, v_flex},
     div, px,
 };
 use ragrig_gpui::prelude::*;
@@ -32,6 +28,8 @@ pub enum WorkspaceEvent {
     NewWorkspace,
     /// Adopt an existing workspace folder.
     OpenWorkspace,
+    /// Show the Workspace settings sheet on a component's page.
+    Configure(String),
     /// Show the settings surface.
     OpenSettings,
 }
@@ -49,12 +47,38 @@ struct WorkspaceSummary {
 pub struct WorkspacePane {
     state: Entity<AppState>,
     library: Entity<LibraryPane>,
+    _subscription: Subscription,
 }
 
 impl WorkspacePane {
     /// Build the workspace shell around an already-built library pipeline.
-    pub fn new(state: Entity<AppState>, library: Entity<LibraryPane>) -> Self {
-        Self { state, library }
+    pub fn new(
+        state: Entity<AppState>,
+        library: Entity<LibraryPane>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let controller = state.read(cx).controller.clone();
+        let subscription = cx.subscribe(&controller, |_, _, event: &RagEvent, cx| {
+            // Streaming tokens and sessions do not change the ingestion bar.
+            if matches!(
+                event,
+                RagEvent::AgentReady(_)
+                    | RagEvent::AgentFailed { .. }
+                    | RagEvent::Library(_)
+                    | RagEvent::SyncStarted { .. }
+                    | RagEvent::SyncFinished { .. }
+                    | RagEvent::SyncStopped { .. }
+                    | RagEvent::SyncFailed { .. }
+            ) || reference_event(event)
+            {
+                cx.notify();
+            }
+        });
+        Self {
+            state,
+            library,
+            _subscription: subscription,
+        }
     }
 
     /// The embedded library, for layout tests that inspect its rows.
@@ -121,20 +145,12 @@ impl Render for WorkspacePane {
             .outline()
             .tooltip("Adopt an existing workspace folder (Ctrl+Shift+O)")
             .on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::OpenWorkspace)));
-        let settings = Button::new("workspace-settings")
-            .icon(IconName::Settings)
-            .small()
-            .ghost()
-            .tooltip("Workspace settings")
-            .on_click(cx.listener(|_, _, _, cx| cx.emit(WorkspaceEvent::OpenSettings)));
 
         let controls = h_flex()
             .flex_wrap()
             .gap_1()
             .child(new_workspace)
-            .child(open_workspace)
-            .child(div().flex_1())
-            .child(settings);
+            .child(open_workspace);
 
         let summary = v_flex()
             .gap_1()
@@ -166,6 +182,33 @@ impl Render for WorkspacePane {
 
         let workspace_tools = v_flex().gap_2().child(controls).child(summary);
 
+        let controller = self.state.read(cx).controller.clone();
+        let components = controller
+            .read(cx)
+            .agent_components_in(ComponentScope::Ingestion);
+        let agent_bar = AgentBar::new("workspace-agent-bar", components)
+            .settings_tooltip("Workspace settings")
+            .on_event({
+                let this = cx.entity();
+                move |event, _, cx| match event {
+                    AgentBarEvent::Configure(id) => {
+                        this.update(cx, |_, cx| cx.emit(WorkspaceEvent::Configure(id)));
+                    }
+                    AgentBarEvent::OpenSettings => {
+                        this.update(cx, |_, cx| cx.emit(WorkspaceEvent::OpenSettings));
+                    }
+                    AgentBarEvent::Toggle {
+                        toggle, enabled, ..
+                    } if toggle == "hybrid" => {
+                        this.update(cx, |this, cx| {
+                            this.state
+                                .update(cx, |state, cx| state.set_hybrid_retrieval(enabled, cx));
+                        });
+                    }
+                    AgentBarEvent::Toggle { .. } => {}
+                }
+            });
+
         let library_header = v_flex()
             .gap_1()
             .child(
@@ -185,12 +228,24 @@ impl Render for WorkspacePane {
             .subtitle("Persistence and synchronization")
             .toolbar(workspace_tools)
             .scroll(false)
+            .footer(agent_bar)
             .child(library_header)
             .child(div().flex_1().min_h(px(0.)).child(self.library.clone()))
     }
 }
 
 impl EventEmitter<WorkspaceEvent> for WorkspacePane {}
+
+fn reference_event(event: &RagEvent) -> bool {
+    matches!(
+        event,
+        RagEvent::ReferencesStarted { .. }
+            | RagEvent::ReferencesLoaded { .. }
+            | RagEvent::ReferencesFinished { .. }
+            | RagEvent::ReferencesStopped { .. }
+            | RagEvent::ReferencesFailed { .. }
+    )
+}
 
 impl Focusable for WorkspacePane {
     fn focus_handle(&self, cx: &App) -> FocusHandle {

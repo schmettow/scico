@@ -5,6 +5,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.12.0 — 2026-11-15
+
+### Added
+
+- **Split pane settings.** Workspace settings now slide in from the left and
+  push the Workspace pane to the right; Scico settings slide in from the right
+  and push Scico left. The editor and the other pane are hidden while a sheet is
+  open. Each sheet has its own Apply, and Apply always rebuilds both sides
+  (`src/app.rs`).
+- **Ingestion status in the Workspace pane.** The Workspace bar shows GROBID,
+  parser, chunker, vector store, and embedder; the Scico bar keeps chat, memory,
+  and retriever (`src/workspace_pane.rs`, `src/agent.rs`).
+- **Configure jumps to the section.** Each component's Configure button opens
+  the sheet on the page that owns it: embeddings, parsing, references, or
+  workspace for ingestion; chat, memory, or retrieval for Scico
+  (`src/app.rs`).
+- **Profiles and editor settings moved** to the Workspace sheet; chat context
+  moved to the Scico sheet (`src/app_settings.rs`).
+
+### Changed
+
+- **Settings are split by concern.** The Scico sheet has Chat, Memory,
+  Retrieval, and Context. Retrieval now holds only top-k and the similarity
+  threshold and shows the embedding model read-only; the embedding provider and
+  model moved to Workspace → Embedding (`src/app_settings.rs`).
+- **The External services page is dissolved.** GROBID's group lives under
+  Workspace → References. Ollama and llama.cpp groups appear on the Scico chat
+  page and on the Workspace embedding page, wherever that provider is used
+  (`src/app_settings.rs`).
+- **The embedder follows the chat provider by default.** Changing the chat
+  provider updates the embedding provider while it still points at the previous
+  chat provider; an explicit embedding choice is kept (`src/settings.rs`).
+- **New first-run layout.** The setup guide uses the full window with a single
+  page instead of the former settings sidebar.
+- **ragrig-gpui 0.13.0.** The dependency moves for component scopes, split
+  settings pages, public service groups, and the removal of
+  `rag_model_page`/`external_services_page` (`Cargo.toml`).
+
 ## v0.11.0 — 2026-11-15
 
 ### Added

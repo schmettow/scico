@@ -20,7 +20,7 @@ when you want the whole stack on your own machine.
   corpus, and drops them from the index.
 - **Change models without starting over.** When the workspace was indexed with
   another embedder, **Index All** re-embeds the whole corpus; **Align with
-  workspace** in *Settings → RAG → Retrieval* restores the recorded model.
+  workspace** in *Settings → Workspace → Embedding* restores the recorded model.
 - **Check your citations.** Select a passage and press **Citation check**
   (`Ctrl+Shift+K`). Scico verifies every `@key` against an ingested PDF, asks
   the chat model how well the source supports your claim, and appends a table
@@ -65,7 +65,7 @@ chunks to the embedding provider.
 
 ### Local and alternative providers
 
-Choose any of these under *Settings → RAG*; **Profile Defaults** restores the
+Choose any of these under *Settings → Scico*; **Profile Defaults** restores the
 standard cloud choices.
 
 - **Ollama** — [ollama.com/download](https://ollama.com/download) keeps chat
@@ -79,12 +79,13 @@ standard cloud choices.
   Run `ollama serve` if the desktop app is not already doing it for you. For
   query rewriting or summaries, pull `qwen2.5:1.5b` as well and choose
   **Rewrite** or **Summary** memory. Scico can also pull and run the official
-  Ollama container from *Settings → External services*.
+  Ollama container from *Settings → Scico → Chat* (or *Settings → Workspace →
+  Embedding* when the embedder uses Ollama).
 - **llama.cpp** — Optional: run `llama-server -m model.gguf --port 8080` and
-  select **llama.cpp** in *Settings → RAG → Chat*. Set the server URL there
+  select **llama.cpp** in *Settings → Scico → Chat*. Set the server URL there
   (default `http://localhost:8080/v1`) or point `LLAMACPP_API_BASE_URL` at it.
-  *Settings → External services* can also run the official llama.cpp container
-  with a Hugging Face model or a local `.gguf` file.
+  The llama.cpp group on the same page can run the official container with a
+  Hugging Face model or a local `.gguf` file.
 - **Other cloud chat providers** — OpenAI, DeepSeek, Claude, and Mistral can
   replace OpenRouter for chat while embeddings stay on OpenRouter or a local
   embedder.
@@ -191,21 +192,26 @@ instead, so nothing is lost.
   blocked so a run cannot overwrite the tab; the button is disabled while
   GROBID is working.
 - **Mention `@Kano2025`** in a question to attach that paper for one answer.
-- **External services** (optional) cover GROBID, Ollama, and llama.cpp.
-  *Settings → External services* has one group per service. Choose **Existing
-  server** to use software you already run, **Existing container** to start and
-  stop a hand-configured Docker container by name, or **Docker container** to
-  pull and run the official image. With a managed or existing container,
-  **Auto start** starts it whenever Scico opens; **Stop**, **Remove
-  container**, **Cancel**, and pull/start progress are in the same group. Scico
-  stops a managed container it started when the app quits; an **Existing
-  container** is left running.
+- **Local services** (optional) cover GROBID, Ollama, and llama.cpp. There is
+  no separate services page: the service group appears where it is used.
+  GROBID lives under *Settings → Workspace → References*; Ollama and llama.cpp
+  appear under *Settings → Scico → Chat* for the chat model and under
+  *Settings → Workspace → Embedding* for the embedder. The embedder follows the
+  chat provider by default, so Ollama is shown on both sides until you choose a
+  different embedding provider. Choose **Existing server** to use software you
+  already run, **Existing container** to start and stop a hand-configured
+  Docker container by name, or **Docker container** to pull and run the official
+  image. With a managed or existing container, **Auto start** starts it whenever
+  Scico opens; **Stop**, **Remove container**, **Cancel**, and pull/start
+  progress are in the same group. Scico stops a managed container it started
+  when the app quits; an **Existing container** is left running.
   - **GROBID** reads PDF headers and fills in authors, title, year, and DOI.
     The full image is the default (about 8 GB); the field is editable if you
     prefer the smaller CRF-only image. See the
     [GROBID Docker guide](https://grobid.readthedocs.io/en/latest/Grobid-docker/).
   - **Ollama** publishes `localhost:11434`. **Pull models** fetches the chat,
-    embedding, and memory models configured in *Settings → RAG*; they stay in
+    embedding, and memory models configured in *Settings → Scico* and
+    *Settings → Workspace → Embedding*; they stay in
     the `ragrig-ollama-models` volume when the managed container is removed.
     An **Existing container** such as a hand-built SYCL Ollama keeps its own
     devices and volumes; enter its Docker name in **Container name**.
@@ -262,10 +268,11 @@ my-paper/
   embedding model, the chat provider and API-key guidance, model-aware context
   and answer limits, retrieval, and optional GROBID. **Set up later** keeps the
   standard OpenRouter settings. Run the guide again with
-  **Settings → Overview → Setup guide**.
-- **Profiles** live in `.ragrig/profiles`. In *Settings → Overview*, choosing
-  a profile in the picker loads it; **New** asks for a name before snapshotting
-  the current settings, and **Update Profile** saves to the selected profile.
+  **Settings → Workspace → Profiles → Setup guide**.
+- **Profiles** live in `.ragrig/profiles`. In *Settings → Workspace → Profiles*,
+  choosing a profile in the picker loads it; **New** asks for a name before
+  snapshotting the current settings, and **Update Profile** saves to the
+  selected profile.
   Profiles change the Ragrig configuration only; the bibliography, runtime
   switches, models of other providers, and external-service choices are kept.
 - The left **Workspace** panel is the project's persistence and synchronization
@@ -333,7 +340,7 @@ workspace homepage. **Save as** is also available as a toolbar button next to
   OPENROUTER_API_KEY=sk-or-...
   ```
 - The **Scico prompt** can be project-specific. The built-in prompt is
-  compiled in; *Settings → RAG → Chat* lets you open it, export it as
+  compiled in; *Settings → Scico → Chat* lets you open it, export it as
   `Chat.md` into the workspace, or point to your own file. A workspace
   `Chat.md` is never overwritten.
 
@@ -342,20 +349,22 @@ workspace homepage. **Save as** is also available as a toolbar button next to
 ## When something does not work
 
 **“Ollama unreachable.”** Start `ollama serve`, check that port `11434` is
-free, and confirm the model names in **Settings → RAG → Chat**. If you pulled a
+free, and confirm the model names in **Settings → Scico → Chat**. If you pulled a
 model with an older Ollama, use its full name (`nomic-embed-text:latest`). A
-managed Ollama container shows its state under **Settings → External services**;
-use **Pull models** there to fetch the configured models.
+managed Ollama container shows its state in the Ollama group on the Scico chat
+page or the Workspace embedding page; use **Pull models** there to fetch the
+configured models.
 
 **“llama.cpp connection refused.”** Check that `llama-server` is running and
-that the URL in **Settings → RAG → Chat → llama.cpp URL** matches its port and
+that the URL in **Settings → Scico → Chat → llama.cpp URL** matches its port and
 path (`/v1` is added automatically when omitted). If you use the managed
-container, check the status under **Settings → External services**; a missing
-model or a port conflict is reported there.
+container, check the status in the llama.cpp group on the Scico chat page or the
+Workspace embedding page; a missing model or a port conflict is reported there.
 
 **“Docker is not running.”** Start Docker Desktop, or run `sudo systemctl start
-docker` on Linux, then press **Refresh status** under **Settings → External
-services**. If Docker runs but the app reports permission denied, add your user
+docker` on Linux, then press **Refresh status** in the Docker group of the
+service you are using. If Docker runs but the app reports permission denied,
+add your user
 to the `docker` group with `sudo usermod -aG docker $USER`, sign out and back in,
 and restart Scico.
 
@@ -373,8 +382,8 @@ hybrid retrieval off, Scico uses BM25 only; with no index at all it answers as
 a plain chat model.
 
 **GROBID is not running.** That is fine. PDFs are still indexed; only the
-automatic author/title/year extraction is skipped. Use **Settings → External
-services → Discover on localhost**, enter a URL, or press **Pull and start**
+automatic author/title/year extraction is skipped. Use **Settings → Workspace →
+References → Discover on localhost**, enter a URL, or press **Pull and start**
 under **Docker container**. Docker Desktop (or the Docker daemon) must be
 running. You can also fill in the `.bib` by hand and re-run **Import PDFs**
 after a server is available. If the `.bib` tab is open, close it before

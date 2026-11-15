@@ -2,21 +2,25 @@
 
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::Duration;
 
 #[cfg(any(editor_zorite, editor_block))]
 use gpui_kit::ScrollHandle;
 #[cfg(any(editor_zorite, editor_block))]
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, ElementId, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, PathPromptOptions,
-    Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
-    actions,
+    Animation, AnimationExt as _, AnyElement, App, AppContext as _, Context, ElementId, Entity,
+    FocusHandle, Focusable, InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _,
+    PathPromptOptions, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window, actions,
     assets::IconName,
+    base::animation::ease_out_cubic,
     component::{
         ActiveTheme as _, Disableable as _, ResizableState, Selectable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
-        h_flex, h_resizable, resizable_panel, v_flex,
+        h_flex, h_resizable, resizable_panel,
+        setting::{SelectIndex, Settings},
+        v_flex,
     },
     div,
     prelude::FluentBuilder as _,
@@ -24,12 +28,14 @@ use gpui_kit::{
 };
 
 use crate::agent::{AgentPane, AgentPaneEvent};
-use crate::app_settings::{app_editor_page, app_overview_page, app_workspace_page, prompt_actions};
+use crate::app_settings::{
+    ScicoSettingsPage, WorkspaceSettingsPage, scico_settings_pages, workspace_settings_pages,
+};
 use crate::library::LibraryPane;
 use crate::session::SessionState;
 use crate::state::AppState;
 use crate::workspace_pane::{WorkspaceEvent, WorkspacePane};
-use ragrig_gpui::{OnboardingActions, prompt_for_paths_at};
+use ragrig_gpui::{OnboardingActions, dirty_color, prompt_for_paths_at};
 
 actions!(
     scico,
@@ -126,17 +132,38 @@ struct TabClosePrompt {
     replace_empty: bool,
 }
 
+/// The pane whose settings sheet is open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSide {
+    /// Sliding in from the left, pushing the Workspace pane right.
+    Workspace,
+    /// Sliding in from the right, pushing Scico left.
+    Scico,
+}
+
+/// One open settings sheet and the page it should show.
+#[derive(Clone, Copy, Debug)]
+struct SettingsSheet {
+    side: SettingsSide,
+    page: usize,
+    /// Changes when the sheet opens or swaps sides, restarting the slide.
+    animation: u64,
+    /// Changes when the target page changes, resetting the sidebar state.
+    revision: u64,
+}
+
 /// The root view.
 pub struct ScicoApp {
     state: Entity<AppState>,
     agent: Entity<AgentPane>,
     workspace: Entity<WorkspacePane>,
-    show_settings: bool,
+    settings_sheet: Option<SettingsSheet>,
+    next_settings_animation: u64,
+    show_onboarding: bool,
     close_prompt: bool,
     tab_close: Option<TabClosePrompt>,
     allow_close: bool,
     resizable: Entity<ResizableState>,
-    settings_resizable: Entity<ResizableState>,
     last_panes: (bool, bool),
     /// The last title handed to the platform. Sending it every frame makes
     /// an X11 round-trip and a Wayland request for a string that did not
@@ -202,8 +229,8 @@ impl ScicoApp {
                 initial_workspace,
             )
         });
-        let show_settings = state.read(cx).setup_requested;
-        if show_settings {
+        let show_onboarding = state.read(cx).setup_requested;
+        if show_onboarding {
             state.update(cx, |state, _| state.setup_requested = false);
         }
         if let Some(error) = load_error {
@@ -211,7 +238,7 @@ impl ScicoApp {
         }
         let agent = cx.new(|cx| AgentPane::new(window, cx, state.clone()));
         let library = cx.new(|cx| LibraryPane::new(window, cx, state.clone(), agent.clone()));
-        let workspace = cx.new(|_| WorkspacePane::new(state.clone(), library));
+        let workspace = cx.new(|cx| WorkspacePane::new(state.clone(), library, cx));
         let initial_panes = {
             let state = state.read(cx);
             (state.show_library, state.show_agent)
@@ -223,7 +250,8 @@ impl ScicoApp {
         subscriptions.push(cx.observe(&state, |this, state, cx| {
             if state.read(cx).setup_requested {
                 state.update(cx, |state, _| state.setup_requested = false);
-                this.show_settings = true;
+                this.show_onboarding = true;
+                this.settings_sheet = None;
             }
             let panes = {
                 let state = state.read(cx);
@@ -245,8 +273,10 @@ impl ScicoApp {
                         .update(cx, |state, cx| state.set_status(status.clone(), cx));
                 }
                 AgentPaneEvent::OpenSettings => {
-                    this.show_settings = true;
-                    cx.notify();
+                    this.open_settings(SettingsSide::Scico, ScicoSettingsPage::Chat.index(), cx);
+                }
+                AgentPaneEvent::Configure(id) => {
+                    this.configure_settings(SettingsSide::Scico, id, cx);
                 }
             },
         ));
@@ -255,8 +285,14 @@ impl ScicoApp {
             window,
             |this, _, event: &WorkspaceEvent, window, cx| match event {
                 WorkspaceEvent::OpenSettings => {
-                    this.show_settings = true;
-                    cx.notify();
+                    this.open_settings(
+                        SettingsSide::Workspace,
+                        WorkspaceSettingsPage::Workspace.index(),
+                        cx,
+                    );
+                }
+                WorkspaceEvent::Configure(id) => {
+                    this.configure_settings(SettingsSide::Workspace, id, cx);
                 }
                 WorkspaceEvent::NewWorkspace => {
                     this.new_workspace(&NewWorkspace, window, cx);
@@ -314,12 +350,13 @@ impl ScicoApp {
             state,
             agent,
             workspace,
-            show_settings,
+            settings_sheet: None,
+            next_settings_animation: 0,
+            show_onboarding,
             close_prompt: false,
             tab_close: None,
             allow_close: false,
             resizable: cx.new(|_| ResizableState::default()),
-            settings_resizable: cx.new(|_| ResizableState::default()),
             last_panes: initial_panes,
             last_window_title: None,
             focus_handle: cx.focus_handle(),
@@ -762,8 +799,64 @@ impl ScicoApp {
     }
 
     fn toggle_settings(&mut self, _: &ToggleSettings, _: &mut Window, cx: &mut Context<Self>) {
-        self.show_settings = !self.show_settings;
+        if self.settings_sheet.is_some() {
+            self.close_settings(cx);
+        } else {
+            self.open_settings(SettingsSide::Scico, ScicoSettingsPage::Chat.index(), cx);
+        }
+    }
+
+    /// Open a settings sheet, or switch the open sheet to another page.
+    fn open_settings(&mut self, side: SettingsSide, page: usize, cx: &mut Context<Self>) {
+        match &mut self.settings_sheet {
+            Some(sheet) if sheet.side == side => {
+                sheet.page = page;
+                sheet.revision += 1;
+            }
+            Some(sheet) => {
+                self.next_settings_animation += 1;
+                *sheet = SettingsSheet {
+                    side,
+                    page,
+                    animation: self.next_settings_animation,
+                    revision: sheet.revision + 1,
+                };
+            }
+            None => {
+                self.next_settings_animation += 1;
+                self.settings_sheet = Some(SettingsSheet {
+                    side,
+                    page,
+                    animation: self.next_settings_animation,
+                    revision: 1,
+                });
+            }
+        }
+        self.show_onboarding = false;
         cx.notify();
+    }
+
+    fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.settings_sheet = None;
+        cx.notify();
+    }
+
+    /// Jump to the settings section that owns a pipeline component.
+    fn configure_settings(&mut self, side: SettingsSide, component: &str, cx: &mut Context<Self>) {
+        let page = match side {
+            SettingsSide::Workspace => match component {
+                "embed" => WorkspaceSettingsPage::Embedding.index(),
+                "parser" | "chunker" => WorkspaceSettingsPage::Parsing.index(),
+                "references" => WorkspaceSettingsPage::References.index(),
+                _ => WorkspaceSettingsPage::Workspace.index(),
+            },
+            SettingsSide::Scico => match component {
+                "memory" => ScicoSettingsPage::Memory.index(),
+                "retriever" => ScicoSettingsPage::Retrieval.index(),
+                _ => ScicoSettingsPage::Chat.index(),
+            },
+        };
+        self.open_settings(side, page, cx);
     }
 
     fn focus_selection(&mut self, _: &FocusSelection, window: &mut Window, cx: &mut Context<Self>) {
@@ -1060,7 +1153,10 @@ impl ScicoApp {
             )
     }
 
-    fn dock(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn dock(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(sheet) = self.settings_sheet {
+            return self.settings_dock(sheet, window, cx);
+        }
         let (show_library, show_agent, library_width, agent_width) = {
             let state = self.state.read(cx);
             (
@@ -1131,7 +1227,185 @@ impl ScicoApp {
                     .child(self.agent.clone()),
             );
         }
-        dock
+        dock.into_any_element()
+    }
+
+    /// One settings sheet next to the pane it configures. The sheet grows from
+    /// the outer edge and pushes that pane inward; the editor and the other
+    /// pane are not rendered.
+    fn settings_dock(
+        &self,
+        sheet: SettingsSheet,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let pane_width = match sheet.side {
+            SettingsSide::Workspace => self.state.read(cx).library_width,
+            SettingsSide::Scico => self.state.read(cx).agent_width,
+        };
+        let viewport: f32 = window.viewport_size().width.into();
+        let target: f32 = (viewport - pane_width).max(360.0).min(viewport.max(1.0));
+        let target_key = target.round() as i32;
+        let panel = div()
+            .h_full()
+            .flex_none()
+            .overflow_hidden()
+            .debug_selector(move || match sheet.side {
+                SettingsSide::Workspace => "workspace-settings-sheet".to_owned(),
+                SettingsSide::Scico => "scico-settings-sheet".to_owned(),
+            })
+            .child(self.settings_panel(sheet, cx));
+        let id = ElementId::Name(
+            format!(
+                "settings-slide-{:?}-{}-{target_key}",
+                sheet.side, sheet.animation
+            )
+            .into(),
+        );
+        let panel = panel.with_animation(
+            id,
+            Animation::new(Duration::from_millis(220)).with_easing(ease_out_cubic),
+            move |el, delta| el.w(px(target * delta)),
+        );
+
+        match sheet.side {
+            SettingsSide::Workspace => h_flex()
+                .size_full()
+                .child(panel)
+                .child(div().flex_1().min_w(px(0.)).child(self.workspace.clone()))
+                .into_any_element(),
+            SettingsSide::Scico => h_flex()
+                .size_full()
+                .child(div().flex_1().min_w(px(0.)).child(self.agent.clone()))
+                .child(panel)
+                .into_any_element(),
+        }
+    }
+
+    fn settings_panel(&self, sheet: SettingsSheet, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        let changes: ragrig_gpui::Changes = {
+            let state = self.state.clone();
+            Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
+        };
+        let services = self.state.read(cx).services.clone();
+        let (title, pages) = match sheet.side {
+            SettingsSide::Workspace => (
+                "Workspace Settings",
+                workspace_settings_pages(self.state.clone(), services, &changes, cx),
+            ),
+            SettingsSide::Scico => (
+                "Scico Settings",
+                scico_settings_pages(self.state.clone(), services, &changes, cx),
+            ),
+        };
+        let settings = Settings::new(ElementId::Name(
+            format!("scico-settings-{:?}-{}", sheet.side, sheet.revision).into(),
+        ))
+        .default_selected_index(SelectIndex {
+            page_ix: sheet.page,
+            group_ix: None,
+        })
+        .pages(pages);
+
+        let heading = h_flex()
+            .justify_between()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(div().text_lg().child(title))
+            .child(
+                Button::new("settings-close")
+                    .icon(IconName::X)
+                    .ghost()
+                    .small()
+                    .tooltip("Close settings (Ctrl+,)")
+                    .on_click(cx.listener(|this, _, _, cx| this.close_settings(cx))),
+            );
+        let footer = self.settings_footer(sheet.side, cx);
+
+        v_flex()
+            .size_full()
+            .flex_none()
+            .overflow_hidden()
+            .bg(theme.background)
+            .border_color(theme.border)
+            .when(sheet.side == SettingsSide::Workspace, |this| {
+                this.border_r_1()
+            })
+            .when(sheet.side == SettingsSide::Scico, |this| this.border_l_1())
+            .child(heading)
+            .child(div().flex_1().min_h(px(0.)).child(settings))
+            .child(
+                div()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .px_3()
+                    .py_2()
+                    .child(footer),
+            )
+            .into_any_element()
+    }
+
+    fn settings_footer(&self, side: SettingsSide, cx: &mut Context<Self>) -> AnyElement {
+        let changes = self.state.read(cx).rag_changes(cx);
+        let unsaved = changes.any();
+        let violet = dirty_color(cx);
+        let state = self.state.clone();
+        let id = match side {
+            SettingsSide::Workspace => "workspace-settings-apply",
+            SettingsSide::Scico => "scico-settings-apply",
+        };
+        let apply = Button::new(id)
+            .label("Apply")
+            .small()
+            .disabled(!unsaved)
+            .when(unsaved, |this| {
+                this.bg(violet)
+                    .border_color(violet)
+                    .text_color(gpui_kit::white())
+            })
+            .on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.apply_rag(cx);
+                    state.persist_workspace_switches(cx);
+                });
+            });
+
+        let status = self
+            .state
+            .read(cx)
+            .rag
+            .read(cx)
+            .status
+            .clone()
+            .or_else(|| {
+                let controller = self.state.read(cx).controller.clone();
+                Some(controller.read(cx).status_line())
+            })
+            .unwrap_or_default();
+        let has_error = self.state.read(cx).controller.read(cx).error().is_some();
+        let color = if has_error {
+            cx.theme().danger
+        } else {
+            cx.theme().muted_foreground
+        };
+
+        v_flex()
+            .gap_1()
+            .child(
+                h_flex().gap_2().items_center().child(apply).child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Applies Workspace and Scico settings."),
+                ),
+            )
+            .child(div().text_xs().text_color(color).child(status))
+            .into_any_element()
     }
 
     fn toolbar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1907,94 +2181,37 @@ impl ScicoApp {
     fn finish_setup(&mut self, cx: &mut Context<Self>) {
         self.state
             .update(cx, |state, cx| state.finish_onboarding(cx));
-        self.show_settings = false;
+        self.show_onboarding = false;
         cx.notify();
     }
 
     fn skip_setup(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| state.skip_onboarding(cx));
-        self.show_settings = false;
+        self.show_onboarding = false;
         cx.notify();
     }
 
-    fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The first-run setup guide. Unlike the pane sheets, it owns the window.
+    fn onboarding_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let rag = self.state.read(cx).rag.clone();
-        let controller = self.state.read(cx).controller.clone();
         let services = self.state.read(cx).services.clone();
-        let changes: ragrig_gpui::Changes = {
-            let state = self.state.clone();
-            Rc::new(move |cx: &App| state.read(cx).rag_changes(cx))
-        };
-        let now = self.state.read(cx).rag_changes(cx);
         let onboarding = self.state.read(cx).onboarding.clone();
-        let setup_active = onboarding.read(cx).is_active();
-        let setup_run = onboarding.read(cx).run();
-        let settings_id: SharedString = if setup_active {
-            format!("scico-settings-setup-{setup_run}").into()
-        } else {
-            "scico-settings".into()
-        };
-        let mut settings =
-            gpui_kit::component::setting::Settings::new(ElementId::Name(settings_id));
-        if setup_active {
-            let app = cx.entity();
-            let finish_app = app.clone();
-            let skip_app = app;
-            let actions = OnboardingActions::new(
-                move |_, cx| {
-                    finish_app.update(cx, |app, cx| app.finish_setup(cx));
-                },
-                move |_, cx| {
-                    skip_app.update(cx, |app, cx| app.skip_setup(cx));
-                },
-            );
-            settings = settings.page(ragrig_gpui::onboarding_page(
-                onboarding,
-                rag.clone(),
-                services.clone(),
-                actions,
-                cx,
-            ));
-        }
-        let settings = settings
-            .page(app_overview_page(self.state.clone(), &now, cx))
-            .page(app_workspace_page(self.state.clone(), cx))
-            .page(app_editor_page(self.state.clone()))
-            .page(ragrig_gpui::external_services_page(
-                rag.clone(),
-                services,
-                changes.clone(),
-                cx,
-            ))
-            .page(ragrig_gpui::rag_model_page(
-                rag,
-                controller,
-                changes,
-                Some(prompt_actions(self.state.clone())),
-                cx,
-            ));
-        let gutter = self.state.read(cx).settings_gutter;
-        let resize_state = self.state.clone();
-        let layout = h_resizable(ElementId::Name("scico-settings-layout".into()))
-            .with_state(&self.settings_resizable)
-            .on_resize(move |resizable, _window, cx| {
-                let gutter = resizable
-                    .read(cx)
-                    .sizes()
-                    .get(1)
-                    .map(|size| size.as_f32())
-                    .unwrap_or(360.0);
-                resize_state.update(cx, |state, cx| state.set_settings_gutter(gutter, cx));
-            })
-            .child(resizable_panel().child(settings))
-            .child(
-                resizable_panel()
-                    .size(px(gutter))
-                    .size_range(px(80.)..px(900.))
-                    .flex_none()
-                    .child(div().size_full().bg(theme.muted.opacity(0.06))),
-            );
+        let run = onboarding.read(cx).run();
+        let app = cx.entity();
+        let finish_app = app.clone();
+        let skip_app = app;
+        let actions = OnboardingActions::new(
+            move |_, cx| {
+                finish_app.update(cx, |app, cx| app.finish_setup(cx));
+            },
+            move |_, cx| {
+                skip_app.update(cx, |app, cx| app.skip_setup(cx));
+            },
+        );
+        let page = ragrig_gpui::onboarding_page(onboarding, rag, services, actions, cx);
+        let settings =
+            Settings::new(ElementId::Name(format!("scico-onboarding-{run}").into())).page(page);
         v_flex()
             .size_full()
             .bg(theme.background)
@@ -2006,20 +2223,9 @@ impl ScicoApp {
                     .py_2()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(
-                        Button::new("settings-back")
-                            .label("Back to editor")
-                            .icon(IconName::ArrowLeft)
-                            .small()
-                            .outline()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.show_settings = false;
-                                cx.notify();
-                            })),
-                    )
-                    .child(div().text_lg().child("Settings")),
+                    .child(div().text_lg().child("Setup guide")),
             )
-            .child(div().flex_1().min_h(px(0.)).child(layout))
+            .child(div().flex_1().min_h(px(0.)).child(settings))
     }
 }
 
@@ -2037,9 +2243,10 @@ impl Render for ScicoApp {
             self.last_window_title = Some(window_title.clone());
         }
         let theme = cx.theme();
+        let onboarding_active = self.state.read(cx).onboarding.read(cx).is_active();
 
-        let body: gpui_kit::AnyElement = if self.show_settings {
-            self.settings_view(cx).into_any_element()
+        let body: gpui_kit::AnyElement = if self.show_onboarding && onboarding_active {
+            self.onboarding_view(cx).into_any_element()
         } else {
             div()
                 .size_full()
@@ -3182,7 +3389,137 @@ mod tests {
     fn the_settings_shortcut_opens_the_settings_surface(cx: &mut TestAppContext) {
         let (app, cx) = mount(cx);
         cx.simulate_keystrokes("ctrl-,");
-        cx.update(|_, cx| assert!(app.read(cx).show_settings));
+        cx.update(|window, cx| {
+            let app = app.read(cx);
+            let sheet = app.settings_sheet.expect("a settings sheet");
+            assert_eq!(sheet.side, SettingsSide::Scico);
+            assert_eq!(sheet.page, ScicoSettingsPage::Chat.index());
+            window.draw(cx).clear(cx);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn configure_jumps_to_the_matching_settings_page(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        app.update(cx, |app, cx| {
+            app.configure_settings(SettingsSide::Workspace, "embed", cx);
+            let sheet = app.settings_sheet.expect("a workspace sheet");
+            assert_eq!(sheet.side, SettingsSide::Workspace);
+            assert_eq!(sheet.page, WorkspaceSettingsPage::Embedding.index());
+
+            app.configure_settings(SettingsSide::Workspace, "chunker", cx);
+            let sheet = app.settings_sheet.expect("a workspace sheet");
+            assert_eq!(sheet.page, WorkspaceSettingsPage::Parsing.index());
+
+            app.configure_settings(SettingsSide::Scico, "memory", cx);
+            let sheet = app.settings_sheet.expect("a Scico sheet");
+            assert_eq!(sheet.side, SettingsSide::Scico);
+            assert_eq!(sheet.page, ScicoSettingsPage::Memory.index());
+
+            app.configure_settings(SettingsSide::Scico, "retriever", cx);
+            let sheet = app.settings_sheet.expect("a Scico sheet");
+            assert_eq!(sheet.page, ScicoSettingsPage::Retrieval.index());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn each_pane_shows_only_its_components(cx: &mut TestAppContext) {
+        let (_app, cx) = mount(cx);
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        for selector in [
+            "workspace-agent-bar-0-trigger",
+            "workspace-agent-bar-1-trigger",
+            "workspace-agent-bar-2-trigger",
+            "workspace-agent-bar-3-trigger",
+            "workspace-agent-bar-4-trigger",
+        ] {
+            assert!(cx.debug_bounds(selector).is_some(), "{selector} is missing");
+        }
+        assert!(
+            cx.debug_bounds("workspace-agent-bar-5-trigger").is_none(),
+            "the Workspace bar carries a Scico component"
+        );
+
+        for selector in [
+            "scico-agent-bar-0-trigger",
+            "scico-agent-bar-1-trigger",
+            "scico-agent-bar-2-trigger",
+        ] {
+            assert!(cx.debug_bounds(selector).is_some(), "{selector} is missing");
+        }
+        assert!(
+            cx.debug_bounds("scico-agent-bar-3-trigger").is_none(),
+            "the Scico bar carries an ingestion component"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn both_settings_sheets_render(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        cx.update(|_, cx| {
+            let app = app.read(cx);
+            assert!(app.settings_sheet.is_none());
+        });
+        app.update(cx, |app, cx| {
+            app.open_settings(
+                SettingsSide::Workspace,
+                WorkspaceSettingsPage::Workspace.index(),
+                cx,
+            );
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        app.update(cx, |app, cx| {
+            app.open_settings(SettingsSide::Scico, ScicoSettingsPage::Chat.index(), cx);
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    #[gpui_kit::test]
+    fn settings_sheets_open_from_their_outer_edges(cx: &mut TestAppContext) {
+        let (app, cx) = mount(cx);
+        app.update(cx, |app, cx| {
+            app.open_settings(
+                SettingsSide::Workspace,
+                WorkspaceSettingsPage::Workspace.index(),
+                cx,
+            );
+        });
+        for _ in 0..4 {
+            cx.executor().advance_clock(Duration::from_millis(120));
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let sheet = cx
+            .debug_bounds("workspace-settings-sheet")
+            .expect("the workspace sheet");
+        let viewport = cx.update(|window, _| window.viewport_size().width);
+        assert!(sheet.left() <= px(1.0), "workspace sheet {sheet:?}");
+        assert!(
+            sheet.right() - sheet.left() > viewport / 2.0,
+            "workspace sheet {sheet:?}"
+        );
+
+        app.update(cx, |app, cx| {
+            app.open_settings(SettingsSide::Scico, ScicoSettingsPage::Chat.index(), cx);
+        });
+        for _ in 0..4 {
+            cx.executor().advance_clock(Duration::from_millis(120));
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let sheet = cx
+            .debug_bounds("scico-settings-sheet")
+            .expect("the Scico sheet");
+        let viewport = cx.update(|window, _| window.viewport_size().width);
+        assert!(
+            (sheet.right() - viewport).abs() <= px(1.0),
+            "Scico sheet {sheet:?}"
+        );
+        assert!(
+            sheet.right() - sheet.left() > viewport / 2.0,
+            "Scico sheet {sheet:?}"
+        );
     }
 
     #[gpui_kit::test]
@@ -4648,7 +4985,7 @@ mod tests {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.update(|_, cx| {
             let app = app.read(cx);
-            assert!(app.show_settings, "the setup guide is the first screen");
+            assert!(app.show_onboarding, "the setup guide is the first screen");
             let state = app.state.read(cx);
             let onboarding = state.onboarding.read(cx);
             assert!(onboarding.is_active());
@@ -4668,7 +5005,10 @@ mod tests {
             mount_at_workspace(cx, settings_path, session_path, Some(report.root.clone()));
         cx.update(|_, cx| {
             let app = second.read(cx);
-            assert!(!app.show_settings, "the editor opens on the second launch");
+            assert!(
+                !app.show_onboarding,
+                "the editor opens on the second launch"
+            );
             assert!(!app.state.read(cx).onboarding.read(cx).is_active());
         });
 

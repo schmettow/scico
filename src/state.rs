@@ -123,8 +123,6 @@ pub struct AppState {
     pub library_width: f32,
     /// Width of the Chat pane in pixels.
     pub agent_width: f32,
-    /// Empty gutter on the right of the settings surface.
-    pub settings_gutter: f32,
     /// Editor font family; empty follows the theme monospace.
     pub editor_font: String,
     /// Editor font size in pixels.
@@ -370,7 +368,6 @@ impl AppState {
                 .map_or(persisted.agent_width, |session| session.agent_width),
             persisted.agent_width,
         );
-        let settings_gutter = gutter_width(persisted.settings_gutter);
         let editor_font = if persisted.editor_font.trim().is_empty() {
             preferred_editor_font(cx)
         } else {
@@ -415,7 +412,6 @@ impl AppState {
             sync_scroll,
             library_width,
             agent_width,
-            settings_gutter,
             editor_font,
             editor_font_size,
             last_memory,
@@ -1849,13 +1845,6 @@ impl AppState {
         cx.notify();
     }
 
-    /// Record the settings gutter after a divider drag.
-    pub fn set_settings_gutter(&mut self, gutter: f32, cx: &mut Context<Self>) {
-        self.settings_gutter = gutter_width(gutter);
-        self.persist(cx);
-        cx.notify();
-    }
-
     /// Load a saved profile into the settings form.
     pub fn load_profile(&mut self, name: &str, cx: &mut Context<Self>) {
         let name = name.trim().to_owned();
@@ -1961,7 +1950,7 @@ impl AppState {
     }
 
     /// Accept the service source, URL, image, and managed-container choices
-    /// made on the External services page.
+    /// made in the local service groups.
     ///
     /// Discovery and a successful container start are not pending edits: the
     /// values are already in effect for the next request, so they join the
@@ -2039,7 +2028,10 @@ impl AppState {
             let _ = ragrig_gpui::mark_workspace_setup_done(workspace);
         }
         self.persist(cx);
-        self.set_status("Setup skipped — run it again from Settings → Overview", cx);
+        self.set_status(
+            "Setup skipped — run it again from Settings → Workspace → Profiles",
+            cx,
+        );
     }
 
     /// Re-open the setup guide from the current settings.
@@ -2077,7 +2069,6 @@ impl AppState {
         self.settings.sync_scroll = self.sync_scroll;
         self.settings.library_width = self.library_width;
         self.settings.agent_width = self.agent_width;
-        self.settings.settings_gutter = self.settings_gutter;
         self.settings.raw_mode = self.raw_mode;
         self.settings.editor_font = self.editor_font.clone();
         self.settings.editor_font_size = self.editor_font_size;
@@ -2772,14 +2763,6 @@ fn with_kept_tabs(status: String, kept: usize) -> String {
 fn non_empty_path(value: &str) -> Option<PathBuf> {
     let value = value.trim();
     (!value.is_empty()).then(|| PathBuf::from(value))
-}
-
-fn gutter_width(value: f32) -> f32 {
-    if value.is_finite() {
-        value.clamp(80.0, 900.0)
-    } else {
-        360.0
-    }
 }
 
 fn panel_width(value: f32, fallback: f32) -> f32 {

@@ -35,6 +35,8 @@ pub enum AgentPaneEvent {
     Status(SharedString),
     /// The user asked for the full settings surface.
     OpenSettings,
+    /// The user asked to configure one component.
+    Configure(String),
 }
 
 /// A marked passage waiting for the next question.
@@ -1490,7 +1492,7 @@ impl Render for AgentPane {
                 controller.sessions().to_vec(),
                 controller.current_session().map(str::to_owned),
                 controller.is_busy() || controller.is_ingesting(),
-                controller.agent_components(),
+                controller.agent_components_in(ComponentScope::Chat),
                 controller.status_line(),
             )
         };
@@ -1526,25 +1528,28 @@ impl Render for AgentPane {
             })
         });
 
-        let agent_bar = AgentBar::new("scico-agent-bar", components).on_event({
-            let this = cx.entity();
-            move |event, _, cx| match event {
-                AgentBarEvent::Toggle {
-                    toggle, enabled, ..
-                } => {
-                    this.update(cx, |this, cx| {
-                        this.state.update(cx, |state, cx| match toggle.as_str() {
-                            "memory" => state.set_memory_enabled(enabled, cx),
-                            "hybrid" => state.set_hybrid_retrieval(enabled, cx),
-                            _ => {}
+        let agent_bar = AgentBar::new("scico-agent-bar", components)
+            .settings_tooltip("Scico settings")
+            .on_event({
+                let this = cx.entity();
+                move |event, _, cx| match event {
+                    AgentBarEvent::Configure(id) => {
+                        this.update(cx, |_, cx| cx.emit(AgentPaneEvent::Configure(id)));
+                    }
+                    AgentBarEvent::Toggle {
+                        toggle, enabled, ..
+                    } if toggle == "memory" => {
+                        this.update(cx, |this, cx| {
+                            this.state
+                                .update(cx, |state, cx| state.set_memory_enabled(enabled, cx));
                         });
-                    });
+                    }
+                    AgentBarEvent::Toggle { .. } => {}
+                    AgentBarEvent::OpenSettings => {
+                        this.update(cx, |_, cx| cx.emit(AgentPaneEvent::OpenSettings));
+                    }
                 }
-                AgentBarEvent::Configure(_) | AgentBarEvent::OpenSettings => {
-                    this.update(cx, |_, cx| cx.emit(AgentPaneEvent::OpenSettings));
-                }
-            }
-        });
+            });
 
         let theme = cx.theme();
         v_flex()

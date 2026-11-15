@@ -75,17 +75,19 @@ not stabilised.
   - **OpenRouter** (standard): export `OPENROUTER_API_KEY` (or put it in
     `~/.config/scico/env`). Scico uses `openrouter/auto`; embeddings use
     `openai/text-embedding-3-small`. OpenAI, Mistral, and llama.cpp embeddings
-    can be selected under **Settings → RAG → Retrieval**.
+    can be selected under **Settings → Workspace → Embedding**.
   - **Ollama** (local alternative): start `ollama serve` and pull the configured
-    chat and embedding models, or use the managed Ollama container under
-    **Settings → External services** and press **Pull models** there.
+    chat and embedding models, or use the managed Ollama container in the
+    Ollama group under **Settings → Scico → Chat** or **Settings → Workspace →
+    Embedding** and press **Pull models** there.
   - **llama.cpp**: run `llama-server`, or use the managed container with a
     Hugging Face model or local `.gguf` file.
   - **DeepSeek**: export `DEEPSEEK_API_KEY`; the key is read from the
     environment and never persisted.
 - Optional: **GROBID** for parsing PDFs into the bibliography. Either point
-  **Settings → External services** at a running server, or let Scico pull and
-  run the container. **Auto start** (managed source only) starts the container
+  **Settings → Workspace → References** at a running server, or let Scico pull
+  and run the container there. **Auto start** (managed source only) starts the
+  container
   when the app opens. The default is the full image
   (`grobid/grobid:0.9.1-full`, about 8 GB); the CRF-only variant is smaller.
   Docker Desktop or the Docker daemon must be running. A manual start that
@@ -355,8 +357,10 @@ target stays bound to the tab the passage came from.
   answer can be retried.
 - The conversation picker creates, loads, and refreshes saved sessions.
 - The status line reports indexing, extraction, and Scico errors.
-- The component bar opens each component's menu. **Chat memory** and
-  **Hybrid retrieval** carry an **Enabled** switch there: memory off forgets
+- The Workspace bar shows GROBID, parser, chunker, vector store, and embedder;
+  the Scico bar shows chat, memory, and retriever. Each component's popover
+  opens its settings page. The embedder carries the **Hybrid retrieval**
+  switch and the memory component carries **Chat memory**: memory off forgets
   the transcript and query rewriting, and hybrid retrieval off drops the
   embedding model and vector search (attached documents and the library still
   reach the prompt). The status dots and the saved settings follow the
@@ -385,48 +389,55 @@ target stays bound to the tab the passage came from.
 
 ### Settings
 
-`Ctrl+,` opens the settings surface. The divider on the right adjusts the width
-of the controls column and the chosen width is remembered.
+`Ctrl+,` opens the Scico settings sheet from the right. The Workspace gear in
+the Workspace pane opens its sheet from the left. A sheet pushes its pane inward
+and hides the editor and the other pane; the close button or `Ctrl+,` returns to
+the editor. Each sheet has its own **Apply**, and either Apply rebuilds the
+whole agent.
 
-- **Overview** — a single profile row with the picker and **New**.
-  Choosing a profile in the picker loads it immediately; **New** opens a name
-  field and **Create** snapshots the current settings under that name. Below
-  sit a per-section count of pending changes and the action row: **Apply**,
-  **Profile Defaults**, and **Update Profile**. Apply is disabled (grey) while
-  nothing is pending and violet when a rebuild is due. Profile Defaults
-  re-reads the selected profile, or the standard OpenRouter configuration when
-  none exists; Update Profile writes the current values to the selected name.
-  The last selected profile persists in `settings.json`.
-- **Workspace** — workspace folder, corpus folder, bibliography, pane
-  visibility, external viewers for PDF/EPUB/HTML, the default library
-  attachment, and reference processing (renaming, OpenAlex, `@key` citations). Every path
-  field has a **Browse…** button. A workspace defaults to `<workspace>/corpus`
-  and creates the corpus folder when it is opened.
-- **External services** — one group per service (GROBID, Ollama, llama.cpp).
-  Each group offers **Existing server**, **Existing container**, or **Docker
-  container**. **Existing container** takes a container name and starts/stops
-  that container without creating, recreating, or removing it; it is left
-  running on quit. The Docker source has the image with **Auto start**, **Pull
-  and start**, **Cancel**, **Stop**, **Remove container**, and **Refresh**.
-  GROBID additionally has its URL, **Test**, and **Discover on localhost**;
-  Ollama has **Pull models**; llama.cpp has its model and extra arguments. The
-  managed containers bind loopback only (`127.0.0.1:8070`, `:11434`, and
-  `:8080`); Scico stops the ones it started on quit. Containers are recreated
-  when their image or llama.cpp command changes. Model and image progress is
+- **Workspace sheet** — opens from the left and pushes the Workspace pane to
+  the right. Pages: **Workspace** (folder, corpus, bibliography, pane layout),
+  **Embedding** (provider, model, hybrid switch, service), **Parsing** (PDF
+  backend, chunking, folder corpora), **References** (GROBID, processing
+  switches), **Profiles**, and **Editor**. Each service group offers
+  **Existing server**, **Existing container**, or **Docker container**.
+  **Existing container** takes a container name and starts/stops that container
+  without creating, recreating, or removing it; it is left running on quit.
+- **Scico sheet** — opens from the right and pushes Scico left. Pages: **Chat**
+  (provider, model, prompt, service), **Memory**, **Retrieval** (top-k and
+  similarity threshold; the embedding model is shown read-only and set in the
+  Workspace sheet), and **Context**.
+
+  The Docker source has the image with **Auto start**, **Pull and start**,
+  **Cancel**, **Stop**, **Remove container**, and **Refresh**. GROBID
+  additionally has its URL, **Test**, and **Discover on localhost**; Ollama has
+  **Pull models**; llama.cpp has its model and extra arguments. The managed
+  containers bind loopback only (`127.0.0.1:8070`, `:11434`, and `:8080`);
+  Scico stops the ones it started on quit. Containers are recreated when their
+  image or llama.cpp command changes. Model and image progress is
   reported in the group; a timeout includes the last container log lines.
   GROBID full images are pulled as `linux/amd64` (the official full image is
   not multi-architecture); `-crf` images run natively.
-- **Editor** — rendered preview visibility and scroll sync (gpuikit), live
-  preview (zorite), or font only (block editor); editor font family and size;
-  Scico visibility; and the default document attachment.
-- **RAG** — provider, models, generation, prompt, retrieval (including the
-  **Hybrid retrieval** switch), parsing/chunking, and memory. A fresh install
-  uses OpenRouter for chat and embeddings, 2^16 answer tokens, a 2^19 context
-  window, temperature 0.5, transcript-only memory, top-k 50, and a 0.045
-  similarity threshold. A settings file written before the embedding-provider
-  field existed keeps its local embedding backend. The token budgets are
-  sliders over powers of two (512, 1024, 2048, …).
-- **Scico prompt** (RAG → Chat) — the compiled-in `Chat.md` is the default; an
+- **Profiles** (Workspace → Profiles) — a single profile row with the picker and
+  **New**. Choosing a profile in the picker loads it immediately; **New** opens a
+  name field and **Create** snapshots the current settings under that name. Below
+  sit **Profile Defaults**, **Update Profile**, and **Setup guide**. Profile
+  Defaults re-reads the selected profile, or the standard OpenRouter
+  configuration when none exists; Update Profile writes the current values to
+  the selected name. The last selected profile persists in `settings.json`.
+- **Editor** (Workspace → Editor) — rendered preview visibility and scroll sync
+  (gpuikit), live preview (zorite), or font only (block editor); editor font
+  family and size; external viewers for PDF/EPUB/HTML. Scico visibility and the
+  default document/library attachments live in Scico → Context.
+- **Chat and retrieval** (Scico) — provider, models, generation, prompt, and
+  memory. A fresh install uses OpenRouter for chat and embeddings, 2^16 answer
+  tokens, a 2^19 context window, temperature 0.5, transcript-only memory, top-k
+  50, and a 0.045 similarity threshold. The embedder follows the chat provider
+  until you choose another embedding backend; the retrieval page shows that
+  choice read-only. A settings file written before the embedding-provider field
+  existed keeps its local embedding backend. The token budgets are sliders over
+  powers of two (512, 1024, 2048, …).
+- **Scico prompt** (Scico → Chat) — the compiled-in `Chat.md` is the default; an
   empty path uses it. **Browse…** selects a Markdown file that overrides it,
   **Open prompt** shows the effective prompt in the editor (a file, or an
   untitled `Chat.md` buffer for the built-in), **Export Chat.md** writes the
@@ -436,13 +447,13 @@ of the controls column and the chosen width is remembered.
   file in the editor marks the change immediately.
 
 RAG fields that differ from the running configuration are bold violet. Their
-section and page carry a `●` in the sidebar, and the section shows an “Unsaved
-changes” line; the Overview page lists how many fields changed per section.
+group and page carry a `●` in the sidebar, and the group shows an “Unsaved
+changes” line.
 
 ## The roundtrip protocol
 
 The Scico prompt is compiled in from `assets/prompts/Chat.md`. A workspace
-file selected in **Settings → RAG → Chat** overrides it. Editor contexts use
+file selected in **Settings → Scico → Chat** overrides it. Editor contexts use
 the versioned containers the prompt documents:
 
 ```markdown
@@ -483,7 +494,7 @@ scico
   library.rs      library pipeline: bibliography rows, corpus indexing, GROBID, Import PDFs
   citation_check.rs  Citation Check report model and append-only Markdown table
   workspace.rs    workspace scaffold, descriptor, defaults
-  app_settings.rs Overview, Workspace, and Editor settings pages; External services lives in ragrig-gpui
+  app_settings.rs Workspace and Scico settings pages and their service groups
   settings.rs     persisted JSON settings, viewer programs, and the Scico prompt path
   session.rs      crash-safe journal of tabs, unsaved text, caret, and layout
   theme.rs        zorite SyntaxStyle glue
@@ -519,7 +530,7 @@ The following were fixed in `ragrig-gpui` during development:
   uses it for reference rows, GROBID merging, and `@key` resolution (default
   remains `<workspace>/.ragrig/references.bib`). `RagSettings` also carries the
   per-service source, image, auto-start, and llama.cpp model/argument fields
-  shown under **External services**; `ExternalServices::new` probes existing
+  shown in the local service groups; `ExternalServices::new` probes existing
   sources and starts managed containers when the flag is on. A successful
   start or adopted server is promoted into the applied configuration and
   persisted.
@@ -527,8 +538,10 @@ The following were fixed in `ragrig-gpui` during development:
   can lift a replacement block out of the transcript without rebuilding it.
 - `path_setting` adds a **Browse…** button to every path field, and
   `token_slider` renders the 2^x token controls used by both hosts.
-- The RAG page is split into `rag_model_page` plus a reusable
-  `rag_references_group`, so a host can build Library / Editor / RAG pages.
+- The settings are split into a Workspace sheet and a Scico sheet. Ragrig
+  supplies `rag_ingestion_page` and `rag_chat_page` (plus the individual
+  `rag_*_group` builders), so the host composes workspace layout, editor,
+  profiles, and service groups on the matching side.
 - Reference-row copy actions are always visible instead of relying on a
   hover-only reveal that could leave the icons invisible.
 - `RagChanges`, `RagField`, and `RagSection` expose field-level pending edits;

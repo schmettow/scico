@@ -43,13 +43,21 @@ stabilised.
   next, add an embedding-provider choice there so the guide and the defaults
   agree. Then exercise it with a genuinely empty settings directory on Windows
   and macOS and add a short "what next" tour after finishing.
-- **External services** now manages three local services: GROBID, Ollama, and
+- **Settings are split by pane.** The Workspace sheet opens from the left and
+  pushes the Workspace pane right; the Scico sheet opens from the right and
+  pushes Scico left. Ingestion groups (embeddings, parsing, corpora, GROBID) and
+  profile/editor settings live in Workspace; chat, memory, and retrieval live in
+  Scico. The former External services page is dissolved: GROBID's group sits
+  under Workspace → References, while Ollama and llama.cpp groups appear on both
+  sides as their provider is used. Both sheets have an Apply that rebuilds the
+  whole agent.
+- **Local services** still manage three services: GROBID, Ollama, and
   llama.cpp. Each can use an existing server, start and stop a hand-configured
   container by name, or run a managed Docker container; Ollama models are pulled
-  into a volume from the page, and llama.cpp accepts a Hugging Face model or a
-  local `.gguf`. Verified end to end on Linux for GROBID and for an existing
-  Intel SYCL Ollama container. Next: exercise the managed containers on Windows
-  and macOS; the GROBID full image runs emulated on Apple silicon.
+  into a volume, and llama.cpp accepts a Hugging Face model or a local `.gguf`.
+  Verified end to end on Linux for GROBID and for an existing Intel SYCL Ollama
+  container. Next: exercise the managed containers on Windows and macOS; the
+  GROBID full image runs emulated on Apple silicon.
 - Citation Check now verifies selected `@key` citations against ingested PDFs
   in the background and appends verdicts, evidence, and quote-match quality to
   `Citation_check.md`. Next: add a per-run model choice and an optional resume
