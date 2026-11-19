@@ -42,8 +42,8 @@ integration tests; the all-features build selects a different editor backend.
 
 **Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
 `cargo clippy --all-targets --all-features -- -D warnings`,
-`cargo doc --no-deps --all-features`, and `cargo package --list` (43 files) are
-green.  **Release blocker:** `cargo publish --dry-run` cannot resolve
+`cargo doc --no-deps --all-features`, and `cargo package --list` (42 files) are
+clean.  **Release blocker:** `cargo publish --dry-run` cannot resolve
 `ragrig-gpui = "^0.14.0"` until ragrig-gpui 0.14.0 is on crates.io.  The
 `[patch.crates-io]` entries are development-only and are stripped when
 packaging.

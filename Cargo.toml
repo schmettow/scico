@@ -42,8 +42,10 @@ zorite-editor = { version = "0.11.3", optional = true }
 [dev-dependencies]
 gpui-kit = { version = "0.9.1", features = ["test-support"] }
 
-# Development against the sibling checkouts. Remove these before publishing and
-# let Cargo resolve the released versions instead.
+# Development-only overrides for the sibling checkouts. Cargo strips
+# `[patch]` sections when packaging, so a published Scico resolves the released
+# versions; keep these entries for local development until the sibling crates
+# are on crates.io.
 [patch.crates-io]
 grobid-bibtex = { path = "../grobid-bibtex" }
 ragrig-gpui = { path = "../ragrig-gpui" }
