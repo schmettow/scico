@@ -25,6 +25,8 @@ when you want the whole stack on your own machine.
   (`Ctrl+Shift+K`). Scico verifies every `@key` against an ingested PDF, asks
   the chat model how well the source supports your claim, and appends a table
   with verdicts and verified quotes to `Citation_check.md` in the workspace.
+  A live progress bar above the status bar shows how many citations are done
+  and can stop the run without losing completed rows.
 - **Revise in place.** Mark a paragraph and ask for a rewrite. Scico replaces
   just that passage, as one undo step.
 - **Search while you revise.** *Enrich selection* also searches the literature

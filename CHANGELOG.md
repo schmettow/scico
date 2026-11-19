@@ -5,6 +5,49 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.12.1 — 2026-11-19
+
+### Changed
+
+- **Citation-check progress follows the worker.** `AgentPane::citation_check_progress`
+  returns `ragrig_gpui::CitationProgress` from the controller and falls back to
+  the report's row count only before the first progress event arrives; the
+  status bar shows a live `TaskProgress` bar with a Stop button while a check
+  runs (`src/agent.rs`, `src/app.rs`).  The toolbar label reads the same
+  snapshot.
+- **Requires `ragrig-gpui` 0.14.0** for `CitationProgress`, `TaskProgress`, and
+  `RagEvent::CitationCheckProgress` (`Cargo.toml`).
+
+### Quality
+
+Release validation on 2026-11-19 (Cargo 1.99.0, rustc 1.99.0).
+
+**Test coverage.** `cargo llvm-cov --all-features --summary-only` (doctests
+are not measured on stable Rust):
+
+| Metric | Covered | Total | Cover |
+| --- | ---: | ---: | ---: |
+| Regions | 13,662 | 20,023 | 68.23% |
+| Functions | 894 | 1,455 | 61.44% |
+| Lines | 7,975 | 11,550 | 69.05% |
+
+`src/app.rs` is at 81.96% lines and `src/citation_check.rs` at 86.32%;
+`src/agent.rs` is at 30.43% because its render and event handling need a
+window.
+
+**Tests.** `cargo test --all-features -- --test-threads=1`: 118 lib passed,
+1 prompt-protocol, 1 working-directory, and 1 zorite-performance.  Default
+features (`cargo test -- --test-threads=1`) run 137 lib tests plus the same
+integration tests; the all-features build selects a different editor backend.
+
+**Checks.** `cargo fmt --check`, `cargo check --all-targets --all-features`,
+`cargo clippy --all-targets --all-features -- -D warnings`,
+`cargo doc --no-deps --all-features`, and `cargo package --list` (43 files) are
+green.  **Release blocker:** `cargo publish --dry-run` cannot resolve
+`ragrig-gpui = "^0.14.0"` until ragrig-gpui 0.14.0 is on crates.io.  The
+`[patch.crates-io]` entries are development-only and are stripped when
+packaging.
+
 ## v0.12.0 — 2026-11-15
 
 ### Added

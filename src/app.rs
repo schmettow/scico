@@ -35,7 +35,7 @@ use crate::library::LibraryPane;
 use crate::session::SessionState;
 use crate::state::AppState;
 use crate::workspace_pane::{WorkspaceEvent, WorkspacePane};
-use ragrig_gpui::{OnboardingActions, dirty_color, prompt_for_paths_at};
+use ragrig_gpui::{OnboardingActions, TaskProgress, dirty_color, prompt_for_paths_at};
 
 actions!(
     scico,
@@ -1444,10 +1444,12 @@ impl ScicoApp {
             && self
                 .state
                 .update(cx, |state, cx| state.has_selection(window, cx));
-        let citation_progress = self.agent.read(cx).citation_check_progress();
+        let citation_progress = self.agent.read(cx).citation_check_progress(cx);
         let citation_running = citation_progress.is_some();
         let citation_label = match citation_progress {
-            Some((done, total)) if total > 0 => format!("Checking {done}/{total}"),
+            Some(progress) if progress.total > 0 => {
+                format!("Checking {}/{}", progress.done, progress.total)
+            }
             Some(_) => "Checking…".to_owned(),
             None => "Citation check".to_owned(),
         };
@@ -2140,6 +2142,7 @@ impl ScicoApp {
 
     fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let citation = self.agent.read(cx).citation_check_progress(cx);
         let (path, cursor, chars, status, controller_status, workspace) = {
             let state = self.state.read(cx);
             let controller_status = state.controller.read(cx).status_line();
@@ -2171,27 +2174,49 @@ impl ScicoApp {
                 workspace,
             )
         };
-        h_flex()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_1()
-            .border_t_1()
-            .border_color(theme.border)
-            .text_xs()
-            .text_color(theme.muted_foreground)
-            .bg(theme.title_bar)
-            .child(div().truncate().child(path))
-            .child(div().child(cursor))
-            .child(div().child(format!("{chars} chars")))
-            .child(div().flex_1())
+        v_flex()
+            .when_some(citation, |column, progress| {
+                let agent = self.agent.clone();
+                column.child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .bg(theme.title_bar)
+                        .child(
+                            TaskProgress::new("citation-progress", "Citation check")
+                                .fraction(progress.fraction())
+                                .detail(progress.summary())
+                                .on_cancel(move |_, cx| {
+                                    agent.update(cx, |agent, cx| agent.stop_citation_check(cx));
+                                }),
+                        ),
+                )
+            })
             .child(
-                div()
-                    .max_w(px(520.))
-                    .truncate()
-                    .child(format!("{status} · {controller_status}")),
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .px_3()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .bg(theme.title_bar)
+                    .child(div().truncate().child(path))
+                    .child(div().child(cursor))
+                    .child(div().child(format!("{chars} chars")))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .max_w(px(520.))
+                            .truncate()
+                            .child(format!("{status} · {controller_status}")),
+                    )
+                    .child(div().max_w(px(280.)).truncate().child(workspace)),
             )
-            .child(div().max_w(px(280.)).truncate().child(workspace))
     }
 
     fn finish_setup(&mut self, cx: &mut Context<Self>) {

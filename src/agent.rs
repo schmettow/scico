@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::{
-    AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
     component::{ActiveTheme as _, h_flex, v_flex},
     div,
@@ -399,12 +399,32 @@ impl AgentPane {
             && self.citation_run.as_ref().is_some_and(|run| !run.finished)
     }
 
-    /// Completed and total citation occurrences of the running check.
-    pub fn citation_check_progress(&self) -> Option<(usize, usize)> {
-        self.citation_check_running().then(|| {
-            let run = self.citation_run.as_ref().expect("running run");
-            (run.rows.len(), run.total)
-        })
+    /// Live progress of the running citation check.
+    ///
+    /// The controller mirrors the batch worker's progress, so `done` advances
+    /// when a citation finishes rather than when its row reaches the report.
+    /// The row count is the fallback for the window before the first progress
+    /// event arrives.
+    pub fn citation_check_progress(&self, cx: &App) -> Option<CitationProgress> {
+        if !self.citation_check_running() {
+            return None;
+        }
+        self.state
+            .read(cx)
+            .controller
+            .read(cx)
+            .citation_progress()
+            .or_else(|| {
+                self.citation_run.as_ref().map(|run| CitationProgress {
+                    done: run.rows.len(),
+                    failed: run
+                        .rows
+                        .values()
+                        .filter(|row| row.verdict.is_none())
+                        .count(),
+                    total: run.total,
+                })
+            })
     }
 
     /// Keep the marked range visible while the edit is pending.
@@ -1008,6 +1028,11 @@ impl AgentPane {
                     };
                     self.citation_report_dirty = true;
                     self.set_status(format!("Citation check: {done}/{total}"), cx);
+                }
+            }
+            RagEvent::CitationCheckProgress { id, progress } => {
+                if self.citation_request == Some(id) {
+                    self.set_status(progress.summary(), cx);
                 }
             }
             RagEvent::CitationCheckFinished { id, summary } => {
