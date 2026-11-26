@@ -33,4 +33,11 @@ fn main() {
     } else if gpuikit {
         println!("cargo:rustc-cfg=editor_gpuikit");
     }
+
+    // Explorer and the taskbar read the executable's icon, and GPUI's Windows
+    // backend loads resource id 1 for the window class. `embed-resource` only
+    // acts when the target is Windows, so other builds need no guard.
+    embed_resource::compile("scico.rc", embed_resource::NONE)
+        .manifest_optional()
+        .expect("compile the Windows icon resource");
 }

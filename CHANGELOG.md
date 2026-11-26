@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Windows launchers recognize Scico.** On first launch of an installed
+  build Scico installs `Scico.lnk` in the per-user Start menu with a
+  multi-size `Scico.ico` below `%APPDATA%\scico`, so Start, search, and a
+  pinned taskbar entry show the Scico mark and start the current executable.
+  The shortcut is refreshed when the executable path changes; no
+  administrator rights are needed (`src/desktop_windows.rs`,
+  `assets/logo/Scico.ico`). `tools/make-windows-ico.ps1` regenerates the icon
+  from `Scico-square.png`. This mirrors the Linux `.desktop` installation.
+- **Windows builds are GUI binaries with an embedded icon.** Release builds
+  no longer open a console window when started from Explorer or the Start
+  menu, and `scico.rc` embeds `Scico.ico` as resource id 1, which GPUI loads
+  for the window class and the taskbar (`build.rs`, `src/main.rs`). Debug
+  builds keep their console for logs and skip the Start menu installer.
+
 ## v0.12.1 — 2026-11-19
 
 ### Changed

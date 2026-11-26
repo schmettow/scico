@@ -2297,7 +2297,7 @@ impl Render for ScicoApp {
                 .into_any_element()
         };
 
-        let mut root = div()
+        let root = div()
             .relative()
             .flex()
             .flex_col()

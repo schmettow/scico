@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 //! Scico GPUI entry point.
 
 #[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
@@ -37,6 +39,10 @@ fn main() {
 
     #[cfg(target_os = "linux")]
     scico::desktop::install();
+    // Only installed release builds register with the desktop; a debug build
+    // must not repoint the Start menu entry at `target/debug`.
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
+    scico::desktop_windows::install();
 
     gpui_kit::application()
         // The complete Lucide catalog: the default `Assets` bundle omits many

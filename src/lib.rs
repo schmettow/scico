@@ -28,6 +28,11 @@ pub mod app_settings;
 pub mod citation_check;
 #[cfg(all(target_os = "linux", any(editor_zorite, editor_gpuikit, editor_block)))]
 pub mod desktop;
+#[cfg(all(
+    target_os = "windows",
+    any(editor_zorite, editor_gpuikit, editor_block)
+))]
+pub mod desktop_windows;
 #[cfg(any(editor_zorite, editor_gpuikit, editor_block))]
 pub mod document;
 #[cfg(editor_block)]

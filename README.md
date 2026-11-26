@@ -109,6 +109,11 @@ cd scico
 cargo run
 ```
 
+The first launch of an installed build also registers the app with the
+desktop: Linux installs a `.desktop` entry and hicolor icons, Windows adds a
+`Scico` shortcut with its icon to the per-user Start menu. Both are per-user
+and need no administrator rights.
+
 The default editor is a source editor with a rendered preview. An optional
 live-preview editor is available with `--features zorite`. An experimental
 WYSIWYG block editor is available with `--no-default-features --features

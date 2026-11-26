@@ -3792,6 +3792,8 @@ dependencies = [
 [[package]]
 name = "grobid-bibtex"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7b4979a55901b10a44f1e1cb52d8f88edfbe3f8d9d43ab602fd9e8e15034ef5"
 dependencies = [
  "biblatex",
  "grobid",
@@ -6662,6 +6664,8 @@ dependencies = [
 [[package]]
 name = "ragrig-gpui"
 version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b5f6a3612c00d0180c060386725f5b9df61f0f0d7ff9807771489c6a6d61ab7"
 dependencies = [
  "anyhow",
  "ashpd",
@@ -7549,6 +7553,7 @@ dependencies = [
  "blake3",
  "comrak",
  "dirs 5.0.1",
+ "embed-resource",
  "gpui-kit",
  "gpui-kit-markdown-editor",
  "image",
@@ -11079,3 +11084,11 @@ dependencies = [
  "syn 3.0.10",
  "winnow 1.0.5",
 ]
+
+[[patch.unused]]
+name = "grobid-bibtex"
+version = "0.3.0"
+
+[[patch.unused]]
+name = "ragrig-gpui"
+version = "0.5.0"

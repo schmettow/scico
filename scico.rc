@@ -1,0 +1,7 @@
+// Windows resources compiled into the executable by build.rs.
+//
+// GPUI loads the window-class icon from resource id 1, and Explorer and the
+// taskbar fall back to the executable's icon when no window icon is set.
+// Keep the icon id at 1: `gpui-pre-windows` calls LoadImageW with PCWSTR(1).
+
+1 ICON "assets/logo/Scico.ico"

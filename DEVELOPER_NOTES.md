@@ -22,7 +22,30 @@ bibliography, and a marked passage; its answer can replace the marked passage
 in place, guarded by a digest of the version you marked.
 
 The desktop mark (`assets/logo/Scico square.svg`) is the window icon; the
-rasterised `Scico-square.png` beside it is what GPUI hands to the platform.
+rasterised `Scico-square.png` beside it is what GPUI hands to the platform,
+and `Scico.ico` packs the same mark at 16–256 px for Windows shortcuts.
+
+## Desktop integration
+
+Linux installs `scico.desktop` and the hicolor PNG and SVG below
+`XDG_DATA_HOME` on first launch (`src/desktop.rs`). Windows installs
+`Scico.lnk` in the per-user Start menu and `%APPDATA%\scico\scico.ico`
+(`src/desktop_windows.rs`). Both are idempotent, need no root or administrator
+rights, and are refreshed when the executable moves, so uninstalling is a
+matter of deleting the installed files (`Scico.lnk`, `%APPDATA%\scico\scico.ico`,
+and `%APPDATA%\scico\desktop-installed` on Windows).
+
+Windows has no `.desktop` equivalent, so the shortcut is created through
+`WScript.Shell` from a short PowerShell script. That keeps the build free of
+COM bindings and installer frameworks; the script runs on a background thread
+so the window is not delayed. The icon is generated from
+`assets/logo/Scico-square.png` with `tools/make-windows-ico.ps1`.
+
+Release binaries use the Windows GUI subsystem, so a Start menu launch opens
+no console; debug builds keep their console for logs and skip the installer.
+`scico.rc` embeds the ICO as resource id 1: GPUI's Windows backend loads that
+id for the window class, and Explorer and the taskbar fall back to it for the
+executable.
 
 ## Editor backends
 
